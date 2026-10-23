@@ -1,0 +1,1404 @@
+<header id="topbar">
+  <div class="brand">
+    <h1>Labor Game</h1>
+    <p class="sub">Test</p>
+  </div>
+  <div id="tabsBar" role="tablist" aria-label="Sections">
+    <button id="tabWorkBtn" class="tab active" type="button" role="tab" aria-selected="true">Work</button>
+    <button id="tabOptionsBtn" class="tab" type="button" role="tab" aria-selected="false">Options</button>
+  </div>
+  <div class="topSpacer" aria-hidden="true"></div>
+</header>
+
+  <div id="tabWork" role="tabpanel">
+    <div id="workGrid">
+      <section class="panel" aria-label="Currencies">
+        <h2>Currencies</h2>
+        <div id="currenciesCtn"></div>
+      </section>
+      <section class="panel" aria-label="Actions">
+        <h2>Actions</h2>
+        <div id="actionsCtn"></div>
+      </section>
+      <div class="vitalsCol">
+        <div id="nowCard">
+          <span id="nowDot" aria-hidden="true"></span>
+          <span id="statusEl">Select an action below.</span>
+          <button id="nowCancelBtn" type="button" title="Stop current action" aria-label="Stop current action">Stop</button>
+        </div>
+        <section class="panel" aria-label="Vitals">
+          <h2>Vitals</h2>
+          <div id="vitalsCtn"></div>
+        </section>
+      </div>
+      <section class="panel" aria-label="Work Log">
+        <h2 class="hasBtn"><span>Work Log</span><button id="clearLogBtn" type="button">Clear Log</button></h2>
+        <div id="logEl" aria-live="polite"></div>
+      </section>
+    </div>
+  </div>
+
+<div id="tabOptions" role="tabpanel" hidden>
+  <div class="panel">
+    <h2>Options</h2>
+    <div class="optionRow"><label><input id="showMaxedChk" type="checkbox"> Show maxed-out upgrades</label><span>Show maxed-out upgrades.</span></div>
+    <div class="optionRow"><button id="exportBtn" type="button">Export Save (File)</button><span>Download progress as a file.</span></div>
+    <div class="optionRow"><button id="importBtn" type="button">Import Save (File)</button><span>Load progress from a file.</span></div>
+    <div class="optionRow"><button id="exportClipBtn" type="button">Export Save (Clipboard)</button><span>Copy progress as text.</span></div>
+    <div class="optionRow"><button id="importClipBtn" type="button">Import Save (Clipboard)</button><span>Paste progress as text.</span></div>
+    <div class="optionRow"><button id="resetBtn" type="button">Hard Reset</button><span>Erase all progress and start over.</span></div>
+    <div id="clipBox" hidden>
+      <textarea id="clipArea" rows="6" spellcheck="false"></textarea>
+      <div class="optionRow"><button id="clipLoadBtn" type="button">Load Pasted Save</button></div>
+    </div>
+    <input id="importInput" type="file" accept=".json,application/json" hidden>
+  </div>
+</div>
+
+<style>
+  :root { color-scheme: light dark; }
+  /* Author display rules (e.g. #tabWork's flex column) must never override
+     the hidden attribute, or inactive tabs stay visible. */
+  [hidden] { display: none !important; }
+  html { height: 100%; }
+  html, body { height: 100%; }
+  body { text-align: center; font-family: Verdana, Geneva, sans-serif; max-width: 1400px; margin: 0 auto; padding: 12px 16px; background: #101216; color: #e9eaee; min-height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; }
+  h1 { margin: 0; font-size: 1.4em; letter-spacing: 0.5px; }
+  .sub { opacity: 0.65; margin: 2px 0 0; font-size: 0.85em; }
+  #topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; text-align: left; flex: none; }
+  #topbar .brand { min-width: 160px; }
+  #topbar .topSpacer { min-width: 160px; }
+  #tabsBar { display: flex; gap: 8px; justify-content: center; margin-bottom: 0; }
+  .tab { background: #22262f; color: #cfd3dc; border: 1px solid #3a3f4b; border-radius: 6px; }
+  .tab.active { outline: none; font-weight: bold; background: #313743; color: #fff; border-color: #565e70; box-shadow: inset 0 2px 0 rgba(255,255,255,0.08); }
+  #tabWork { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #workGrid { display: grid; grid-template-columns: 200px minmax(0, 1.8fr) minmax(0, 1fr) 300px; gap: 8px; margin-bottom: 0; text-align: left; align-items: stretch; flex: 1; min-height: 0; }
+  @media (max-width: 1100px) { #workGrid { grid-template-columns: 1fr 1fr; flex: none; } #workGrid .panel { max-height: 60vh; } #topbar .topSpacer { display: none; } }
+  @media (max-width: 700px) { #workGrid { grid-template-columns: 1fr; } #workGrid .panel { max-height: none; } #topbar { flex-direction: column; } #topbar .brand { text-align: center; } }
+  .panel { border: 1px solid #333842; border-radius: 8px; padding: 0 12px 12px; background: #1b1f26; display: flex; flex-direction: column; min-height: 0; }
+  #workGrid .panel { overflow: hidden; }
+  .panel h2 { margin: 0 -12px 10px; padding: 8px 10px; font-size: 0.8em; text-transform: uppercase; letter-spacing: 1px; text-align: center; background: #262b34; border-radius: 8px 8px 0 0; opacity: 1; flex: none; }
+  #currenciesCtn, #vitalsCtn { flex: none; }
+  #actionsCtn { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+  #actionsCtn .taskGroup { flex: 1; display: flex; flex-direction: column; }
+  #actionsCtn .taskGroup:not([open]) { flex: none; }
+  #actionsCtn .taskGroup .taskBtns { flex: 1; align-content: start; }
+  .currency { display: flex; justify-content: flex-start; gap: 6px; font-weight: bold; padding: 6px 8px; position: relative; border-radius: 6px; background: #22262f; margin-bottom: 6px; font-size: 0.92em; white-space: nowrap; }
+  .tip-rate { text-align: right; opacity: 0.8; }
+  .emptyNote { opacity: 0.6; font-size: 0.9em; }
+  .res { border: none; padding: 0; text-align: left; margin-bottom: 10px; position: relative; display: flex; align-items: center; gap: 8px; }
+  .res-name { width: 64px; flex: none; font-size: 0.85em; font-weight: bold; opacity: 0.9; }
+  .bar { position: relative; flex: 1; height: 20px; border: 1px solid #000; background: #0e1013; border-radius: 999px; overflow: hidden; }
+  .fill { height: 100%; width: 0%; background: #555; border-radius: 999px; }
+  .res-val { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); font-size: 0.72em; font-weight: bold; background: rgba(0,0,0,0.55); color: #fff; padding: 1px 7px; border-radius: 999px; pointer-events: none; white-space: nowrap; }
+  .vitalsCol { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+  .vitalsCol .panel { flex: 1; }
+  #nowCard { display: flex; align-items: center; gap: 8px; background: #22262f; border: 1px solid #3a3f4b; border-radius: 6px; padding: 6px 8px; margin-bottom: 0; flex: none; }
+  #nowDot { width: 9px; height: 9px; border-radius: 50%; background: #777; flex: none; }
+  #nowCard.busy #nowDot { background: #7fd97f; box-shadow: 0 0 6px rgba(127,217,127,0.8); }
+  #statusEl { min-height: 0; margin: 0; font-weight: bold; font-size: 0.85em; flex: 1; }
+  #nowCancelBtn { padding: 2px 9px; font-size: 0.95em; line-height: 1.2; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
+  #nowCancelBtn:disabled { opacity: 0.35; cursor: default; }
+  #resetBtn { background: #c00; color: #fff; border-color: #900; }
+  #actionsCtn { display: flex; flex-direction: column; gap: 8px; margin-bottom: 0; }
+  .taskGroup { border: 1px solid #333842; border-radius: 6px; }
+  .taskGroup > summary { cursor: pointer; padding: 6px 10px; background: #262b34; border-radius: 6px 6px 0 0; font-size: 0.82em; font-weight: bold; text-align: center; list-style: none; }
+  .taskGroup:not([open]) > summary { border-radius: 6px; }
+  .taskGroup > summary::-webkit-details-marker { display: none; }
+  .taskGroup > summary::before { content: "▸ "; opacity: 0.7; }
+  .taskGroup[open] > summary::before { content: "▾ "; }
+  .taskBtns { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px; }
+  .taskBtns.stack { flex-direction: column; flex-wrap: nowrap; gap: 0; }
+  .taskBtns.stack > :last-child { margin-bottom: 0; }
+  .actionBtn, .shopBtn { position: relative; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
+  .actionBtn:hover:not(:disabled), .shopBtn:hover:not(:disabled) { background: #343945; }
+  .actionBtn .action-label { position: relative; z-index: 1; }
+  .actionBtn { transition: padding-bottom 0.15s ease; }
+  .actionBtn.active { padding-bottom: 26px; }
+  .actionBtn .action-progress { position: absolute; left: 6px; right: 6px; bottom: 4px; height: 16px; background: rgba(0, 0, 0, 0.15); border-radius: 999px; overflow: hidden; z-index: 2; pointer-events: none; }
+  .actionBtn .action-fill { height: 100%; width: 0%; background: #333; }
+  .actionBtn .action-time { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3; font-size: 0.68em; font-weight: bold; line-height: 1; background: rgba(0, 0, 0, 0.55); color: #fff; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+  @media (prefers-color-scheme: dark) {
+    .actionBtn .action-progress { background: rgba(255, 255, 255, 0.2); }
+    .actionBtn .action-fill { background: #eee; }
+  }
+  .actionBtn.active { outline: 3px solid #333; font-weight: bold; }
+  .shopBtn.owned { outline: 2px solid #333; }
+  .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip {
+    display: none;
+    position: absolute;
+    bottom: 110%;
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 180px;
+    max-width: 240px;
+    border: 1px solid #4a4f5c;
+    background: #22262f;
+    color: #eee;
+    font-size: 0.85em;
+    font-weight: normal;
+    text-align: left;
+    padding: 6px 8px;
+    white-space: normal;
+    z-index: 10;
+    pointer-events: none;
+  }
+  @media (prefers-color-scheme: light) {
+    body { background: #f2f2f2; color: #111; }
+    .panel { background: #fff; border-color: #bbb; }
+    .currency, #nowCard { background: #eee; }
+    .tab { background: #e4e4e4; color: #222; border-color: #aaa; }
+    .tab.active { background: #333; color: #fff; border-color: #333; }
+    .taskGroup > summary { background: #e0e0e0; }
+    .panel h2 { background: #e0e0e0; }
+    .actionBtn, .shopBtn { background: #f5f5f5; color: #111; border-color: #999; }
+    .actionBtn:hover:not(:disabled), .shopBtn:hover:not(:disabled) { background: #e8e8e8; }
+    .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip { background: #fff; color: #000; border-color: #999; }
+    .panel h2.hasBtn #clearLogBtn { background: #e4e4e4; color: #222; border-color: #aaa; }
+    .tip-sec { border-color: #999; }
+    .tip-tag { background: #e4e4e4; border-color: #aaa; }
+  }
+  .actionBtn:hover .tip, .actionBtn:focus-visible .tip,
+  .shopBtn:hover .tip, .shopBtn:focus-visible .tip,
+  .currency:hover .tip, .currency:focus-visible .tip,
+  .res:hover .tip, .res:focus-visible .tip { display: block; }
+  /* Resource tooltips open downward so they never collide with panel headers. */
+  .currency .tip, .res .tip { bottom: auto; top: 110%; }
+  .tip-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-weight: bold; font-size: 1.1em; }
+  .tip-count { font-weight: bold; white-space: nowrap; }
+  .tip-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 1px 0 3px; }
+  .tip-tag { font-size: 0.72em; font-weight: normal; background: #2c313b; border: 1px solid #454b58; border-radius: 999px; padding: 1px 8px; opacity: 0.9; white-space: nowrap; }
+  .tip-desc { margin: 2px 0 2px; }
+  .tip-sec { border-top: 1px solid #4a4f5c; margin-top: 6px; padding-top: 4px; }
+  .tip-sec-label { font-style: italic; opacity: 0.85; }
+  .tip-row { display: flex; justify-content: flex-start; gap: 8px; padding-left: 10px; }
+  .tip-flavor { font-style: italic; opacity: 0.75; margin-top: 6px; }
+  /* Action tooltips open upward so they never stretch the scroll area. */
+  #actionsCtn .actionBtn .tip { bottom: 110%; top: auto; left: 0; transform: none; }
+  #actionsCtn .shopBtn .tip { bottom: 110%; top: auto; left: 0; transform: none; }
+  /* Disabled buttons dim their label, but keep their tooltip full-contrast. */
+  .actionBtn:disabled, .shopBtn:disabled { opacity: 1; color: #777; }
+  .row { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .optionRow { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+  .optionRow span { font-size: 0.9em; opacity: 0.8; }
+  #tabOptions .panel { max-width: 560px; margin: 0 auto; text-align: left; }
+  #clipBox { margin-bottom: 8px; }
+  #clipArea { width: 100%; box-sizing: border-box; font-family: monospace; }
+  button { padding: 8px 14px; font-size: 1em; cursor: pointer; }
+  button:disabled { cursor: default; opacity: 0.45; }
+  .panel h2.hasBtn { position: relative; }
+  .panel h2.hasBtn #clearLogBtn { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); padding: 2px 10px; font-size: 0.85em; font-weight: normal; letter-spacing: 0; text-transform: none; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
+  .panel h2.hasBtn #clearLogBtn:hover:not(:disabled) { background: #343945; }
+  #logEl { text-align: left; border-top: none; padding-top: 0; font-size: 0.85em; flex: 1; min-height: 120px; overflow-y: auto; }
+  #logEl div { margin: 0; padding: 5px 6px; opacity: 0.92; border-bottom: 1px solid #262b34; }
+  #logEl div:first-child { background: #22262f; border-radius: 4px; }
+  html { color-scheme: light dark; }
+</style>
+
+<script>
+/* ============================================================
+   LABOR GAME CONFIG - EDIT EVERYTHING HERE
+   ------------------------------------------------------------
+   Adding more is copy/paste:
+     1. Resource? Add one line to RESOURCES (QUICK ADD below).
+     2. Action?   Copy the minimal action into ACTIONS.
+     3. Upgrade?  Copy the minimal upgrade into UPGRADES.
+   Groups auto-create: same group name = same collapsible section,
+   in first-use order. Only id + name are ever required; everything
+   else has a default and missing descriptions are auto-written.
+
+   RESOURCES: every tracked number, currencies + vitals in one list.
+     QUICK ADD currency: { id: "wood", name: "Wood" },
+     QUICK ADD vital:    { id: "health", name: "Health", max: 10 },
+      - id:    short code used by actions/costs (no spaces, e.g. "wood")
+      - name:  label shown on screen (defaults to id)
+      - start: (optional, default 0) amount you begin with
+      - max:   (optional, default Infinity) cap, shown as "3 / 5".
+               Producing past the cap still runs; the excess is destroyed.
+      - group: (optional) section name. Currencies default to "Basic",
+               vitals to "Body". Same name mixes currencies + vitals
+               in one section; the panel follows the first item.
+      - plural: (optional) plural for currencies at != 1, e.g. "Coins".
+       - tags: (optional) identifying chips under the tooltip header,
+                e.g. tags: ["Currency"]. Check from code with
+                hasTag(item, "Currency") or itemsWithTag("Currency").
+      - nameColor / barColor / tooltip: (optional) styling + hover text.
+        The tooltip always shows the amount, cap, and per-second rate too.
+       Layout rule: `kind` picks the display; without it, max
+      Infinity counts as a currency (left box, no bar) and anything with
+      a finite max counts as a vital (right box, with bar).
+      - kind:  (optional) "currency" or "vital". Coins use max 5 plus
+               kind "currency": capped, but still shown on the left.
+
+   ACTIONS: every button the player can repeat.
+     QUICK ADD: { id: "chopWood", name: "Chop Wood", gains: { wood: 1 } },
+      - id / name: (name defaults to id)
+      - costs / gains: (optional, default {}) maps like { stamina: 1 }.
+        Unknown resource ids warn in the Work Log but still run.
+      - tickSeconds: (optional, default 1) seconds per cycle.
+      - group: (optional, default "Tasks") section name, shared with
+        UPGRADES: same name = same section, actions first.
+      - description: (optional) auto-written from costs/gains when omitted.
+      - unlock: (optional) hide until earned, e.g. { resource: "coin",
+        amount: 5 }. Stays visible forever once reached (saved). Same
+        shape works on upgrades.
+      - unlockLog: (optional) Work Log message when this unlock first
+        triggers, e.g. "You found the old axe!". Defaults to
+        "Unlocked Action: <name>".
+      - runtext / startLog / stopLog / fullLog / flavor: (optional)
+        runtext defaults to "<name>..."; logs default sensibly.
+      - tags: (optional) identifying chips under the tooltip header,
+        e.g. tags: ["Work", "Charismatic"]. Check from code with
+        hasTag(item, "Work") or itemsWithTag("Work").
+    ============================================================ */
+
+const RESOURCES = [
+  { id: "stamina", name: "Stamina", start: 10, max: 10, group: "Body", barColor: "#FFFCAD", tooltip: "Capacity for work.", tags: ["Body", "Basic Need"]},
+  { id: "coin",    name: "Coin",    start: 0,  max: 5, kind: "currency", group: "Basic", nameColor: "yellow", plural: "Coins", tooltip: "Basic currency used to buy goods.", tags: ["Currency"] },
+];
+
+const ACTIONS = [
+  {
+    id: "oddJobs",
+    name: "Odd Jobs",
+    group: "Work",
+    tags: ["Work", "Charismatic"],
+    tickSeconds: 1,
+    costs: { stamina: 1 },
+    gains: { coin: 0.5 },
+    description: "Help some people out and get paid a bit.",
+    startLog: "You start helping some random folks with their problems...",
+    stopLog: "You stop helping.",
+    fullLog: "You exhaust yourself trying to help people.",
+    runtext: "Helping...",
+  },
+  {
+    id: "rest",
+    name: "Rest",
+    group: "Recovery",
+    tags: ["Recovery"],
+    tickSeconds: 2,
+    costs: {},
+    gains: { stamina: 1 },
+    description: "Rest on the ground.",
+    startLog: "You begin resting for a moment...",
+    stopLog: "You stop resting.",
+    fullLog: "You feel rested.",
+    runtext: "Resting...",
+  },
+
+  // QUICK ADD - minimal action (gains only, 1s, auto description):
+  // { id: "beg", name: "Beg", gains: { coin: 1 } },
+
+  // EXAMPLE - to add a new action, uncomment this block:
+  // {
+  //   id: "chopWood",
+  //   name: "Chop Wood",
+  //   group: "Fieldwork",
+  //   tickSeconds: 3,
+  //   costs: { stamina: 2 },
+  //   gains: { wood: 1 },
+  //   description: "Spend 2 Stamina to get 1 Wood.",
+  //   runtext: "Chopping...",
+  //   flavor: "Smells like pine.",
+  //   fullLog: "Your pack is full of wood.",
+  // },
+];
+
+// QUICK ADD - currencies need only id + name; vitals just add max:
+//   { id: "wood", name: "Wood" },
+//   { id: "health", name: "Health", max: 10, start: 10 },
+// EXAMPLE - to add a new resource (e.g. Wood), add one line above:
+//   { id: "wood", name: "Wood", start: 0, max: Infinity },
+
+/* ------------------------------------------------------------
+   UPGRADES - one-time or repeatable purchases shown under Actions.
+   QUICK ADD: { id: "bigPack", name: "Big Pack",
+                cost: { coin: 50 },
+                effects: [{ type: "max", resource: "stamina", amount: 2 }] },
+     - id / name: (name defaults to id)
+     - cost: (optional, default {}) paid on EVERY purchase, flat.
+     - effects: (optional, default []) only supported effect for now:
+                { type: "max", resource: "stamina", amount: 1 }
+                = +1 to that maximum per purchase. Bad entries are
+                skipped with a warning in the Work Log.
+     - maxPurchases: (optional, default 1) Infinity = no limit. Fully-bought upgrades hide automatically; the player can re-show them with Options > Show maxed-out upgrades.
+     - group: (optional, default "Tasks") section name, shared with
+       ACTIONS: same name = same section, actions first. "Shop" is not
+       special: use any name ("Shop", "Gear", or an action group like
+       "Fieldwork") to choose where it is sold.
+     - description: (optional) auto-written from cost/effects.
+     - unlock: (optional) hide until earned, e.g. { resource: "coin",
+       amount: 5 }. Stays visible forever once reached (saved). Same
+       shape works on actions.
+      - unlockLog: (optional) Work Log message when this unlock first
+        triggers. Defaults to "Unlocked Upgrade: <name>".
+     - buyLog / flavor: (optional) buyLog defaults to "Bought: <name>"
+       plus the owned count, e.g. "(1/5)".
+      - tags: (optional) identifying chips under the tooltip header,
+        e.g. tags: ["Upgrade", "Clothing Augment"]. Check from code
+        with hasTag(item, "Upgrade") or itemsWithTag("Upgrade").
+    ------------------------------------------------------------ */
+
+const UPGRADES = [
+  {
+    id: "pockets",
+    name: "Pockets",
+    group: "Shop",
+    tags: ["Upgrade", "Clothing Augment"],
+    description: "Buy some trousers with pockets. +5 maximum Coins.",
+    cost: { coin: 5 },
+    maxPurchases: 1,
+    buyLog: "You buy pants with larger pockets.",
+    unlock: { resource: "coin", amount: 5 },
+    effects: [
+      { type: "max", resource: "coin", amount: 5 },
+    ],
+  },
+
+  // QUICK ADD - minimal upgrade (buys once, auto description):
+  // { id: "snack", name: "Snack", cost: { coin: 5 },
+  //   effects: [{ type: "max", resource: "stamina", amount: 1 }] },
+
+  // EXAMPLE - to add a new upgrade, uncomment this block:
+  // {
+  //   id: "bigPack",
+  //   name: "Big Pack",
+  //   group: "Shop",
+  //   description: "A sturdy pack. +2 maximum Stamina per purchase.",
+  //   cost: { coin: 50 },
+  //   maxPurchases: 3,
+  //   effects: [
+  //     { type: "max", resource: "stamina", amount: 2 },
+  //   ],
+  // },
+];
+
+/* ============================================================
+   GAME ENGINE - you should not need to edit below this line.
+   It reads RESOURCES, ACTIONS, and UPGRADES above, so new items just work.
+   ============================================================ */
+
+const currenciesCtn = document.getElementById("currenciesCtn");
+const vitalsCtn = document.getElementById("vitalsCtn");
+const actionsCtn = document.getElementById("actionsCtn");
+const statusEl = document.getElementById("statusEl");
+const resetBtn = document.getElementById("resetBtn");
+const logEl = document.getElementById("logEl");
+const clearLogBtn = document.getElementById("clearLogBtn");
+const exportBtn = document.getElementById("exportBtn");
+const importBtn = document.getElementById("importBtn");
+const importInput = document.getElementById("importInput");
+const exportClipBtn = document.getElementById("exportClipBtn");
+const importClipBtn = document.getElementById("importClipBtn");
+const clipBox = document.getElementById("clipBox");
+const clipArea = document.getElementById("clipArea");
+const clipLoadBtn = document.getElementById("clipLoadBtn");
+let clipMode = null;
+const tabWorkBtn = document.getElementById("tabWorkBtn");
+const tabOptionsBtn = document.getElementById("tabOptionsBtn");
+const tabWork = document.getElementById("tabWork");
+const tabOptions = document.getElementById("tabOptions");
+const showMaxedChk = document.getElementById("showMaxedChk");
+
+function showTab(which) {
+  tabWork.hidden = which !== "work";
+  tabOptions.hidden = which !== "options";
+  tabWorkBtn.classList.toggle("active", which === "work");
+  tabOptionsBtn.classList.toggle("active", which === "options");
+  tabWorkBtn.setAttribute("aria-selected", which === "work" ? "true" : "false");
+  tabOptionsBtn.setAttribute("aria-selected", which === "options" ? "true" : "false");
+}
+
+// Save files look like:
+// { game: "labor-game", version: 4, savedAt: "2026-...", amounts: { stamina: 7, coin: 3 }, upgrades: { pockets: 1 }, unlocked: { "u:pockets": true }, options: { showMaxedUpgrades: false }, stats: { actions: { shovelMud: 12 } }, currentActionId: null }
+// Only ids listed in RESOURCES/UPGRADES are loaded; missing ones use defaults.
+
+const SAVE_GAME_ID = "labor-game";
+const SAVE_VERSION = 4;
+
+function serializeSave() {
+  return {
+    game: SAVE_GAME_ID,
+    version: SAVE_VERSION,
+    savedAt: new Date().toISOString(),
+    amounts: { ...state.amounts },
+    upgrades: { ...state.upgrades },
+    unlocked: { ...state.unlocked },
+    options: { ...state.options },
+    stats: { actions: { ...state.stats.actions } },
+    currentActionId: state.currentActionId,
+  };
+}
+
+function applySaveData(data) {
+  if (!data || typeof data !== "object") throw new Error("bad file");
+  if (data.game !== SAVE_GAME_ID) throw new Error("not a Labor Game save");
+  if (data.version !== undefined && data.version > SAVE_VERSION) throw new Error("save is from a newer version");
+  if (typeof data.amounts !== "object" || data.amounts === null) throw new Error("bad file");
+
+  // Upgrades first: amounts clamp to the *effective* cap (base + effects).
+  const upgrades = {};
+  const savedUpgrades = (data.upgrades && typeof data.upgrades === "object") ? data.upgrades : {};
+  for (const u of UPGRADES) {
+    const n = Math.floor(Number(savedUpgrades[u.id]));
+    upgrades[u.id] = !Number.isFinite(n) || n < 0 ? 0 : Math.min(u.maxPurchases ?? 1, n);
+  }
+  state.upgrades = upgrades;
+  const amounts = {};
+  for (const r of RESOURCES) {
+    const n = Number(data.amounts[r.id]);
+    if (!Number.isFinite(n) || n < 0) {
+      amounts[r.id] = r.start ?? 0;
+    } else {
+      amounts[r.id] = Math.min(getEffectiveMax(r.id), n);
+    }
+  }
+  state.amounts = amounts;
+  const savedUnlocked = (data.unlocked && typeof data.unlocked === "object") ? data.unlocked : {};
+  const unlocked = {};
+  for (const a of ACTIONS) if (savedUnlocked["a:" + a.id]) unlocked["a:" + a.id] = true;
+  for (const u of UPGRADES) if (savedUnlocked["u:" + u.id]) unlocked["u:" + u.id] = true;
+  state.unlocked = unlocked;
+  const savedStats = (data.stats && typeof data.stats === "object" && data.stats.actions && typeof data.stats.actions === "object") ? data.stats.actions : {};
+  const actions = {};
+  for (const a of ACTIONS) {
+    const n = Math.floor(Number(savedStats[a.id]));
+    actions[a.id] = !Number.isFinite(n) || n < 0 ? 0 : n;
+  }
+  state.stats = { actions };
+  state.options = { showMaxedUpgrades: !!(data.options && data.options.showMaxedUpgrades) };
+  state.progress = 0;
+  state.currentActionId = data.currentActionId && getAction(data.currentActionId) ? data.currentActionId : null;
+  lastTime = performance.now();
+}
+
+function exportSave() {
+  const json = JSON.stringify(serializeSave(), null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = SAVE_GAME_ID + "-save-" + stamp + ".json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  log("Save exported.");
+}
+
+function importSaveFile(file) {  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      applySaveData(JSON.parse(reader.result));
+      buildUI();
+      render();
+      log("Save imported.");
+    } catch (e) {
+      log("Could not import save: " + ((e && e.message) || "bad file") + ".");
+    }
+    importInput.value = "";
+  };
+  reader.onerror = () => {
+    log("Could not import save: read failed.");
+    importInput.value = "";
+  };
+  reader.readAsText(file);
+}
+
+function showClipBox(mode, text) {
+  clipMode = mode;
+  clipArea.value = text || "";
+  clipArea.readOnly = mode === "export";
+  clipLoadBtn.hidden = mode !== "import";
+  clipBox.hidden = false;
+  clipArea.focus();
+  if (mode === "export") clipArea.select();
+}
+
+async function exportSaveToClipboard() {
+  const json = JSON.stringify(serializeSave(), null, 2);
+  try {
+    await navigator.clipboard.writeText(json);
+    log("Save copied to clipboard.");
+  } catch (e) {
+    showClipBox("export", json);
+    log("Clipboard blocked. Copy the text manually.");
+  }
+}
+
+function loadClipArea() {
+  try {
+    applySaveData(JSON.parse(clipArea.value));
+    buildUI();
+    render();
+    log("Save imported.");
+    clipBox.hidden = true;
+    clipMode = null;
+    clipArea.value = "";
+  } catch (e) {
+    log("Could not import save: " + ((e && e.message) || "bad text") + ".");
+  }
+}
+
+const configWarnings = normalizeConfig();
+let state = makeFreshState();
+let lastTime = performance.now();
+
+function makeFreshState() {
+  const amounts = {};
+  for (const r of RESOURCES) amounts[r.id] = r.start ?? 0;
+  const upgrades = {};
+  for (const u of UPGRADES) upgrades[u.id] = 0;
+  return { amounts, upgrades, unlocked: {}, options: { showMaxedUpgrades: false }, stats: { actions: {} }, currentActionId: null, progress: 0 };
+}
+
+function getResource(id) {
+  return RESOURCES.find(r => r.id === id);
+}
+
+function isCurrency(def) {
+  // Currencies go in the left box with no bar (they may still have a
+  // finite cap); everything else goes in the right box with a bar.
+  // `kind` overrides the max-based default below.
+  if (def.kind === "currency") return true;
+  if (def.kind === "vital") return false;
+  return def.max === Infinity;
+}
+
+function formatNum(n) {
+  // Integers show with no decimals (1 -> "1"); fractional numbers show
+  // at least one decimal, up to three, with float noise trimmed
+  // (1.1 -> "1.1", 1.11 -> "1.11", 1.115 -> "1.115", 0.30000000000004 -> "0.3").
+  if (n === Infinity) return "\u221E";
+  if (n === -Infinity) return "-\u221E";
+  if (!Number.isFinite(n)) return String(n);
+  if (Number.isInteger(n)) return String(n);
+  return String(Math.round(n * 1000) / 1000);
+}
+
+function displayName(def, val) {
+  // Plural follows the displayed value: "Coin" when it shows "1", else "Coins".
+  // Resources without `plural` always show `name`.
+  return formatNum(val) === "1" || !def.plural ? def.name : def.plural;
+}
+
+function getAction(id) {
+  return ACTIONS.find(a => a.id === id);
+}
+
+function getUpgrade(id) {
+  return UPGRADES.find(u => u.id === id);
+}
+
+// Tooltip tags: any resource, action, or upgrade can carry `tags: [...]`
+// (e.g. { tags: ["Work", "Charismatic"] }). Tags render as small chips
+// directly below the tooltip header. Other code checks them with
+// hasTag(item, "Work"), withTag(ACTIONS, "Work"), or itemsWithTag("Work")
+// (which searches RESOURCES + ACTIONS + UPGRADES together).
+function getTags(item) {
+  return item && Array.isArray(item.tags) ? item.tags : [];
+}
+
+function hasTag(item, tag) {
+  return getTags(item).includes(tag);
+}
+
+function withTag(list, tag) {
+  return (list || []).filter(e => hasTag(e, tag));
+}
+
+function itemsWithTag(tag) {
+  return [...withTag(RESOURCES, tag), ...withTag(ACTIONS, tag), ...withTag(UPGRADES, tag)];
+}
+
+// Tag chips for tooltips: null when the item has no tags, so builders
+// just append the row when present, right below the header.
+function buildTipTags(item) {
+  const tags = getTags(item);
+  if (!tags.length) return null;
+  const row = document.createElement("div");
+  row.className = "tip-tags";
+  for (const t of tags) {
+    const chip = document.createElement("span");
+    chip.className = "tip-tag";
+    chip.textContent = t;
+    row.appendChild(chip);
+  }
+  return row;
+}
+
+// Sticky unlocks: hidden until the condition is first met, then visible
+// forever (persisted in the save) with a one-time Work Log message.
+// Same shape everywhere: { resource: "coin", amount: 5 }. Add `unlock`
+// to any action or upgrade to gate it; groups with nothing visible
+// collapse on their own. Set `unlockLog` to customize the message;
+// it defaults to "Unlocked Action: <name>" / "Unlocked Upgrade: <name>".
+function unlockMet(item, prefix) {
+  if (!item.unlock) return true;
+  const key = prefix + ":" + item.id;
+  if (state.unlocked[key]) return true;
+  if ((state.amounts[item.unlock.resource] ?? 0) >= item.unlock.amount) {
+    state.unlocked[key] = true;
+    log(item.unlockLog ?? ("Unlocked " + (prefix === "u" ? "Upgrade" : "Action") + ": " + item.name));
+    return true;
+  }
+  return false;
+}
+
+function hideEmptyGroups(ctn) {
+  // Collapse sections whose every button is hidden (unlock-gated).
+  for (const g of ctn.querySelectorAll(".taskGroup")) {
+    const btns = [...g.querySelectorAll("button")];
+    g.hidden = btns.length > 0 && btns.every(b => b.hidden);
+  }
+}
+
+function getEffectiveMax(resourceId) {
+  // Base max from RESOURCES plus every owned "max" upgrade effect.
+  const def = getResource(resourceId);
+  if (!def || def.max === undefined || def.max === Infinity) return Infinity;
+  let max = def.max;
+  for (const u of UPGRADES) {
+    const owned = state.upgrades[u.id] ?? 0;
+    if (!owned) continue;
+    for (const e of u.effects || []) {
+      if (e.type === "max" && e.resource === resourceId) max += e.amount * owned;
+    }
+  }
+  return max;
+}
+
+function describeCost(cost) {
+  const parts = [];
+  for (const [id, n] of Object.entries(cost ?? {})) {
+    const def = getResource(id);
+    parts.push(formatNum(n) + " " + (def ? def.name : id));
+  }
+  return parts.join(", ");
+}
+
+function buyUpgrade(id) {
+  const u = getUpgrade(id);
+  if (!u) return;
+  const owned = state.upgrades[id] ?? 0;
+  if (owned >= u.maxPurchases) {
+    log(u.name + " is already maxed out.");
+    return;
+  }
+  if (!canAfford(u.cost)) {
+    log("Not enough for " + u.name + " (" + describeCost(u.cost) + ").");
+    return;
+  }
+  for (const [rid, n] of Object.entries(u.cost ?? {})) state.amounts[rid] -= n;
+  state.upgrades[id] = owned + 1;
+  const cap = u.maxPurchases === Infinity ? "no limit" : formatNum(u.maxPurchases);
+  log((u.buyLog ?? "Bought: " + u.name) + " (" + state.upgrades[id] + "/" + cap + ").");
+  render();
+}
+
+function canAfford(costs) {
+  for (const [id, n] of Object.entries(costs ?? {})) {
+    if ((state.amounts[id] ?? 0) < n) return false;
+  }
+  return true;
+}
+
+function gainsAreFull(gains) {
+  // True if every gain is already at max (e.g. Rest at full Stamina).
+  // Capped currencies never count: producing past the cap just destroys
+  // the excess, so the action keeps running instead of stopping.
+  const keys = Object.keys(gains ?? {}).filter(id => {
+    const def = getResource(id);
+    return def && !isCurrency(def);
+  });
+  if (keys.length === 0) return false;
+  return keys.every(id => {
+    const max = getEffectiveMax(id);
+    if (max === Infinity) return false;
+    return (state.amounts[id] ?? 0) >= max;
+  });
+}
+
+function doTick(action) {
+  if (!canAfford(action.costs)) return false;
+  for (const [id, n] of Object.entries(action.costs ?? {})) {
+    state.amounts[id] -= n;
+  }
+  for (const [id, n] of Object.entries(action.gains ?? {})) {
+    const max = getEffectiveMax(id);
+    const cur = state.amounts[id] ?? 0;
+    state.amounts[id] = max === Infinity ? cur + n : Math.min(max, cur + n);
+  }
+  state.stats.actions[action.id] = (state.stats.actions[action.id] ?? 0) + 1;
+  return true;
+}
+
+function log(msg) {
+  // Back-to-back repeats merge: "You feel rested.", "You feel rested."
+  // shows once as "You feel rested. (x2)".
+  if (msg === lastLogMsg && logEl.firstChild) {
+    lastLogCount++;
+    logEl.firstChild.textContent = msg + " (x" + lastLogCount + ")";
+    return;
+  }
+  lastLogMsg = msg;
+  lastLogCount = 1;
+  const line = document.createElement("div");
+  line.textContent = msg;
+  logEl.prepend(line);
+  while (logEl.children.length > 30) logEl.lastChild.remove();
+}
+
+let lastLogMsg = null;
+let lastLogCount = 0;
+
+function setAction(id, stopMsg) {
+  const prev = state.currentActionId ? getAction(state.currentActionId) : null;
+  state.currentActionId = id;
+  state.progress = 0;
+  lastTime = performance.now();
+  const action = id ? getAction(id) : null;
+  if (action) log(action.startLog ?? "Started: " + action.name);
+  else if (prev) log(stopMsg ?? prev.stopLog ?? "Stopped.");
+  else log("Stopped.");
+  render();
+}
+
+function appendTipSection(tip, label, entries) {
+  const rows = Object.entries(entries ?? {});
+  if (!rows.length) return;
+  const sec = document.createElement("div");
+  sec.className = "tip-sec";
+  const lab = document.createElement("div");
+  lab.className = "tip-sec-label";
+  lab.textContent = label;
+  sec.appendChild(lab);
+  for (const [id, n] of rows) {
+    const def = getResource(id);
+    const row = document.createElement("div");
+    row.className = "tip-row";
+    const k = document.createElement("span");
+    k.textContent = (def ? def.name : id) + ":";
+    const v = document.createElement("span");
+    v.textContent = formatNum(n);
+    row.appendChild(k);
+    row.appendChild(v);
+    sec.appendChild(row);
+  }
+  tip.appendChild(sec);
+}
+
+// Action tips prefer opening upward (never grows the page/scroll area), but
+// flip downward when the actions column itself scrolls and there is no room
+// above the button (otherwise the tip would be cut off).
+function placeActionTip(btn) {
+  const tip = btn.querySelector(".tip");
+  const ctn = document.getElementById("actionsCtn");
+  if (!tip || !ctn) return;
+  const h = tip.offsetHeight;
+  if (!h) return;
+  const c = ctn.getBoundingClientRect();
+  const b = btn.getBoundingClientRect();
+  const roomUp = b.top - c.top;
+  const roomDown = ctn.scrollHeight > ctn.clientHeight + 1 ? c.bottom - b.bottom : Infinity;
+  if (roomUp >= h + 8 || roomUp >= roomDown) {
+    tip.style.top = "auto";
+    tip.style.bottom = "110%";
+  } else {
+    tip.style.top = "110%";
+    tip.style.bottom = "auto";
+  }
+}
+
+function describeEffect(e) {
+  if (e.type === "max") {
+    const def = getResource(e.resource);
+    return "+" + formatNum(e.amount) + " " + (def ? def.name : e.resource) + " max";
+  }
+  return e.type + (e.resource ? " " + e.resource : "");
+}
+
+function autoActionDescription(a) {
+  const tick = formatNum(a.tickSeconds) + "s";
+  const hasCosts = a.costs && Object.keys(a.costs).length > 0;
+  const hasGains = a.gains && Object.keys(a.gains).length > 0;
+  if (hasCosts && hasGains) return "Spend " + describeCost(a.costs) + " \u2192 +" + describeCost(a.gains) + " (" + tick + ").";
+  if (hasGains) return "+" + describeCost(a.gains) + " (" + tick + ").";
+  if (hasCosts) return "Spend " + describeCost(a.costs) + " (" + tick + ").";
+  return "Takes " + tick + ".";
+}
+
+function autoUpgradeDescription(u) {
+  const hasCost = u.cost && Object.keys(u.cost).length > 0;
+  const hasFx = u.effects && u.effects.length > 0;
+  if (hasCost && hasFx) return describeCost(u.cost) + " \u2192 " + u.effects.map(describeEffect).join(", ") + ".";
+  if (hasFx) return u.effects.map(describeEffect).join(", ") + ".";
+  if (hasCost) return "Costs " + describeCost(u.cost) + ".";
+  return "No effect.";
+}
+
+// Fill defaults, auto-write missing descriptions, and turn config
+// mistakes into warnings instead of crashes (bad entries are removed in
+// place, so later engine loops stay safe). Lets minimal entries work:
+// { id: "wood", name: "Wood" } is already a valid currency, and
+// { id: "doX", name: "Do X", gains: { coin: 1 } } is a valid action.
+function normalizeConfig() {
+  const warnings = [];
+  const warn = (m) => warnings.push(m);
+  // Purge unusable entries first (arrays are const, so edit in place):
+  // a missing id would crash every engine loop, and duplicate ids would
+  // share one DOM id. Later duplicates are removed, keeping the first.
+  // Entries added later at runtime should call normalizeConfig() again
+  // before buildUI().
+  for (const [arr, kind] of [[RESOURCES, "resource"], [ACTIONS, "action"], [UPGRADES, "upgrade"]]) {
+    const seen = new Set();
+    for (let i = 0; i < arr.length; i++) {
+      const e = arr[i];
+      if (!e || typeof e.id !== "string" || !e.id) {
+        warn("Removed " + kind + " with no id.");
+        arr.splice(i, 1); i--; continue;
+      }
+      if (seen.has(e.id)) {
+        warn("Duplicate " + kind + ' id "' + e.id + '" - removed the later entry.');
+        arr.splice(i, 1); i--; continue;
+      }
+      seen.add(e.id);
+    }
+  }
+  for (const r of RESOURCES) {
+    if (typeof r.name !== "string" || !r.name) r.name = r.id;
+    if (typeof r.start !== "number" || !Number.isFinite(r.start) || r.start < 0) {
+      if (r.start !== undefined) warn('Resource "' + r.id + '": bad start, reset to 0.');
+      r.start = 0;
+    }
+    if (r.max === undefined) r.max = Infinity;
+    if (r.max !== Infinity && (!Number.isFinite(r.max) || r.max <= 0)) {
+      warn('Resource "' + r.id + '": bad max, treated as uncapped.');
+      r.max = Infinity;
+    }
+    if (r.kind !== undefined && r.kind !== "currency" && r.kind !== "vital") {
+      warn('Resource "' + r.id + '": bad kind, ignored.');
+      delete r.kind;
+    }
+    cleanTags(r, 'Resource "' + r.id + '"');
+  }
+  const cleanMap = (map, ownerLabel, kind) => {
+    if (map === undefined) return {};
+    if (!map || typeof map !== "object" || Array.isArray(map)) {
+      warn(ownerLabel + ": bad " + kind + ", ignored.");
+      return {};
+    }
+    const cleaned = {};
+    for (const [k, v] of Object.entries(map)) {
+      if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
+        warn(ownerLabel + ": bad " + kind + ' amount for "' + k + '", skipped.');
+        continue;
+      }
+      if (v === 0) continue; // zero amounts are free: drop them so tips stay clean.
+      if (!getResource(k)) warn(ownerLabel + ": " + kind + ' references unknown resource "' + k + '".');
+      cleaned[k] = v;
+    }
+    return cleaned;
+  };
+  const cleanUnlock = (item, ownerLabel) => {
+    if (item.unlock === undefined) return;
+    const k = item.unlock;
+    if (!k || typeof k !== "object" || typeof k.resource !== "string" || typeof k.amount !== "number" || !Number.isFinite(k.amount) || k.amount < 0) {
+      warn(ownerLabel + ": bad unlock, always visible.");
+      delete item.unlock;
+      return;
+    }
+    if (!getResource(k.resource)) warn(ownerLabel + ': unlock watches unknown resource "' + k.resource + '".');
+    item.unlock = { resource: k.resource, amount: k.amount };
+  };
+  function cleanTags(item, ownerLabel) {
+    if (item.tags === undefined) { item.tags = []; return; }
+    if (!Array.isArray(item.tags)) {
+      warn(ownerLabel + ": bad tags, ignored.");
+      item.tags = [];
+      return;
+    }
+    const kept = [];
+    for (const t of item.tags) {
+      if (typeof t !== "string" || !t.trim()) {
+        warn(ownerLabel + ": skipped a bad tag (use non-empty strings).");
+        continue;
+      }
+      const name = t.trim();
+      if (!kept.includes(name)) kept.push(name);
+    }
+    item.tags = kept;
+  }
+  for (const a of ACTIONS) {
+    if (typeof a.name !== "string" || !a.name) a.name = a.id;
+    if (typeof a.tickSeconds !== "number" || !Number.isFinite(a.tickSeconds) || a.tickSeconds <= 0) {
+      if (a.tickSeconds !== undefined) warn('Action "' + a.id + '": bad tickSeconds, reset to 1.');
+      a.tickSeconds = 1;
+    }
+    a.costs = cleanMap(a.costs, 'Action "' + a.id + '"', "cost");
+    a.gains = cleanMap(a.gains, 'Action "' + a.id + '"', "gain");
+    cleanUnlock(a, 'Action "' + a.id + '"');
+    cleanTags(a, 'Action "' + a.id + '"');
+    if (a.description !== undefined && typeof a.description !== "string") {
+      warn('Action "' + a.id + '": bad description, auto-generated.');
+      delete a.description;
+    }
+    if (!a.description) a.description = autoActionDescription(a);
+  }
+  for (const u of UPGRADES) {
+    if (typeof u.name !== "string" || !u.name) u.name = u.id;
+    u.cost = cleanMap(u.cost, 'Upgrade "' + u.id + '"', "cost");
+    cleanUnlock(u, 'Upgrade "' + u.id + '"');
+    cleanTags(u, 'Upgrade "' + u.id + '"');
+    if (u.maxPurchases === undefined) u.maxPurchases = 1;
+    if (u.maxPurchases !== Infinity && (!Number.isFinite(u.maxPurchases) || u.maxPurchases <= 0)) {
+      warn('Upgrade "' + u.id + '": bad maxPurchases, reset to 1.');
+      u.maxPurchases = 1;
+    } else if (Number.isFinite(u.maxPurchases) && !Number.isInteger(u.maxPurchases)) {
+      const fixed = Math.max(1, Math.floor(u.maxPurchases));
+      warn('Upgrade "' + u.id + '": maxPurchases rounded down to ' + fixed + '.');
+      u.maxPurchases = fixed;
+    }
+    if (u.effects === undefined) u.effects = [];
+    if (!Array.isArray(u.effects)) {
+      warn('Upgrade "' + u.id + '": bad effects, ignored.');
+      u.effects = [];
+    } else {
+      const kept = [];
+      for (const e of u.effects) {
+        if (!e || e.type !== "max" || typeof e.resource !== "string" || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+          warn('Upgrade "' + u.id + '": skipped an invalid effect (use { type: "max", resource, amount }).');
+          continue;
+        }
+        if (!getResource(e.resource)) warn('Upgrade "' + u.id + '": effect targets unknown resource "' + e.resource + '".');
+        kept.push({ type: "max", resource: e.resource, amount: e.amount });
+      }
+      u.effects = kept;
+    }
+    if (u.description !== undefined && typeof u.description !== "string") {
+      warn('Upgrade "' + u.id + '": bad description, auto-generated.');
+      delete u.description;
+    }
+    if (!u.description) u.description = autoUpgradeDescription(u);
+  }
+  return warnings;
+}
+
+// Resource tooltip: header row (name left, amount/cap right), a
+// right-aligned per-second row (only while nonzero), then the flavor
+// text. The live numbers are filled in by render().
+function buildResourceTip(r) {
+  const tip = document.createElement("span");
+  tip.className = "tip";
+  const head = document.createElement("div");
+  head.className = "tip-head";
+  const title = document.createElement("span");
+  title.textContent = r.name;
+  const count = document.createElement("span");
+  count.className = "tip-count";
+  head.appendChild(title);
+  head.appendChild(count);
+  tip.appendChild(head);
+  const headTags = buildTipTags(r);
+  if (headTags) tip.appendChild(headTags);
+  const rate = document.createElement("div");
+  rate.className = "tip-rate";
+  rate.hidden = true;
+  tip.appendChild(rate);
+  if (r.tooltip) {
+    const desc = document.createElement("div");
+    desc.className = "tip-desc";
+    desc.textContent = r.tooltip;
+    tip.appendChild(desc);
+  }
+  return tip;
+}
+
+function buildResourceEl(r) {
+  if (isCurrency(r)) {
+    const line = document.createElement("div");
+    line.className = "currency";
+      line.id = "res-" + r.id;
+      line.innerHTML = '<span class="cur-val"></span><span class="cur-name"></span>';
+    line.querySelector(".cur-name").textContent = r.name;
+    if (r.nameColor) line.querySelector(".cur-name").style.color = r.nameColor;
+    line.tabIndex = 0;
+    line.appendChild(buildResourceTip(r));
+    return line;
+  }
+  const box = document.createElement("div");
+  box.className = "res";
+  box.id = "res-" + r.id;
+  box.innerHTML = '<span class="res-name"></span><div class="bar"><div class="fill"></div><span class="res-val"></span></div>';
+  box.querySelector(".res-name").textContent = r.name;
+  if (r.nameColor) box.querySelector(".res-name").style.color = r.nameColor;
+  if (r.barColor) box.querySelector(".fill").style.background = r.barColor;
+  box.tabIndex = 0;
+  box.appendChild(buildResourceTip(r));
+  return box;
+}
+
+function appendGroupedResources() {
+  // Unified resource groups: currencies and vitals share one namespace,
+  // exactly like actions + upgrades. Same group name = same collapsible
+  // section, with currency rows and vital bars mixed together in RESOURCES
+  // order. A group's panel (Currencies on the left vs Vitals on the right)
+  // is set by its first item; later items join it wherever it lives.
+  const groups = new Map();
+  for (const r of RESOURCES) {
+    const g = r.group || (isCurrency(r) ? "Basic" : "Body");
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(r);
+  }
+  currenciesCtn.innerHTML = "";
+  vitalsCtn.innerHTML = "";
+  if (!groups.size) {
+    for (const emptyCtn of [currenciesCtn, vitalsCtn]) {
+      const d = document.createElement("div");
+      d.className = "emptyNote";
+      d.textContent = "None yet.";
+      emptyCtn.appendChild(d);
+    }
+    return;
+  }
+  for (const [gName, list] of groups) {
+    const home = isCurrency(list[0]) ? currenciesCtn : vitalsCtn;
+    const group = document.createElement("details");
+    group.className = "taskGroup";
+    group.open = true;
+    const summary = document.createElement("summary");
+    summary.textContent = gName;
+    group.appendChild(summary);
+    const wrap = document.createElement("div");
+    wrap.className = "taskBtns stack";
+    for (const r of list) wrap.appendChild(buildResourceEl(r));
+    group.appendChild(wrap);
+    home.appendChild(group);
+  }
+}
+
+function buildUI() {
+  appendGroupedResources();
+
+  actionsCtn.innerHTML = "";
+  // Unified action groups: ACTIONS and UPGRADES share one namespace.
+  // Same group name = same collapsible section (actions first, then
+  // upgrades). Sections appear in first-use order: actions first, then
+  // upgrades that introduce a new name. Both default to "Tasks"; "Shop"
+  // is just a regular group name used by the example upgrade below.
+  const groups = new Map();
+  const entryFor = (name) => {
+    if (!groups.has(name)) groups.set(name, { actions: [], upgrades: [] });
+    return groups.get(name);
+  };
+  for (const a of ACTIONS) entryFor(a.group || "Tasks").actions.push(a);
+  for (const u of UPGRADES) entryFor(u.group || "Tasks").upgrades.push(u);
+  if (!groups.size) groups.set("Tasks", { actions: [], upgrades: [] });
+  for (const [gName, entry] of groups) {
+    const group = document.createElement("details");
+    group.className = "taskGroup";
+    group.open = true;
+    const summary = document.createElement("summary");
+    summary.textContent = gName;
+    group.appendChild(summary);
+    const btns = document.createElement("div");
+    btns.className = "taskBtns";
+    if (!entry.actions.length && !entry.upgrades.length) {
+      const d = document.createElement("div");
+      d.className = "emptyNote";
+      d.textContent = "None yet.";
+      btns.appendChild(d);
+    }
+    for (const a of entry.actions) btns.appendChild(buildActionBtn(a));
+    for (const u of entry.upgrades) btns.appendChild(buildUpgradeBtn(u));
+    group.appendChild(btns);
+    actionsCtn.appendChild(group);
+  }
+  showMaxedChk.checked = !!state.options.showMaxedUpgrades;
+}
+
+function buildActionBtn(a) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "actionBtn";
+  btn.id = "action-" + a.id;
+  const label = document.createElement("span");
+  label.className = "action-label";
+  label.textContent = a.name;
+  btn.appendChild(label);
+
+  const tip = document.createElement("span");
+  tip.className = "tip";
+  const head = document.createElement("div");
+  head.className = "tip-head";
+  const title = document.createElement("span");
+  title.textContent = a.name;
+  const count = document.createElement("span");
+  count.className = "tip-count";
+  count.textContent = "0";
+  head.appendChild(title);
+  head.appendChild(count);
+  tip.appendChild(head);
+  const headTags = buildTipTags(a);
+  if (headTags) tip.appendChild(headTags);
+  const desc = document.createElement("div");
+  desc.className = "tip-desc";
+  desc.textContent = a.description ?? autoActionDescription({ tickSeconds: a.tickSeconds ?? 1, costs: a.costs ?? {}, gains: a.gains ?? {} });
+  tip.appendChild(desc);
+  appendTipSection(tip, "Cost", a.costs ?? {});
+  appendTipSection(tip, "Results", a.gains ?? {});
+  if (a.flavor) {
+    const flavor = document.createElement("div");
+    flavor.className = "tip-flavor";
+    flavor.textContent = a.flavor;
+    tip.appendChild(flavor);
+  }
+  btn.appendChild(tip);
+
+  const progress = document.createElement("div");
+  progress.className = "action-progress";
+  progress.setAttribute("aria-hidden", "true");
+  const fill = document.createElement("div");
+  fill.className = "action-fill";
+  progress.appendChild(fill);
+  const time = document.createElement("span");
+  time.className = "action-time";
+  progress.appendChild(time);
+  btn.appendChild(progress);
+
+  btn.addEventListener("click", () => {
+    if (state.currentActionId === a.id) setAction(null);
+    else setAction(a.id);
+  });
+  btn.addEventListener("mouseenter", () => placeActionTip(btn));
+  btn.addEventListener("focus", () => placeActionTip(btn));
+  return btn;
+}
+
+function buildUpgradeBtn(u) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "shopBtn";
+  btn.id = "shop-" + u.id;
+  const label = document.createElement("span");
+  label.className = "action-label";
+  label.textContent = u.name;
+  btn.appendChild(label);
+
+  const tip = document.createElement("span");
+  tip.className = "tip";
+  const head = document.createElement("div");
+  head.className = "tip-head";
+  const title = document.createElement("span");
+  title.textContent = u.name;
+  const count = document.createElement("span");
+  count.className = "tip-count";
+  head.appendChild(title);
+  head.appendChild(count);
+  tip.appendChild(head);
+  const headTags = buildTipTags(u);
+  if (headTags) tip.appendChild(headTags);
+  const desc = document.createElement("div");
+  desc.className = "tip-desc";
+  desc.textContent = u.description ?? autoUpgradeDescription({ cost: u.cost ?? {}, effects: u.effects ?? [] });
+  tip.appendChild(desc);
+  appendTipSection(tip, "Cost", u.cost ?? {});
+  if (u.effects && u.effects.length) {
+    const sec = document.createElement("div");
+    sec.className = "tip-sec";
+    const lab = document.createElement("div");
+    lab.className = "tip-sec-label";
+    lab.textContent = (u.effects ?? []).length > 1 ? "Effects" : "Effect";
+    sec.appendChild(lab);
+    for (const e of u.effects) {
+      const row = document.createElement("div");
+      row.className = "tip-row";
+      const s = document.createElement("span");
+      s.textContent = describeEffect(e);
+      row.appendChild(s);
+      sec.appendChild(row);
+    }
+    tip.appendChild(sec);
+  }
+  if (u.flavor) {
+    const flavor = document.createElement("div");
+    flavor.className = "tip-flavor";
+    flavor.textContent = u.flavor;
+    tip.appendChild(flavor);
+  }
+  btn.appendChild(tip);
+
+  btn.addEventListener("click", () => buyUpgrade(u.id));
+  btn.addEventListener("mouseenter", () => placeActionTip(btn));
+  btn.addEventListener("focus", () => placeActionTip(btn));
+  return btn;
+}
+
+function render() {
+  const current = state.currentActionId ? getAction(state.currentActionId) : null;
+  for (const r of RESOURCES) {
+    const el = document.getElementById("res-" + r.id);
+    if (!el) continue;
+    const val = state.amounts[r.id] ?? 0;
+    // Net gain per second from the running action (gains minus costs).
+    let rate = 0;
+    if (current) rate = ((current.gains[r.id] ?? 0) - (current.costs[r.id] ?? 0)) / current.tickSeconds;
+    if (isCurrency(r)) {
+      const cap = getEffectiveMax(r.id);
+      const capText = cap === Infinity ? formatNum(val) : formatNum(val) + " / " + formatNum(cap);
+      el.querySelector(".cur-name").textContent = displayName(r, val);
+      el.querySelector(".cur-val").textContent = capText;
+      const tipCount = el.querySelector(".tip-count");
+      if (tipCount) tipCount.textContent = capText;
+      const tipRate = el.querySelector(".tip-rate");
+      if (tipRate) {
+        tipRate.textContent = rate ? formatNum(rate) + "/s" : "";
+        tipRate.hidden = !rate;
+      }
+    } else {
+      const max = getEffectiveMax(r.id);
+      const nameEl = el.querySelector(".res-name");
+      nameEl.textContent = r.name;
+      // Fully depleted vitals show their name in red.
+      if (val <= 0) nameEl.style.color = "red";
+      else if (r.nameColor) nameEl.style.color = r.nameColor;
+      else nameEl.style.color = "";
+      el.querySelector(".res-val").textContent = formatNum(val) + " / " + formatNum(max);
+      el.querySelector(".fill").style.width = Math.max(0, Math.min(100, (val / max) * 100)) + "%";
+      const tipCount = el.querySelector(".tip-count");
+      if (tipCount) tipCount.textContent = formatNum(val) + " / " + formatNum(max);
+      const tipRate = el.querySelector(".tip-rate");
+      if (tipRate) {
+        tipRate.textContent = rate ? formatNum(rate) + "/s" : "";
+        tipRate.hidden = !rate;
+      }
+    }
+  }
+
+  for (const a of ACTIONS) {
+    const btn = document.getElementById("action-" + a.id);
+    if (!btn) continue;
+    btn.hidden = !unlockMet(a, "a");
+    const isActive = state.currentActionId === a.id;
+    btn.classList.toggle("active", isActive);
+    btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+    // Unusable when unaffordable, or when there is nothing left to gain (e.g. Rest at full Stamina).
+    btn.disabled = isActive ? false : (!canAfford(a.costs) || gainsAreFull(a.gains));
+    const fill = btn.querySelector(".action-fill");
+    if (fill) fill.style.width = isActive ? Math.min(100, (state.progress / a.tickSeconds) * 100) + "%" : "0%";
+    const prog = btn.querySelector(".action-progress");
+    if (prog) prog.hidden = !isActive;
+    const time = btn.querySelector(".action-time");
+    if (time) time.textContent = isActive ? Math.max(0, a.tickSeconds - state.progress).toFixed(2) + "s" : "";
+    const tc = btn.querySelector(".tip-count");
+    if (tc) tc.textContent = state.stats.actions[a.id] ?? 0;
+  }
+
+  for (const u of UPGRADES) {
+    const btn = document.getElementById("shop-" + u.id);
+    if (!btn) continue;
+    const owned = state.upgrades[u.id] ?? 0;
+    const maxed = owned >= u.maxPurchases;
+    btn.hidden = !unlockMet(u, "u") || (maxed && !state.options.showMaxedUpgrades);
+    btn.classList.toggle("owned", owned > 0 && !maxed);
+    btn.classList.toggle("maxed", maxed);
+    btn.disabled = maxed || !canAfford(u.cost);
+    const tc = btn.querySelector(".tip-count");
+    if (tc) tc.textContent = formatNum(owned) + "/" + formatNum(u.maxPurchases);
+  }
+  hideEmptyGroups(actionsCtn);
+
+  if (!current) {
+    const stamina = state.amounts.stamina;
+    if (typeof stamina === "number" && stamina <= 0) {
+      statusEl.textContent = "You feel exhausted...";
+    } else {
+      statusEl.textContent = "Idle";
+    }
+  } else {
+    statusEl.textContent = current.runtext ?? (current.name + "...");
+  }
+
+  const nowCard = document.getElementById("nowCard");
+  const nowCancelBtn = document.getElementById("nowCancelBtn");
+  if (nowCard) nowCard.classList.toggle("busy", !!state.currentActionId);
+  if (nowCancelBtn) nowCancelBtn.disabled = !state.currentActionId;
+}
+
+const nowCancelBtn = document.getElementById("nowCancelBtn");
+if (nowCancelBtn) nowCancelBtn.addEventListener("click", () => setAction(null));
+clearLogBtn.addEventListener("click", () => { logEl.innerHTML = ""; lastLogMsg = null; lastLogCount = 0; });
+resetBtn.addEventListener("click", () => {
+  if (!confirm("Hard Reset will erase all progress. Are you sure?")) return;
+  state = makeFreshState();
+  buildUI();
+  log("Hard reset: progress erased.");
+  render();
+});
+exportBtn.addEventListener("click", exportSave);
+importBtn.addEventListener("click", () => importInput.click());
+exportClipBtn.addEventListener("click", exportSaveToClipboard);
+importClipBtn.addEventListener("click", () => {
+  if (clipMode === "import" && !clipBox.hidden) {
+    clipBox.hidden = true;
+    clipMode = null;
+  } else {
+    showClipBox("import", "");
+  }
+});
+clipLoadBtn.addEventListener("click", loadClipArea);
+tabWorkBtn.addEventListener("click", () => showTab("work"));
+tabOptionsBtn.addEventListener("click", () => showTab("options"));
+showMaxedChk.addEventListener("change", () => {
+  state.options.showMaxedUpgrades = showMaxedChk.checked;
+  render();
+});
+importInput.addEventListener("change", () => {
+  if (importInput.files && importInput.files[0]) importSaveFile(importInput.files[0]);
+});
+
+setInterval(() => {
+  const now = performance.now();
+  const dt = (now - lastTime) / 1000;
+  lastTime = now;
+
+  const current = state.currentActionId ? getAction(state.currentActionId) : null;
+  if (!current) { render(); return; }
+
+  // If gains are already full (e.g. Rest at max Stamina), stop cleanly.
+  if (gainsAreFull(current.gains)) {
+    setAction(null, current.fullLog ?? (current.name + " finished: vitals full."));
+    return;
+  }
+
+  // If costs are unaffordable (e.g. Shovel Mud with 0 Stamina), stop at
+  // once instead of running out a doomed bar cycle with no payout.
+  if (!canAfford(current.costs)) {
+    setAction(null, current.fullLog);
+    return;
+  }
+
+  state.progress += dt;
+  let guarded = 0;
+  while (state.progress >= current.tickSeconds && guarded < 10) {
+    guarded++;
+    state.progress -= current.tickSeconds;
+    if (!doTick(current)) {
+      state.progress = 0;
+      setAction(null, current.fullLog);
+      return;
+    }
+  }
+  render();
+  // 50ms refresh keeps the action-bar countdowns smooth. Action speed is
+  // unaffected: progress accumulates from real elapsed time (dt above).
+}, 50);
+
+buildUI();
+render();
+for (const w of configWarnings) {
+  console.warn("[config] " + w);
+  try { log(w); } catch (e) { /* log panel not ready */ }
+}
+</script>
