@@ -1,0 +1,73 @@
+// Labor Game boot: state init, first render, game loop, manual-save autoload.
+setInterval(() => {
+  const now = performance.now();
+  const dt = (now - lastTime) / 1000;
+  lastTime = now;
+
+  const current = state.currentActionId ? getAction(state.currentActionId) : null;
+  if (!current) { render(); return; }
+  const eff = current.improvements ? effectiveGains(current) : current.gains;
+
+  // If gains are already full (e.g. Rest at max Stamina), stop cleanly.
+  if (gainsAreFull(eff)) {
+    setAction(null, current.fullLog ?? (current.name + " finished: vitals full."));
+    return;
+  }
+
+  // A running cycle is always paid for (charged at start, or for the next
+  // cycle right at completion). This is just a safety net for odd states.
+  const cyc = state.cycles[current.id] ?? (state.cycles[current.id] = { progress: 0, paid: false });
+  if (!cyc.paid) {
+    if (!canAfford(current.costs)) {
+      setAction(null, current.fullLog);
+      return;
+    }
+    payCosts(current.costs);
+    cyc.paid = true;
+  }
+
+  cyc.progress += dt;
+  let guarded = 0;
+  while (cyc.progress >= current.tickSeconds && guarded < 10) {
+    guarded++;
+    cyc.progress -= current.tickSeconds;
+    doTick(current);
+    const effNow = current.improvements ? effectiveGains(current) : current.gains;
+    if (gainsAreFull(effNow)) {
+      cyc.progress = 0;
+      cyc.paid = false;
+      setAction(null, current.fullLog ?? (current.name + " finished: vitals full."));
+      return;
+    }
+    // The next cycle starts now: charge up front so stopping later never
+    // loses paid time. If unaffordable, stop but keep the leftover
+    // progress - resuming pays for the cycle, then continues it.
+    if (!canAfford(current.costs)) {
+      cyc.paid = false;
+      setAction(null, current.fullLog);
+      return;
+    }
+    payCosts(current.costs);
+  }
+  render();
+  // 50ms refresh keeps the action-bar countdowns smooth. Action speed is
+  // unaffected: progress accumulates from real elapsed time (dt above).
+}, 50);
+
+buildUI();
+render();
+// A browser Manual Save autoloads here (the Save/Load buttons live in
+// Options). Fresh players get the intro line instead.
+loadManualSave().then((loaded) => {
+  if (loaded) {
+    buildUI();
+    render();
+    log("Save loaded.");
+  } else {
+    log("You're a homeless villager living in a small town. Perhaps if you help some folk, they'll lend you some coin?");
+  }
+});
+for (const w of configWarnings) {
+  console.warn("[config] " + w);
+  try { log(w); } catch (e) { /* log panel not ready */ }
+}

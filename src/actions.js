@@ -1,0 +1,146 @@
+// Labor Game actions: cycles, improvements, tooltips, buttons.
+function doTick(action) {
+  // Costs were already paid when this cycle started (see setAction); a
+  // completion only pays out gains (with the improvement bonus), counts
+  // the run, and fires improvement level-ups.
+  const eff = action.improvements ? effectiveGains(action) : (action.gains ?? {});
+  for (const [id, n] of Object.entries(eff)) {
+    const max = getEffectiveMax(id);
+    const cur = state.amounts[id] ?? 0;
+    state.amounts[id] = max === Infinity ? cur + n : Math.min(max, cur + n);
+  }
+  const count = (state.stats.actions[action.id] ?? 0) + 1;
+  state.stats.actions[action.id] = count;
+  const imp = action.improvements;
+  if (imp) {
+    const lvl = Math.min(imp.maxLevel, Math.floor(count / imp.every));
+    if (lvl > Math.min(imp.maxLevel, Math.floor((count - 1) / imp.every))) {
+      const bonus = describeCost(imp.bonus);
+      log(pickLog(imp.improvementLog, action.name + " reached Improvement Level " + lvl + (bonus ? " (+" + bonus + " per cycle)." : ".")), "improvement");
+    }
+  }
+}
+
+function setAction(id, stopMsg) {
+  const prev = state.currentActionId ? getAction(state.currentActionId) : null;
+  const action = id ? getAction(id) : null;
+  if (action) {
+    // Costs are per cycle, paid up front: starting a fresh (unpaid) cycle
+    // charges, while resuming a paid cycle picked up mid-bar is free.
+    // Progress is tracked per action, so stopping never loses it.
+    const cyc = state.cycles[id] ?? (state.cycles[id] = { progress: 0, paid: false });
+    if (!cyc.paid) {
+      if (!canAfford(action.costs)) {
+        log("Not enough for " + action.name + " (" + describeCost(action.costs) + ").");
+        render();
+        return;
+      }
+      payCosts(action.costs);
+      cyc.paid = true;
+    }
+    state.currentActionId = id;
+    lastTime = performance.now();
+    log(pickLog(action.startLog, "Started: " + action.name), "action");
+  } else {
+    state.currentActionId = null;
+    lastTime = performance.now();
+    if (prev) log(pickLog(stopMsg, null) ?? pickLog(prev.stopLog, "Stopped."), "action");
+    else log("Stopped.", "action");
+  }
+  render();
+}
+
+function buildActionBtn(a) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "actionBtn";
+  btn.id = "action-" + a.id;
+  const label = document.createElement("span");
+  label.className = "action-label";
+  label.textContent = a.name;
+  btn.appendChild(label);
+
+  const tip = document.createElement("span");
+  tip.className = "tip";
+  const head = document.createElement("div");
+  head.className = "tip-head";
+  const title = document.createElement("span");
+  title.textContent = a.improvements ? "[Lvl. " + actionLevel(a) + "] " + a.name : a.name;
+  const count = document.createElement("span");
+  count.className = "tip-count";
+  count.textContent = "0";
+  head.appendChild(title);
+  head.appendChild(count);
+  tip.appendChild(head);
+  const headTags = buildTipTags(a);
+  if (headTags) tip.appendChild(headTags);
+  const desc = document.createElement("div");
+  desc.className = "tip-desc";
+  desc.textContent = a.description ?? autoActionDescription({ tickSeconds: a.tickSeconds ?? 1, costs: a.costs ?? {}, gains: a.gains ?? {} });
+  tip.appendChild(desc);
+  const costRefs = [];
+  appendTipSection(tip, "Cost", a.costs ?? {}, costRefs);
+  // Results rows are live for improved actions (payout grows per level):
+  // build rows for base gains plus any bonus-only resources, then update.
+  const gainBase = { ...(a.gains ?? {}) };
+  for (const k of Object.keys(a.improvements?.bonus ?? {})) if (!(k in gainBase)) gainBase[k] = 0;
+  const gainRefs = [];
+  appendTipSection(tip, "Results", gainBase, gainRefs);
+  if (a.improvements) {
+    const impSec = document.createElement("div");
+    impSec.className = "tip-sec";
+    const impLab = document.createElement("div");
+    impLab.className = "tip-sec-label";
+    impLab.textContent = "Improvement";
+    impSec.appendChild(impLab);
+    const impLines = ["Level up every " + a.improvements.every + " actions.", "Max level: " + (a.improvements.maxLevel === Infinity ? "none" : a.improvements.maxLevel) + "."];
+    const impBonus = describeCost(a.improvements.bonus);
+    if (impBonus) impLines.push("Bonus per level: +" + impBonus + ".");
+    for (const t of impLines) {
+      const row = document.createElement("div");
+      row.className = "tip-row";
+      row.textContent = t;
+      impSec.appendChild(row);
+    }
+    tip.appendChild(impSec);
+  }
+  if (a.flavor) {
+    const flavor = document.createElement("div");
+    flavor.className = "tip-flavor";
+    flavor.textContent = a.flavor;
+    tip.appendChild(flavor);
+  }
+  // Bottom line for improved actions: live progress to the next level.
+  let foot = null;
+  if (a.improvements) {
+    foot = document.createElement("div");
+    foot.className = "tip-flavor";
+    foot.textContent = improvementFooter(a);
+    tip.appendChild(foot);
+  }
+  btn.appendChild(tip);
+
+  const progress = document.createElement("div");
+  progress.className = "action-progress";
+  progress.setAttribute("aria-hidden", "true");
+  const fill = document.createElement("div");
+  fill.className = "action-fill";
+  progress.appendChild(fill);
+  const time = document.createElement("span");
+  time.className = "action-time";
+  progress.appendChild(time);
+  btn.appendChild(progress);
+  uiRefs.set("a:" + a.id, { root: btn, label, title, foot, costs: costRefs, gains: gainRefs, fill, prog: progress, time, tc: count });
+
+  btn.addEventListener("click", () => {
+    if (state.currentActionId === a.id) setAction(null);
+    else setAction(a.id);
+  });
+  const hi = (on) => hiResources(a, on);
+  btn.addEventListener("mouseenter", () => openTip("a:" + a.id, btn, hi, a.costs));
+  btn.addEventListener("mouseleave", () => closeTip("a:" + a.id, hi));
+  btn.addEventListener("focus", () => openTip("a:" + a.id, btn, hi, a.costs));
+  btn.addEventListener("blur", () => closeTip("a:" + a.id, hi));
+  return btn;
+}
+
