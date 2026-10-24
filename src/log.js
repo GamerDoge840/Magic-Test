@@ -25,7 +25,20 @@ function log(msg, category = "system") {
   else if (category === "unlock") line.className = "logUnlock";
   else if (category === "improvement") line.className = "logImprovement";
   logEl.prepend(line);
-  while (logEl.children.length > 30) logEl.lastChild.remove();
+  trimLog();
+}
+
+function getLogLimit() {
+  if (typeof normalizeLogLimit === "function") return normalizeLogLimit(state && state.options && state.options.logLimit);
+  const n = Math.floor(Number(state && state.options && state.options.logLimit));
+  if (!Number.isFinite(n)) return 200;
+  return Math.min(1000, Math.max(20, n));
+}
+
+// Drop oldest entries (at the bottom) once we're over the limit.
+function trimLog() {
+  const limit = getLogLimit();
+  while (logEl.children.length > limit) logEl.lastChild.remove();
 }
 
 let lastLogMsg = null;

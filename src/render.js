@@ -161,3 +161,8 @@ showMaxedChk.addEventListener("change", () => {
   state.options.showMaxedUpgrades = showMaxedChk.checked;
   render();
 });
+if (logLimitInput) logLimitInput.addEventListener("change", () => {
+  state.options.logLimit = normalizeLogLimit(logLimitInput.value);
+  logLimitInput.value = state.options.logLimit;
+  trimLog();
+});

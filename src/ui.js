@@ -42,6 +42,7 @@ function buildUI() {
     else actionsCtn.appendChild(buildGroupDetails(entry.slot, "taskBtns", buildButtons));
   }
   showMaxedChk.checked = !!state.options.showMaxedUpgrades;
+  if (logLimitInput) logLimitInput.value = getLogLimit();
   applyLogFilters();
 }
 

@@ -32,6 +32,7 @@ const tabOptionsBtn = document.getElementById("tabOptionsBtn");
 const tabWork = document.getElementById("tabWork");
 const tabOptions = document.getElementById("tabOptions");
 const showMaxedChk = document.getElementById("showMaxedChk");
+const logLimitInput = document.getElementById("logLimitInput");
 const manualSaveBtn = document.getElementById("manualSaveBtn");
 const manualLoadBtn = document.getElementById("manualLoadBtn");
 // Live DOM refs per item, rebuilt by buildUI: render() reads these
@@ -48,6 +49,17 @@ function showTab(which) {
   tabOptionsBtn.setAttribute("aria-selected", which === "options" ? "true" : "false");
 }
 
+// Work Log cap: keeps the DOM small for performance. Default 200 entries,
+// customizable in Options, clamped to 20-1000.
+const LOG_LIMIT_DEFAULT = 200;
+const LOG_LIMIT_MIN = 20;
+const LOG_LIMIT_MAX = 1000;
+function normalizeLogLimit(v) {
+  const n = Math.floor(Number(v));
+  if (!Number.isFinite(n)) return LOG_LIMIT_DEFAULT;
+  return Math.min(LOG_LIMIT_MAX, Math.max(LOG_LIMIT_MIN, n));
+}
+
 const configWarnings = normalizeConfig();
 let state = makeFreshState();
 let lastTime = performance.now();
@@ -57,7 +69,7 @@ function makeFreshState() {
   for (const r of RESOURCES) amounts[r.id] = r.start ?? 0;
   const upgrades = {};
   for (const u of UPGRADES) upgrades[u.id] = 0;
-  return { amounts, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, logActions: true, logUpgrades: true, logUnlocks: true, logImprovements: true }, stats: { actions: {} }, currentActionId: null, cycles: {} };
+  return { amounts, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, logActions: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: LOG_LIMIT_DEFAULT }, stats: { actions: {} }, currentActionId: null, cycles: {} };
 }
 
 function getResource(id) {

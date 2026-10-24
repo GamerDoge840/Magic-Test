@@ -1,6 +1,6 @@
 // Labor Game saves: file/clipboard import-export plus the browser Manual Save.
 // Save files look like:
-// { game: "labor-game", version: 4, savedAt: "2026-...", amounts: { stamina: 7, coin: 3 }, upgrades: { pockets: 1 }, unlocked: { "u:pockets": true }, options: { showMaxedUpgrades: false, logActions: true, logUpgrades: true, logUnlocks: true, logImprovements: true }, stats: { actions: { oddJobs: 12 } }, currentActionId: null, cycles: {} }
+// { game: "labor-game", version: 4, savedAt: "2026-...", amounts: { stamina: 7, coin: 3 }, upgrades: { pockets: 1 }, unlocked: { "u:pockets": true }, options: { showMaxedUpgrades: false, logActions: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: 200 }, stats: { actions: { oddJobs: 12 } }, currentActionId: null, cycles: {} }
 // Only ids listed in RESOURCES/ACTIONS/UPGRADES are loaded; missing ones use defaults.
 // Exports use an opaque wrapper (like Antimatter Dimensions saves):
 // LaborGameSavefileFormat4$<base64-zlib-json>EndOfSavefile
@@ -109,6 +109,7 @@ function applySaveData(data) {
     logUpgrades: !data.options || data.options.logUpgrades !== false,
     logUnlocks: !data.options || data.options.logUnlocks !== false,
     logImprovements: !data.options || data.options.logImprovements !== false,
+    logLimit: normalizeLogLimit(data.options && data.options.logLimit),
   };
   delete state.progress;
   // Per-action cycle progress ({ id: { progress, paid } }): stopping keeps
