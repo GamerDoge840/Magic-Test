@@ -13,6 +13,22 @@ function buyUpgrade(id) {
   }
   for (const [rid, n] of Object.entries(u.cost ?? {})) state.amounts[rid] -= n;
   state.upgrades[id] = owned + 1;
+  // Home grants: the first home ever acquired also becomes current.
+  // Homes with `replaces` override (remove) the listed homes and become
+  // current instantly - e.g. Medium Tent replaces Small Tent.
+  for (const e of u.effects ?? []) {
+    if (e.type === "home" && e.home) {
+      const h = getHome(e.home);
+      const hadHome = ownsAnyHome();
+      state.homes[e.home] = true;
+      const replaces = (h && h.replaces) ? (Array.isArray(h.replaces) ? h.replaces : [h.replaces]) : [];
+      for (const r of replaces) delete state.homes[r];
+      if (!hadHome || replaces.length) {
+        state.currentHome = e.home;
+        log("You move into the " + ((h && h.name) || e.home) + ".");
+      }
+    }
+  }
   const cap = u.maxPurchases === Infinity ? "no limit" : formatNum(u.maxPurchases);
   log((u.buyLog ?? "Bought: " + u.name) + " (" + state.upgrades[id] + "/" + cap + ").", "upgrade");
   render();

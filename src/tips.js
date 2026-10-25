@@ -53,6 +53,23 @@ function describeEffect(e) {
     const def = getResource(e.resource);
     return "+" + formatNum(e.amount) + " " + (def ? def.name : e.resource) + " max";
   }
+  if (e.type === "gain") {
+    const def = getResource(e.resource);
+    const act = e.action ? getAction(e.action) : null;
+    return "+" + formatNum(e.amount) + " " + (def ? def.name : e.resource) + " to " + (act ? act.name : e.action);
+  }
+  if (e.type === "home") {
+    const h = e.home ? getHome(e.home) : null;
+    return "Home: " + (h ? h.name : e.home);
+  }
+  if (e.type === "furnitureCap") {
+    const f = e.furniture ? getFurniture(e.furniture) : null;
+    return "+" + formatNum(e.amount) + " " + (f ? f.name : e.furniture) + " purchase cap";
+  }
+  if (e.type === "time") {
+    const act = e.action ? getAction(e.action) : null;
+    return "-" + formatNum(e.amount) + "s " + (act ? act.name : e.action) + " time";
+  }
   return e.type + (e.resource ? " " + e.resource : "");
 }
 
@@ -81,11 +98,12 @@ function autoUpgradeDescription(u) {
 // { id: "wood", name: "Wood" } is already a valid currency, and
 // { id: "doX", name: "Do X", gains: { coin: 1 } } is a valid action.
 // Hovering an action faintly rings the currencies/vitals it drains (red)
-// or fills (green) — effective gains, so improved payouts show too.
+// or fills (green) - always through effectiveGains, so improved payouts and
+// furniture/home boosts highlight too.
+// Shared panels: the ring hits EVERY visible copy (Work + Home + later tabs).
 function hiResources(a, on) {
-  for (const id of Object.keys(a.costs ?? {})) uiRefs.get("r:" + id)?.root.classList.toggle("spendHi", on);
-  const gains = a.improvements ? effectiveGains(a) : (a.gains ?? {});
-  for (const id of Object.keys(gains)) uiRefs.get("r:" + id)?.root.classList.toggle("gainHi", on);
+  for (const id of Object.keys(a.costs ?? {})) for (const ref of getResourceRefs(id)) ref.root.classList.toggle("spendHi", on);
+  for (const id of Object.keys(effectiveGains(a))) for (const ref of getResourceRefs(id)) ref.root.classList.toggle("gainHi", on);
 }
 
 // Upgrade effect targets (e.g. the Coin whose max Pockets raises) as a

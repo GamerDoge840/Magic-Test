@@ -3,7 +3,7 @@ function doTick(action) {
   // Costs were already paid when this cycle started (see setAction); a
   // completion only pays out gains (with the improvement bonus), counts
   // the run, and fires improvement level-ups.
-  const eff = action.improvements ? effectiveGains(action) : (action.gains ?? {});
+  const eff = effectiveGains(action);
   for (const [id, n] of Object.entries(eff)) {
     const max = getEffectiveMax(id);
     const cur = state.amounts[id] ?? 0;
@@ -21,8 +21,7 @@ function doTick(action) {
   }
 }
 
-function setAction(id, stopMsg) {
-  const prev = state.currentActionId ? getAction(state.currentActionId) : null;
+function setAction(id, stopMsg, stopCategory = "stop") {  const prev = state.currentActionId ? getAction(state.currentActionId) : null;
   const action = id ? getAction(id) : null;
   if (action) {
     // Costs are per cycle, paid up front: starting a fresh (unpaid) cycle
@@ -40,14 +39,23 @@ function setAction(id, stopMsg) {
     }
     state.currentActionId = id;
     lastTime = performance.now();
-    log(pickLog(action.startLog, "Started: " + action.name), "action");
+    log(pickLog(action.startLog, "Started: " + action.name), "start");
   } else {
     state.currentActionId = null;
     lastTime = performance.now();
-    if (prev) log(pickLog(stopMsg, null) ?? pickLog(prev.stopLog, "Stopped."), "action");
-    else log("Stopped.", "action");
+    if (prev) log(pickLog(stopMsg, null) ?? pickLog(prev.stopLog, "Stopped."), stopCategory);
+    else log("Stopped.", stopCategory);
   }
   render();
+}
+
+// Stopping because the next cycle is unaffordable: show the action's
+// fullLog text in orange when it has one, else the plain stop message.
+// (Resolves the text first so a missing fullLog never paints stopLog orange.)
+function stopForFunds(action) {
+  const msg = pickLog(action.fullLog, null);
+  if (msg) setAction(null, msg, "full");
+  else setAction(null, undefined);
 }
 
 function buildActionBtn(a) {
@@ -82,8 +90,20 @@ function buildActionBtn(a) {
   appendTipSection(tip, "Cost", a.costs ?? {}, costRefs);
   // Results rows are live for improved actions (payout grows per level):
   // build rows for base gains plus any bonus-only resources, then update.
+  // Furniture/home "gain" effects add payout too, so their resources get
+  // rows even when the base action pays nothing of them.
   const gainBase = { ...(a.gains ?? {}) };
   for (const k of Object.keys(a.improvements?.bonus ?? {})) if (!(k in gainBase)) gainBase[k] = 0;
+  for (const f of FURNITURE) {
+    for (const e of f.effects ?? []) {
+      if (e.type === "gain" && e.action === a.id && e.resource && !(e.resource in gainBase)) gainBase[e.resource] = 0;
+    }
+  }
+  for (const h of HOMES) {
+    for (const e of h.effects ?? []) {
+      if (e.type === "gain" && e.action === a.id && e.resource && !(e.resource in gainBase)) gainBase[e.resource] = 0;
+    }
+  }
   const gainRefs = [];
   appendTipSection(tip, "Results", gainBase, gainRefs);
   if (a.improvements) {

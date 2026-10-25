@@ -54,22 +54,31 @@ function buildHeaderSection(entry, btnsClass, buildButtons) {
 }
 
 function appendGroupedResources() {
+  // Shared panels: the same resource groups render into EVERY
+  // .js-currencies / .js-vitals container on the page (Work + Home today).
+  // To put Currencies/Vitals on a new tab, just add
+  // <div class="js-currencies"></div> + <div class="js-vitals"></div> there -
+  // no JS changes needed. Each copy gets its own DOM rows (built fresh per
+  // host) whose refs all live under uiRefs "r:<id>".
+  const currHosts = [...document.querySelectorAll(".js-currencies")];
+  const vitalHosts = [...document.querySelectorAll(".js-vitals")];
+  // Fallback for stripped copies predating the classes: the Work containers.
+  if (!currHosts.length && typeof currenciesCtn !== "undefined" && currenciesCtn) currHosts.push(currenciesCtn);
+  if (!vitalHosts.length && typeof vitalsCtn !== "undefined" && vitalsCtn) vitalHosts.push(vitalsCtn);
   // Unified resource groups: currencies and vitals share one namespace,
   // exactly like actions + upgrades. Same group name = same collapsible
   // section, with currency rows and vital bars mixed together in RESOURCES
-  // order. A group's panel (Currencies on the left vs Vitals on the right)
-  // is set by its first item; later items join it wherever it lives.
-  // A resource can also set `header` to file its group under a titled
-  // header section instead of standing alone.
+  // order. A group's panel (Currencies vs Vitals) is set by its first
+  // item; later items join it wherever it lives. A resource can also set
+  // `header` to file its group under a titled header section instead.
   const { top, slotFor } = makeSlotCollector();
   for (const r of RESOURCES) slotFor(r, isCurrency(r) ? "Basic" : "Body").items.push(r);
   const buildButtons = (slot, wrap) => {
     for (const r of slot.items) wrap.appendChild(buildResourceEl(r));
   };
-  currenciesCtn.innerHTML = "";
-  vitalsCtn.innerHTML = "";
+  for (const ctn of [...currHosts, ...vitalHosts]) ctn.innerHTML = "";
   if (!top.length) {
-    for (const emptyCtn of [currenciesCtn, vitalsCtn]) {
+    for (const emptyCtn of [...currHosts, ...vitalHosts]) {
       const d = document.createElement("div");
       d.className = "emptyNote";
       d.textContent = "None yet.";
@@ -78,12 +87,12 @@ function appendGroupedResources() {
     return;
   }
   for (const entry of top) {
-    if (entry.kind === "header") {
-      const home = isCurrency(entry.groups[0].items[0]) ? currenciesCtn : vitalsCtn;
-      home.appendChild(buildHeaderSection(entry, "taskBtns stack", buildButtons));
-    } else {
-      const home = isCurrency(entry.slot.items[0]) ? currenciesCtn : vitalsCtn;
-      home.appendChild(buildGroupDetails(entry.slot, "taskBtns stack", buildButtons));
+    // Same section goes to EVERY matching host (fresh DOM per host - a node
+    // can only live in one parent), so all tabs stay in sync.
+    const hosts = isCurrency((entry.groups ? entry.groups[0].items[0] : entry.slot.items[0])) ? currHosts : vitalHosts;
+    for (const home of hosts) {
+      if (entry.kind === "header") home.appendChild(buildHeaderSection(entry, "taskBtns stack", buildButtons));
+      else home.appendChild(buildGroupDetails(entry.slot, "taskBtns stack", buildButtons));
     }
   }
 }

@@ -6,6 +6,13 @@
 
 const currenciesCtn = document.getElementById("currenciesCtn");
 const vitalsCtn = document.getElementById("vitalsCtn");
+// Home-tab mirrors (may be null in stripped-down copies): the resource and
+// log builders below fan out to EVERY .js-currencies / .js-vitals / .js-log
+// container in the page, so adding these panels to a future tab is just
+// adding three divs with those classes - no JS changes needed.
+const currenciesCtnHome = document.getElementById("currenciesCtnHome");
+const vitalsCtnHome = document.getElementById("vitalsCtnHome");
+const logElHome = document.getElementById("logElHome");
 const actionsCtn = document.getElementById("actionsCtn");
 const statusEl = document.getElementById("statusEl");
 const resetBtn = document.getElementById("resetBtn");
@@ -14,7 +21,10 @@ const clearLogBtn = document.getElementById("clearLogBtn");
 const logFilterBtn = document.getElementById("logFilterBtn");
 const logFilterModal = document.getElementById("logFilterModal");
 const logFilterCloseBtn = document.getElementById("logFilterCloseBtn");
-const logActionsChk = document.getElementById("logActionsChk");
+const logFilterBtnHome = document.getElementById("logFilterBtnHome");
+const clearLogBtnHome = document.getElementById("clearLogBtnHome");
+const logBeginChk = document.getElementById("logBeginChk");
+const logStopChk = document.getElementById("logStopChk");
 const logUpgradesChk = document.getElementById("logUpgradesChk");
 const logUnlocksChk = document.getElementById("logUnlocksChk");
 const logImprovementsChk = document.getElementById("logImprovementsChk");
@@ -28,9 +38,33 @@ const clipArea = document.getElementById("clipArea");
 const clipLoadBtn = document.getElementById("clipLoadBtn");
 let clipMode = null;
 const tabWorkBtn = document.getElementById("tabWorkBtn");
+const tabPlayerBtn = document.getElementById("tabPlayerBtn");
 const tabOptionsBtn = document.getElementById("tabOptionsBtn");
 const tabWork = document.getElementById("tabWork");
+const tabPlayer = document.getElementById("tabPlayer");
 const tabOptions = document.getElementById("tabOptions");
+const playerNameEl = document.getElementById("playerNameEl");
+const playerNameInput = document.getElementById("playerNameInput");
+const playerNameEditBtn = document.getElementById("playerNameEditBtn");
+const playerStatsCtn = document.getElementById("playerStatsCtn");
+const tabHomeBtn = document.getElementById("tabHomeBtn");
+const tabHome = document.getElementById("tabHome");
+const homeSelectBtn = document.getElementById("homeSelectBtn");
+const homeModal = document.getElementById("homeModal");
+const homeCloseBtn = document.getElementById("homeCloseBtn");
+const homeListCtn = document.getElementById("homeListCtn");
+const floorSpaceEl = document.getElementById("floorSpaceEl");
+const homeFullNote = document.getElementById("homeFullNote");
+const furnitureCtn = document.getElementById("furnitureCtn");
+const sortSpaceBtn = document.getElementById("sortSpaceBtn");
+const sortNameBtn = document.getElementById("sortNameBtn");
+const furnFilterBtn = document.getElementById("furnFilterBtn");
+const furnFilterModal = document.getElementById("furnFilterModal");
+const furnFilterCloseBtn = document.getElementById("furnFilterCloseBtn");
+const furnMaxedChk = document.getElementById("furnMaxedChk");
+const furnOwnedChk = document.getElementById("furnOwnedChk");
+const furnUnownedChk = document.getElementById("furnUnownedChk");
+const furnBlockedChk = document.getElementById("furnBlockedChk");
 const showMaxedChk = document.getElementById("showMaxedChk");
 const logLimitInput = document.getElementById("logLimitInput");
 const manualSaveBtn = document.getElementById("manualSaveBtn");
@@ -42,10 +76,16 @@ const uiRefs = new Map();
 
 function showTab(which) {
   tabWork.hidden = which !== "work";
+  tabHome.hidden = which !== "home";
+  tabPlayer.hidden = which !== "player";
   tabOptions.hidden = which !== "options";
   tabWorkBtn.classList.toggle("active", which === "work");
+  tabHomeBtn.classList.toggle("active", which === "home");
+  tabPlayerBtn.classList.toggle("active", which === "player");
   tabOptionsBtn.classList.toggle("active", which === "options");
   tabWorkBtn.setAttribute("aria-selected", which === "work" ? "true" : "false");
+  tabHomeBtn.setAttribute("aria-selected", which === "home" ? "true" : "false");
+  tabPlayerBtn.setAttribute("aria-selected", which === "player" ? "true" : "false");
   tabOptionsBtn.setAttribute("aria-selected", which === "options" ? "true" : "false");
 }
 
@@ -60,6 +100,13 @@ function normalizeLogLimit(v) {
   return Math.min(LOG_LIMIT_MAX, Math.max(LOG_LIMIT_MIN, n));
 }
 
+// Furniture sort: { key: "space"|"name", dir: 1|-1 }. Defaults to name A-Z.
+function normalizeFurnSort(v) {
+  const key = (v && v.key === "space") ? "space" : "name";
+  const dir = (v && v.dir === -1) ? -1 : 1;
+  return { key, dir };
+}
+
 const configWarnings = normalizeConfig();
 let state = makeFreshState();
 let lastTime = performance.now();
@@ -69,7 +116,111 @@ function makeFreshState() {
   for (const r of RESOURCES) amounts[r.id] = r.start ?? 0;
   const upgrades = {};
   for (const u of UPGRADES) upgrades[u.id] = 0;
-  return { amounts, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, logActions: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: LOG_LIMIT_DEFAULT }, stats: { actions: {} }, currentActionId: null, cycles: {} };
+  const playerStats = {};
+  for (const s of PLAYER_STATS) playerStats[s.id] = s.start ?? 1;
+  const furniture = {};
+  for (const f of FURNITURE) furniture[f.id] = 0;
+  const homes = {};
+  const milestones = {};
+  return { amounts, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: LOG_LIMIT_DEFAULT, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats, homes, currentHome: null, furniture, milestones, stats: { actions: {} }, currentActionId: null, cycles: {} };
+}
+
+// Player name: trimmed, capped at 24 chars, never blank (falls back to
+// the default). Renaming is cosmetic - nothing reads the name yet.
+const PLAYER_NAME_DEFAULT = "Placeholder";
+const PLAYER_NAME_MAXLEN = 24;
+function normalizePlayerName(v) {
+  const t = typeof v === "string" ? v.trim().slice(0, PLAYER_NAME_MAXLEN) : "";
+  return t || PLAYER_NAME_DEFAULT;
+}
+
+function getPlayerStat(id) {
+  return PLAYER_STATS.find(s => s.id === id);
+}
+
+function getHome(id) {
+  return HOMES.find(h => h.id === id);
+}
+
+function getFurniture(id) {
+  return FURNITURE.find(f => f.id === id);
+}
+
+// Home tab unlock: visible once any home is owned.
+function ownsAnyHome() {
+  return HOMES.some(h => state.homes[h.id]);
+}
+
+function currentHomeDef() {
+  return state.currentHome ? getHome(state.currentHome) : undefined;
+}
+
+// Floor Space accounting: total used vs the current home's max.
+function furnitureSpaceUsed() {
+  let n = 0;
+  for (const f of FURNITURE) n += (state.furniture[f.id] ?? 0) * (f.space ?? 1);
+  return n;
+}
+
+// Effective furniture purchase cap: base maxPurchases plus every owned
+// "furnitureCap" upgrade effect and the current home's (e.g. Medium Tent's
+// upgrade lets you stack a third Coin Pile).
+function getEffectiveFurnCap(f) {
+  let cap = f.maxPurchases ?? 1;
+  if (cap !== Infinity) {
+    for (const u of UPGRADES) {
+      const owned = state.upgrades[u.id] ?? 0;
+      if (!owned) continue;
+      for (const e of u.effects || []) if (e.type === "furnitureCap" && e.furniture === f.id) cap += e.amount * owned;
+    }
+    const home = currentHomeDef();
+    if (home) for (const e of home.effects || []) if (e.type === "furnitureCap" && e.furniture === f.id) cap += e.amount;
+  }
+  return cap;
+}
+
+// Effective action time: base tickSeconds minus every owned "time" effect
+// for that action (furniture like Pillows, upgrades, current home), floored
+// so the main loop can never hit zero/negative cycles.
+const MIN_TICK_SECONDS = 0.1;
+function getEffectiveTick(a) {
+  let t = a.tickSeconds;
+  for (const u of UPGRADES) {
+    const owned = state.upgrades[u.id] ?? 0;
+    if (!owned) continue;
+    for (const e of u.effects || []) if (e.type === "time" && e.action === a.id) t -= e.amount * owned;
+  }
+  for (const f of FURNITURE) {
+    const owned = state.furniture[f.id] ?? 0;
+    if (!owned) continue;
+    for (const e of f.effects || []) if (e.type === "time" && e.action === a.id) t -= e.amount * owned;
+  }
+  const home = currentHomeDef();
+  if (home) for (const e of home.effects || []) if (e.type === "time" && e.action === a.id) t -= e.amount;
+  return Math.max(MIN_TICK_SECONDS, t);
+}
+
+function homeSpaceMax() {
+  const h = currentHomeDef();
+  return h ? h.space : 0;
+}
+
+// Furniture unlock: visible once ANY of its required homes is owned (a
+// string id or an array of ids - e.g. ["tent", "mediumTent"] survives the
+// Small Tent being replaced). Owned furniture stays visible via its new
+// home. No requirement = always visible.
+function unlockFurniture(f) {
+  if (!f.requiresHome) return true;
+  const req = Array.isArray(f.requiresHome) ? f.requiresHome : [f.requiresHome];
+  return req.some(id => !!state.homes[id]);
+}
+
+// Blocked = unlocked but not currently buyable (maxed, unaffordable or no room).
+function furnitureBlocked(f) {
+  const owned = state.furniture[f.id] ?? 0;
+  if (owned >= getEffectiveFurnCap(f)) return false;
+  if (!canAfford(f.cost)) return true;
+  return furnitureSpaceUsed() + (f.space ?? 1) > homeSpaceMax();
 }
 
 function getResource(id) {
@@ -176,6 +327,31 @@ function unlockMet(item, prefix) {
   return false;
 }
 
+// Milestones: one-time circumstantial messages (see MILESTONES in the
+// config). Fired flags live in state.milestones (saved), so each message
+// shows once ever - even across save/load, and even if the circumstance
+// later stops holding (e.g. selling the furniture afterwards).
+function milestoneMet(m) {
+  const req = m.requires ?? {};
+  for (const [id, n] of Object.entries(req.furniture ?? {})) if ((state.furniture[id] ?? 0) < n) return false;
+  for (const [id, n] of Object.entries(req.upgrades ?? {})) if ((state.upgrades[id] ?? 0) < n) return false;
+  for (const [id, n] of Object.entries(req.resources ?? {})) if ((state.amounts[id] ?? 0) < n) return false;
+  for (const [id, n] of Object.entries(req.actions ?? {})) if ((state.stats.actions[id] ?? 0) < n) return false;
+  return true;
+}
+
+// Runs every frame from render(): cheap (a few entries), and catches every
+// path - buying, importing a save that already qualifies, future systems.
+function checkMilestones() {
+  for (const m of MILESTONES) {
+    if (state.milestones[m.id]) continue;
+    if (milestoneMet(m)) {
+      state.milestones[m.id] = true;
+      log(m.text, m.category ?? "system");
+    }
+  }
+}
+
 function hideEmptyGroups(ctn) {
   // Collapse sections whose every button is hidden (unlock/maxed-gated),
   // then headers whose every group is hidden.
@@ -199,6 +375,21 @@ function getEffectiveMax(resourceId) {
     if (!owned) continue;
     for (const e of u.effects || []) {
       if (e.type === "max" && e.resource === resourceId) max += e.amount * owned;
+    }
+  }
+  // Furniture "max" effects, then the current home's (homes boost the
+  // place you actually live in, not the ones you just own).
+  for (const f of FURNITURE) {
+    const owned = state.furniture[f.id] ?? 0;
+    if (!owned) continue;
+    for (const e of f.effects || []) {
+      if (e.type === "max" && e.resource === resourceId) max += e.amount * owned;
+    }
+  }
+  const home = currentHomeDef();
+  if (home) {
+    for (const e of home.effects || []) {
+      if (e.type === "max" && e.resource === resourceId) max += e.amount;
     }
   }
   return max;
@@ -262,13 +453,27 @@ function actionLevel(a) {
   return Math.min(imp.maxLevel, Math.floor((state.stats.actions[a.id] ?? 0) / imp.every));
 }
 
-// One cycle's payout: base gains plus the improvement bonus per level.
+// One cycle's payout: base gains plus the improvement bonus per level,
+// plus owned furniture and current-home "gain" effects for this action.
 function effectiveGains(a) {
   const out = { ...(a.gains ?? {}) };
   const imp = a.improvements;
   if (imp && imp.bonus) {
     const lvl = actionLevel(a);
     if (lvl > 0) for (const [id, n] of Object.entries(imp.bonus)) out[id] = (out[id] ?? 0) + n * lvl;
+  }
+  for (const f of FURNITURE) {
+    const owned = state.furniture[f.id] ?? 0;
+    if (!owned) continue;
+    for (const e of f.effects || []) {
+      if (e.type === "gain" && e.action === a.id && e.resource) out[e.resource] = (out[e.resource] ?? 0) + e.amount * owned;
+    }
+  }
+  const home = currentHomeDef();
+  if (home) {
+    for (const e of home.effects || []) {
+      if (e.type === "gain" && e.action === a.id && e.resource) out[e.resource] = (out[e.resource] ?? 0) + e.amount;
+    }
   }
   return out;
 }
@@ -289,7 +494,7 @@ function normalizeConfig() {
   // share one DOM id. Later duplicates are removed, keeping the first.
   // Entries added later at runtime should call normalizeConfig() again
   // before buildUI().
-  for (const [arr, kind] of [[RESOURCES, "resource"], [ACTIONS, "action"], [UPGRADES, "upgrade"]]) {
+  for (const [arr, kind] of [[RESOURCES, "resource"], [ACTIONS, "action"], [UPGRADES, "upgrade"], [PLAYER_STATS, "player stat"], [HOMES, "home"], [FURNITURE, "furniture"], [MILESTONES, "milestone"]]) {
     const seen = new Set();
     for (let i = 0; i < arr.length; i++) {
       const e = arr[i];
@@ -321,6 +526,19 @@ function normalizeConfig() {
     }
     cleanTags(r, 'Resource "' + r.id + '"');
     cleanHeader(r, 'Resource "' + r.id + '"');
+  }
+  for (const s of PLAYER_STATS) {
+    if (typeof s.name !== "string" || !s.name) s.name = s.id;
+    if (typeof s.abbr !== "string" || !s.abbr) s.abbr = s.name.slice(0, 3).toUpperCase();
+    if (typeof s.start !== "number" || !Number.isFinite(s.start)) {
+      if (s.start !== undefined) warn('Player stat "' + s.id + '": bad start, reset to 1.');
+      s.start = 1;
+    }
+    if (s.tooltip !== undefined && typeof s.tooltip !== "string") {
+      warn('Player stat "' + s.id + '": bad tooltip, ignored.');
+      delete s.tooltip;
+    }
+    cleanTags(s, 'Player stat "' + s.id + '"');
   }
   const cleanMap = (map, ownerLabel, kind) => {
     if (map === undefined) return {};
@@ -385,6 +603,71 @@ function normalizeConfig() {
       delete item[field];
     }
   };
+  // Effect entries shared by upgrades, furniture, and homes. `allow`
+  // lists which types are valid here: "max" ({ resource, amount }),
+  // "gain" ({ action, resource, amount }), "home" ({ home }),
+  // "furnitureCap" ({ furniture, amount } = +amount to that furniture's
+  // purchase cap), "time" ({ action, amount } = that many fewer seconds
+  // per cycle of that action). Returns the cleaned effect, or null when
+  // it should be skipped.
+  const cleanEffect = (e, ownerLabel, allow) => {
+    if (!e || typeof e !== "object" || typeof e.type !== "string") {
+      warn(ownerLabel + ": skipped an invalid effect.");
+      return null;
+    }
+    if (e.type === "max" && allow.includes("max")) {
+      if (typeof e.resource !== "string" || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+        warn(ownerLabel + ': skipped an invalid effect (use { type: "max", resource, amount }).');
+        return null;
+      }
+      if (!getResource(e.resource)) warn(ownerLabel + ': effect targets unknown resource "' + e.resource + '".');
+      return { type: "max", resource: e.resource, amount: e.amount };
+    }
+    if (e.type === "gain" && allow.includes("gain")) {
+      if (typeof e.action !== "string" || typeof e.resource !== "string" || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+        warn(ownerLabel + ': skipped an invalid effect (use { type: "gain", action, resource, amount }).');
+        return null;
+      }
+      if (!getAction(e.action)) warn(ownerLabel + ': effect targets unknown action "' + e.action + '".');
+      if (!getResource(e.resource)) warn(ownerLabel + ': effect targets unknown resource "' + e.resource + '".');
+      return { type: "gain", action: e.action, resource: e.resource, amount: e.amount };
+    }
+    if (e.type === "home" && allow.includes("home")) {
+      if (typeof e.home !== "string" || !getHome(e.home)) {
+        warn(ownerLabel + ': skipped an invalid effect (use { type: "home", home }).');
+        return null;
+      }
+      return { type: "home", home: e.home };
+    }
+    if (e.type === "furnitureCap" && allow.includes("furnitureCap")) {
+      if (typeof e.furniture !== "string" || !getFurniture(e.furniture) || !Number.isInteger(e.amount) || e.amount < 1) {
+        warn(ownerLabel + ': skipped an invalid effect (use { type: "furnitureCap", furniture, amount }).');
+        return null;
+      }
+      return { type: "furnitureCap", furniture: e.furniture, amount: e.amount };
+    }
+    if (e.type === "time" && allow.includes("time")) {
+      if (typeof e.action !== "string" || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+        warn(ownerLabel + ': skipped an invalid effect (use { type: "time", action, amount }).');
+        return null;
+      }
+      if (!getAction(e.action)) warn(ownerLabel + ': effect targets unknown action "' + e.action + '".');
+      return { type: "time", action: e.action, amount: e.amount };
+    }
+    warn(ownerLabel + ": skipped an invalid effect.");
+    return null;
+  };
+  const cleanMaxPurchases = (item, ownerLabel) => {
+    if (item.maxPurchases === undefined) item.maxPurchases = 1;
+    if (item.maxPurchases !== Infinity && (!Number.isFinite(item.maxPurchases) || item.maxPurchases <= 0)) {
+      warn(ownerLabel + ": bad maxPurchases, reset to 1.");
+      item.maxPurchases = 1;
+    } else if (Number.isFinite(item.maxPurchases) && !Number.isInteger(item.maxPurchases)) {
+      const fixed = Math.max(1, Math.floor(item.maxPurchases));
+      warn(ownerLabel + ": maxPurchases rounded down to " + fixed + ".");
+      item.maxPurchases = fixed;
+    }
+  };
   for (const a of ACTIONS) {
     if (typeof a.name !== "string" || !a.name) a.name = a.id;
     if (typeof a.tickSeconds !== "number" || !Number.isFinite(a.tickSeconds) || a.tickSeconds <= 0) {
@@ -426,15 +709,7 @@ function normalizeConfig() {
     cleanUnlock(u, 'Upgrade "' + u.id + '"');
     cleanTags(u, 'Upgrade "' + u.id + '"');
     cleanHeader(u, 'Upgrade "' + u.id + '"');
-    if (u.maxPurchases === undefined) u.maxPurchases = 1;
-    if (u.maxPurchases !== Infinity && (!Number.isFinite(u.maxPurchases) || u.maxPurchases <= 0)) {
-      warn('Upgrade "' + u.id + '": bad maxPurchases, reset to 1.');
-      u.maxPurchases = 1;
-    } else if (Number.isFinite(u.maxPurchases) && !Number.isInteger(u.maxPurchases)) {
-      const fixed = Math.max(1, Math.floor(u.maxPurchases));
-      warn('Upgrade "' + u.id + '": maxPurchases rounded down to ' + fixed + '.');
-      u.maxPurchases = fixed;
-    }
+    cleanMaxPurchases(u, 'Upgrade "' + u.id + '"');
     if (u.effects === undefined) u.effects = [];
     if (!Array.isArray(u.effects)) {
       warn('Upgrade "' + u.id + '": bad effects, ignored.');
@@ -442,12 +717,8 @@ function normalizeConfig() {
     } else {
       const kept = [];
       for (const e of u.effects) {
-        if (!e || e.type !== "max" || typeof e.resource !== "string" || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
-          warn('Upgrade "' + u.id + '": skipped an invalid effect (use { type: "max", resource, amount }).');
-          continue;
-        }
-        if (!getResource(e.resource)) warn('Upgrade "' + u.id + '": effect targets unknown resource "' + e.resource + '".');
-        kept.push({ type: "max", resource: e.resource, amount: e.amount });
+        const c = cleanEffect(e, 'Upgrade "' + u.id + '"', ["max", "home", "furnitureCap", "time"]);
+        if (c) kept.push(c);
       }
       u.effects = kept;
     }
@@ -456,6 +727,142 @@ function normalizeConfig() {
       delete u.description;
     }
     if (!u.description) u.description = autoUpgradeDescription(u);
+  }
+  for (const h of HOMES) {
+    if (typeof h.name !== "string" || !h.name) h.name = h.id;
+    if (!Number.isInteger(h.space) || h.space <= 0) {
+      if (h.space !== undefined) warn('Home "' + h.id + '": bad space, reset to 1.');
+      h.space = 1;
+    }
+    if (h.tooltip !== undefined && typeof h.tooltip !== "string") {
+      warn('Home "' + h.id + '": bad tooltip, ignored.');
+      delete h.tooltip;
+    }
+    if (h.unlockHint !== undefined && typeof h.unlockHint !== "string") {
+      warn('Home "' + h.id + '": bad unlockHint, ignored.');
+      delete h.unlockHint;
+    }
+    // Replaces: this home overrides (removes) the listed homes when granted,
+    // and instantly becomes current - e.g. Medium Tent replaces Small Tent.
+    if (h.replaces !== undefined) {
+      const list = Array.isArray(h.replaces) ? h.replaces : [h.replaces];
+      const kept = [];
+      for (const r of list) {
+        if (typeof r !== "string" || !getHome(r)) warn('Home "' + h.id + '": bad replaces entry, skipped.');
+        else if (!kept.includes(r)) kept.push(r);
+      }
+      if (kept.length) h.replaces = kept;
+      else delete h.replaces;
+    }
+    if (h.effects === undefined) h.effects = [];
+    if (!Array.isArray(h.effects)) {
+      warn('Home "' + h.id + '": bad effects, ignored.');
+      h.effects = [];
+    } else {
+      const kept = [];
+      for (const e of h.effects) {
+        const c = cleanEffect(e, 'Home "' + h.id + '"', ["max", "gain", "furnitureCap", "time"]);
+        if (c) kept.push(c);
+      }
+      h.effects = kept;
+    }
+    cleanTags(h, 'Home "' + h.id + '"');
+  }
+  for (const f of FURNITURE) {
+    if (typeof f.name !== "string" || !f.name) f.name = f.id;
+    // Floor Space comes in 0.5 steps (0.5, 1, 1.5, ...) so small items
+    // like Pillows can share space; floats stay exact at halves.
+    if (typeof f.space !== "number" || !Number.isFinite(f.space) || f.space <= 0 || Math.round(f.space * 2) !== f.space * 2) {
+      if (f.space !== undefined) warn('Furniture "' + f.id + '": bad space (use 0.5 steps), reset to 1.');
+      f.space = 1;
+    }
+    f.cost = cleanMap(f.cost, 'Furniture "' + f.id + '"', "cost");
+    cleanMaxPurchases(f, 'Furniture "' + f.id + '"');
+    if (f.effects === undefined) f.effects = [];
+    if (!Array.isArray(f.effects)) {
+      warn('Furniture "' + f.id + '": bad effects, ignored.');
+      f.effects = [];
+    } else {
+      const kept = [];
+      for (const e of f.effects) {
+        const c = cleanEffect(e, 'Furniture "' + f.id + '"', ["max", "gain", "time"]);
+        if (c) kept.push(c);
+      }
+      f.effects = kept;
+    }
+    // Required home: a single id or an array of ids - visible when ANY is
+    // owned, so entries shared across a home replacement never lock again.
+    if (f.requiresHome !== undefined) {
+      const list = Array.isArray(f.requiresHome) ? f.requiresHome : [f.requiresHome];
+      const keptReq = [];
+      for (const r of list) {
+        if (typeof r !== "string" || !getHome(r)) warn('Furniture "' + f.id + '": bad requiresHome entry, skipped.');
+        else if (!keptReq.includes(r)) keptReq.push(r);
+      }
+      if (keptReq.length === 1 && !Array.isArray(f.requiresHome)) f.requiresHome = keptReq[0];
+      else if (keptReq.length) f.requiresHome = keptReq;
+      else {
+        warn('Furniture "' + f.id + '": bad requiresHome, always visible.');
+        delete f.requiresHome;
+      }
+    }
+    if (f.description !== undefined && typeof f.description !== "string") {
+      warn('Furniture "' + f.id + '": bad description, auto-generated.');
+      delete f.description;
+    }
+    if (!f.description) f.description = "Furniture for your home.";
+    cleanLogField(f, "buyLog", 'Furniture "' + f.id + '"');
+    cleanLogField(f, "sellLog", 'Furniture "' + f.id + '"');
+    if (f.flavor !== undefined && typeof f.flavor !== "string") {
+      warn('Furniture "' + f.id + '": bad flavor, ignored.');
+      delete f.flavor;
+    }
+    cleanTags(f, 'Furniture "' + f.id + '"');
+  }
+  // Milestones: one-time circumstantial log messages (see MILESTONES in the
+  // config). Requires-maps are cleaned like costs: non-negative finite
+  // amounts only, unknown ids warned about but still checked.
+  const cleanReq = (map, mLabel, kind, finder) => {
+    if (map === undefined) return {};
+    if (!map || typeof map !== "object" || Array.isArray(map)) {
+      warn(mLabel + ": bad " + kind + " requires, ignored.");
+      return {};
+    }
+    const cleaned = {};
+    for (const [k, v] of Object.entries(map)) {
+      if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
+        warn(mLabel + ": bad " + kind + ' requires amount for "' + k + '", skipped.');
+        continue;
+      }
+      if (!finder(k)) warn(mLabel + ": " + kind + ' requires unknown "' + k + '".');
+      cleaned[k] = v;
+    }
+    return cleaned;
+  };
+  for (let i = 0; i < MILESTONES.length; i++) {
+    const m = MILESTONES[i];
+    const mLabel = 'Milestone "' + (m.id || "?") + '"';
+    if (typeof m.text !== "string" || !m.text) {
+      warn(mLabel + ": no text, removed.");
+      MILESTONES.splice(i, 1); i--;
+      continue;
+    }
+    if (m.requires !== undefined && (!m.requires || typeof m.requires !== "object" || Array.isArray(m.requires))) {
+      warn(mLabel + ": bad requires, removed.");
+      MILESTONES.splice(i, 1); i--;
+      continue;
+    }
+    const req = m.requires ?? {};
+    m.requires = {
+      furniture: cleanReq(req.furniture, mLabel, "furniture", (k) => getFurniture(k)),
+      upgrades: cleanReq(req.upgrades, mLabel, "upgrade", (k) => getUpgrade(k)),
+      resources: cleanReq(req.resources, mLabel, "resource", (k) => getResource(k)),
+      actions: cleanReq(req.actions, mLabel, "action", (k) => getAction(k)),
+    };
+    if (m.category !== undefined && typeof m.category !== "string") {
+      warn(mLabel + ": bad category, using the default.");
+      delete m.category;
+    }
   }
   return warnings;
 }

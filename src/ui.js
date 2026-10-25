@@ -1,6 +1,23 @@
 // Labor Game UI shell: buildUI, tabs, options, filter window, file wiring.
+// Rebuilds wipe their containers' DOM, which would pop every
+// user-collapsed group back open (e.g. buying furniture rebuilds the
+// actions panel too). Snapshot/restore <details> open states around the
+// rebuild so collapsed sections stay collapsed. Structure is deterministic
+// (same config = same order), so per-container index mapping lines up.
+function snapDetailsOpen(ctn) {
+  return [...ctn.querySelectorAll("details")].map(d => d.open);
+}
+function restoreDetailsOpen(ctn, arr) {
+  if (!arr) return;
+  const ds = ctn.querySelectorAll("details");
+  for (let i = 0; i < ds.length && i < arr.length; i++) ds[i].open = arr[i];
+}
+
 function buildUI() {
   uiRefs.clear();
+  const actOpen = snapDetailsOpen(actionsCtn);
+  const hostOpen = new Map();
+  for (const h of document.querySelectorAll(".js-currencies, .js-vitals")) hostOpen.set(h, snapDetailsOpen(h));
   appendGroupedResources();
 
   actionsCtn.innerHTML = "";
@@ -41,13 +58,150 @@ function buildUI() {
     if (entry.kind === "header") actionsCtn.appendChild(buildHeaderSection(entry, "taskBtns", buildButtons));
     else actionsCtn.appendChild(buildGroupDetails(entry.slot, "taskBtns", buildButtons));
   }
+  restoreDetailsOpen(actionsCtn, actOpen);
+  for (const [h, arr] of hostOpen) restoreDetailsOpen(h, arr);
   showMaxedChk.checked = !!state.options.showMaxedUpgrades;
   if (logLimitInput) logLimitInput.value = getLogLimit();
+  buildPlayerTab();
+  buildFurnitureCards();
+  updateSortButtons();
+  syncFurnFilters();
+  buildFurnTypeFilters();
   applyLogFilters();
 }
 
+function syncFurnFilters() {
+  const flt = state.options.furnFilters ?? {};
+  if (furnMaxedChk) furnMaxedChk.checked = flt.maxed !== false;
+  if (furnOwnedChk) furnOwnedChk.checked = flt.owned !== false;
+  if (furnUnownedChk) furnUnownedChk.checked = flt.unowned !== false;
+  if (furnBlockedChk) furnBlockedChk.checked = flt.blocked !== false;
+}
+
+// Type sub-section of the Furniture Filters modal: one checkbox per
+// discriminative furniture tag, rebuilt every buildUI so new tags appear
+// with no extra work. Counts update live with the config.
+function buildFurnTypeFilters() {
+  const grid = document.getElementById("furnTypeGrid");
+  const sec = document.getElementById("furnTypeSec");
+  if (!grid || !sec) return;
+  grid.innerHTML = "";
+  const types = furnitureTypeTags();
+  for (const t of types) {
+    const item = document.createElement("div");
+    item.className = "filterItem";
+    const lab = document.createElement("label");
+    const chk = document.createElement("input");
+    chk.type = "checkbox";
+    chk.checked = furnTypeOn(t);
+    chk.addEventListener("change", () => {
+      state.options.furnTypes = state.options.furnTypes ?? {};
+      state.options.furnTypes[t] = chk.checked;
+      render();
+    });
+    lab.appendChild(chk);
+    lab.appendChild(document.createTextNode(" " + t));
+    item.appendChild(lab);
+    const n = FURNITURE.filter(f => getTags(f).includes(t)).length;
+    const sub = document.createElement("div");
+    sub.className = "modalSub";
+    sub.textContent = n === 1 ? "1 furnishing." : n + " furnishings.";
+    item.appendChild(sub);
+    grid.appendChild(item);
+  }
+  sec.hidden = !types.length;
+}
+
+// Player tab: name row + stat rows (same tooltip style as resources).
+// Unlocked by default - the tab button is always visible.
+function buildPlayerTab() {
+  playerNameEl.textContent = state.playerName;
+  playerNameInput.value = state.playerName;
+  playerNameInput.hidden = true;
+  playerNameEl.hidden = false;
+  playerStatsCtn.innerHTML = "";
+  for (const s of PLAYER_STATS) playerStatsCtn.appendChild(buildPlayerStatEl(s));
+}
+
+function buildPlayerStatTip(s) {
+  const tip = document.createElement("span");
+  tip.className = "tip";
+  const head = document.createElement("div");
+  head.className = "tip-head";
+  const title = document.createElement("span");
+  title.textContent = s.abbr ? s.name + " (" + s.abbr + ")" : s.name;
+  const count = document.createElement("span");
+  count.className = "tip-count";
+  head.appendChild(title);
+  head.appendChild(count);
+  tip.appendChild(head);
+  const headTags = buildTipTags(s);
+  if (headTags) tip.appendChild(headTags);
+  if (s.tooltip) {
+    const desc = document.createElement("div");
+    desc.className = "tip-desc";
+    desc.textContent = s.tooltip;
+    tip.appendChild(desc);
+  }
+  return tip;
+}
+
+function buildPlayerStatEl(s) {
+  const line = document.createElement("div");
+  line.className = "currency";
+  line.id = "stat-" + s.id;
+  line.innerHTML = '<span class="cur-val"></span><span class="cur-name"></span>';
+  line.querySelector(".cur-name").textContent = s.abbr || s.name;
+  if (s.nameColor) line.querySelector(".cur-name").style.color = s.nameColor;
+  line.tabIndex = 0;
+  line.appendChild(buildPlayerStatTip(s));
+  uiRefs.set("p:" + s.id, { root: line, name: line.querySelector(".cur-name"), val: line.querySelector(".cur-val"), tipCount: line.querySelector(".tip-count") });
+  return line;
+}
+
+// Rename: pencil opens an inline editor; Enter/blur commits, Escape cancels.
+// Cosmetic only - nothing reads the name yet.
+function startNameEdit() {
+  playerNameInput.value = state.playerName;
+  playerNameEl.hidden = true;
+  playerNameInput.hidden = false;
+  playerNameInput.focus();
+  playerNameInput.select();
+}
+function commitNameEdit() {
+  if (playerNameInput.hidden) return;
+  state.playerName = normalizePlayerName(playerNameInput.value);
+  playerNameEl.textContent = state.playerName;
+  playerNameInput.value = state.playerName;
+  playerNameInput.hidden = true;
+  playerNameEl.hidden = false;
+  playerNameEditBtn.focus();
+}
+function cancelNameEdit() {
+  playerNameInput.value = state.playerName;
+  playerNameInput.hidden = true;
+  playerNameEl.hidden = false;
+  playerNameEditBtn.focus();
+}
+playerNameEditBtn.addEventListener("click", startNameEdit);
+playerNameInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") commitNameEdit();
+  else if (e.key === "Escape") cancelNameEdit();
+});
+playerNameInput.addEventListener("blur", commitNameEdit);
+
 logFilterBtn.addEventListener("click", () => {
-  logActionsChk.checked = state.options.logActions !== false;
+  logBeginChk.checked = state.options.logActionBegin !== false;
+  logStopChk.checked = state.options.logActionStop !== false;
+  logUpgradesChk.checked = state.options.logUpgrades !== false;
+  logUnlocksChk.checked = state.options.logUnlocks !== false;
+  logImprovementsChk.checked = state.options.logImprovements !== false;
+  logFilterModal.hidden = false;
+});
+// Home-tab Work Log mirror: same modal, same clear - every copy stays synced.
+if (logFilterBtnHome) logFilterBtnHome.addEventListener("click", () => {
+  logBeginChk.checked = state.options.logActionBegin !== false;
+  logStopChk.checked = state.options.logActionStop !== false;
   logUpgradesChk.checked = state.options.logUpgrades !== false;
   logUnlocksChk.checked = state.options.logUnlocks !== false;
   logImprovementsChk.checked = state.options.logImprovements !== false;
@@ -55,12 +209,45 @@ logFilterBtn.addEventListener("click", () => {
 });
 logFilterCloseBtn.addEventListener("click", () => { logFilterModal.hidden = true; });
 logFilterModal.addEventListener("click", (e) => { if (e.target === logFilterModal) logFilterModal.hidden = true; });
-logActionsChk.addEventListener("change", () => { state.options.logActions = logActionsChk.checked; applyLogFilters(); });
+logBeginChk.addEventListener("change", () => { state.options.logActionBegin = logBeginChk.checked; applyLogFilters(); });
+logStopChk.addEventListener("change", () => { state.options.logActionStop = logStopChk.checked; applyLogFilters(); });
 logUpgradesChk.addEventListener("change", () => { state.options.logUpgrades = logUpgradesChk.checked; applyLogFilters(); });
 logUnlocksChk.addEventListener("change", () => { state.options.logUnlocks = logUnlocksChk.checked; applyLogFilters(); });
 logImprovementsChk.addEventListener("change", () => { state.options.logImprovements = logImprovementsChk.checked; applyLogFilters(); });
+sortSpaceBtn.addEventListener("click", () => setFurnSort("space"));
+sortNameBtn.addEventListener("click", () => setFurnSort("name"));
+homeSelectBtn.addEventListener("click", () => {
+  buildHomeList();
+  homeModal.hidden = false;
+});
+homeCloseBtn.addEventListener("click", () => { homeModal.hidden = true; });
+homeModal.addEventListener("click", (e) => { if (e.target === homeModal) homeModal.hidden = true; });
+furnFilterBtn.addEventListener("click", () => {
+  syncFurnFilters();
+  buildFurnTypeFilters();
+  furnFilterModal.hidden = false;
+});
+furnFilterCloseBtn.addEventListener("click", () => { furnFilterModal.hidden = true; });
+furnFilterModal.addEventListener("click", (e) => { if (e.target === furnFilterModal) furnFilterModal.hidden = true; });
+furnMaxedChk.addEventListener("change", () => { state.options.furnFilters.maxed = furnMaxedChk.checked; render(); });
+furnOwnedChk.addEventListener("change", () => { state.options.furnFilters.owned = furnOwnedChk.checked; render(); });
+furnUnownedChk.addEventListener("change", () => { state.options.furnFilters.unowned = furnUnownedChk.checked; render(); });
+furnBlockedChk.addEventListener("change", () => { state.options.furnFilters.blocked = furnBlockedChk.checked; render(); });
 importInput.addEventListener("change", () => {
   if (importInput.files && importInput.files[0]) importSaveFile(importInput.files[0]);
+});
+// Escape closes any open modal (Filters, Select Home) and drops focus from
+// whatever it held, so keyboard users are never stuck in a dialog.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" && e.key !== "Esc") return;
+  let moved = null;
+  for (const m of [logFilterModal, furnFilterModal, homeModal]) {
+    if (m && !m.hidden) {
+      if (m.contains(document.activeElement)) moved = document.activeElement;
+      m.hidden = true;
+    }
+  }
+  if (moved && moved.blur) moved.blur();
 });
 manualSaveBtn.addEventListener("click", saveManualGame);
 manualLoadBtn.addEventListener("click", loadManualGame);

@@ -30,7 +30,7 @@
   .panel { border: 1px solid #333842; border-radius: 8px; padding: 0 12px 12px; background: #1b1f26; display: flex; flex-direction: column; min-height: 0; }
   #workGrid .panel { overflow: hidden; }
   .panel h2 { margin: 0 -12px 10px; padding: 8px 10px; font-size: 0.8em; text-transform: uppercase; letter-spacing: 1px; text-align: center; background: #262b34; border-radius: 8px 8px 0 0; opacity: 1; flex: none; }
-  #currenciesCtn, #vitalsCtn { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  #currenciesCtn, #vitalsCtn, .js-currencies, .js-vitals { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   #actionsCtn { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
   #actionsCtn .taskGroup { flex: 1; display: flex; flex-direction: column; }
   #actionsCtn .taskGroup:not([open]) { flex: none; }
@@ -77,7 +77,7 @@
   .taskHeader .taskGroup > summary { border-radius: 0; }
   .taskHeader .taskGroup:last-child { border-radius: 0 0 5px 5px; }
   .taskHeader .taskGroup:last-child:not([open]) > summary { border-radius: 0 0 5px 5px; }
-  #currenciesCtn .taskHeader, #vitalsCtn .taskHeader { margin-bottom: 10px; }
+  #currenciesCtn .taskHeader, #vitalsCtn .taskHeader, .js-currencies .taskHeader, .js-vitals .taskHeader { margin-bottom: 10px; }
   .actionBtn, .shopBtn { position: relative; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
   .actionBtn:hover:not(:disabled), .shopBtn:hover:not(:disabled) { background: #343945; }
   .actionBtn .action-label { position: relative; z-index: 1; }
@@ -92,7 +92,7 @@
   }
   .actionBtn.active { outline: 3px solid #333; font-weight: bold; }
   .shopBtn.owned { outline: 2px solid #333; }
-  .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip {
+  .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip, .furnCard .tip, .homeRow .tip {
     display: none;
     position: absolute;
     bottom: 110%;
@@ -121,10 +121,17 @@
     .panel h2 { background: #e0e0e0; }
     .actionBtn, .shopBtn { background: #f5f5f5; color: #111; border-color: #999; }
     .actionBtn:hover:not(:disabled), .shopBtn:hover:not(:disabled) { background: #e8e8e8; }
-    .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip { background: #fff; color: #000; border-color: #999; }
+    .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip, .furnCard .tip, .homeRow .tip { background: #fff; color: #000; border-color: #999; }
     .panel h2.hasBtn .hbtns button { background: #e4e4e4; color: #222; border-color: #aaa; }
+    #playerNameEditBtn { background: #e4e4e4; color: #222; border-color: #aaa; }
+    #playerNameInput { background: #fff; color: #000; border-color: #999; }
+    .furnCard { background: #f5f5f5; border-color: #999; }
+    .furnSortRow button, .furnBtns button, .homeRow { background: #f5f5f5; color: #111; border-color: #999; }
+    .furnSortRow button:hover:not(:disabled), .furnBtns button:hover:not(:disabled), .homeRow:hover:not(:disabled) { background: #e8e8e8; }
+    .furnSortRow button.active { background: #333; color: #fff; border-color: #333; }
     .tip-sec { border-color: #999; }
     .tip-tag { background: #e4e4e4; border-color: #aaa; }
+    .modalBox { background: #fff; color: #111; border-color: #bbb; }
   }
   .actionBtn:hover .tip, .actionBtn:focus-visible .tip,
   .shopBtn:hover .tip, .shopBtn:focus-visible .tip,
@@ -153,6 +160,66 @@
   .optionRow { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
   .optionRow span { font-size: 0.9em; opacity: 0.8; }
   #tabOptions .panel { max-width: 560px; margin: 0 auto; text-align: left; }
+  #tabPlayer { flex: 1; min-height: 0; }
+  #tabPlayer .panel { max-width: 560px; margin: 0 auto; text-align: left; }
+  .playerNameRow { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  #playerNameEl { font-size: 1.25em; font-weight: bold; }
+  #playerNameInput { font-size: 1.1em; padding: 4px 8px; border-radius: 6px; border: 1px solid #4a4f5c; background: #0e1013; color: inherit; max-width: 240px; }
+  #playerNameEditBtn { padding: 2px 10px; font-size: 0.9em; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
+  #playerNameEditBtn:hover { background: #343945; }
+  .playerStatsHead { text-align: center; text-decoration: underline; margin: 4px 0 10px; font-size: 1em; }
+  #playerStatsCtn { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  #tabHome { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  /* Home tab grid: Currencies | Furniture | Log.
+     NOTE: unlike Work, home panels have NO overflow/max-height caps - caps
+     clipped the furniture tooltips and made the mirrored lists short. Panels
+     size to the grid (desktop) or content (stacked) and the page scrolls. */
+  #homeGrid { display: grid; grid-template-columns: 250px minmax(0, 1.8fr) 300px; gap: 8px; margin-bottom: 0; text-align: left; align-items: stretch; flex: 1; min-height: 0; }
+  @media (max-width: 1100px) { #homeGrid { grid-template-columns: 1fr; flex: none; } }
+  #tabHome .panel { max-width: none; margin: 0; }
+  /* Emphasized Home controls: the current-home picker and the furniture
+     Filters button are the two main actions in this tab, so they read as
+     primary buttons next to the smaller Sort toggles. */
+  #homeSelectBtn, #furnFilterBtn { font-size: 1em; font-weight: bold; padding: 6px 14px; background: #313743; color: #fff; border: 1px solid #6b7484; box-shadow: inset 0 2px 0 rgba(255,255,255,0.08), 0 2px 6px rgba(0,0,0,0.3); }
+  #homeSelectBtn:hover:not(:disabled), #furnFilterBtn:hover:not(:disabled) { background: #3d4451; border-color: #7fd97f; }
+  /* Select Home submenu as a 2-column grid of home cards (1 column on phones). */
+  #homeListCtn { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  @media (max-width: 520px) { #homeListCtn { grid-template-columns: 1fr; } }
+  .homeLabel { font-size: 0.85em; opacity: 0.8; align-self: center; }
+  .homeMetaRow { display: flex; justify-content: flex-end; margin-bottom: 8px; font-size: 0.9em; font-weight: bold; }
+  .homeFullNote { font-style: italic; opacity: 0.8; margin-bottom: 8px; text-align: center; }
+  .furnSortRow { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 0.9em; }
+  .furnSortRow > span { opacity: 0.8; }
+  .furnSortRow button { padding: 2px 10px; font-size: 0.85em; white-space: nowrap; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
+  .furnSortRow button:hover { background: #343945; }
+  .furnSortRow button.active { font-weight: bold; background: #313743; color: #fff; border-color: #565e70; }
+  #furnitureCtn { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; overflow: visible; }
+  @media (max-width: 700px) { #furnitureCtn { grid-template-columns: 1fr; } }
+  .furnCard { position: relative; background: #22262f; border: 1px solid #3a3f4b; border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+  /* Hovered card rises above its grid neighbors so its downward-opening
+     tooltip is never covered by the next row. */
+  .furnCard:hover, .furnCard:focus-within { z-index: 11; }
+  .furnTop { display: flex; gap: 8px; align-items: baseline; font-weight: bold; }
+  .furnSpace { opacity: 0.85; }
+  .furnName { flex: 1; }
+  .furnOwned { opacity: 0.85; font-size: 0.9em; }
+  .furnBtns { display: flex; gap: 8px; }
+  .furnBtns button { flex: 1; position: relative; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
+  .furnBtns button:hover:not(:disabled) { background: #343945; }
+  .furnBtns button:disabled { opacity: 1; color: #777; cursor: default; }
+  .furnCard > .tip.furnInfo { left: 0; transform: none; }
+  .furnCard:hover > .tip.furnInfo, .furnCard:focus-within > .tip.furnInfo { display: block; }
+  .furnCard:has(.furnSell:hover) > .tip.furnInfo, .furnCard:has(.furnSell:focus-visible) > .tip.furnInfo { display: none; }
+  .furnSell:hover > .tip, .furnSell:focus-visible > .tip { display: block; }
+  .homeRow { position: relative; display: flex; gap: 8px; align-items: center; width: 100%; box-sizing: border-box; margin: 0; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 8px 10px; text-align: left; }
+  .homeRow:hover:not(:disabled) { background: #343945; }
+  .homeRow:disabled { opacity: 1; color: #777; cursor: default; }
+  .homeRow.current { outline: 2px solid #7fd97f; }
+  .homeRow .homeRowName { flex: 1; font-weight: bold; }
+  .homeRow .homeRowSpace { opacity: 0.85; font-size: 0.9em; }
+  .homeRow .homeRowStatus { opacity: 0.7; font-size: 0.85em; min-width: 60px; text-align: right; }
+  .homeRow:hover > .tip, .homeRow:focus-visible > .tip { display: block; }
+  .homeRow > .tip { left: 0; transform: none; }
   #clipBox { margin-bottom: 8px; }
   #clipArea { width: 100%; box-sizing: border-box; font-family: monospace; }
   button { padding: 8px 14px; font-size: 1em; cursor: pointer; }
@@ -162,13 +229,15 @@
   .panel h2.hasBtn .htitle { flex: 1; text-align: center; }
   .panel h2.hasBtn .hbtns button { padding: 2px 10px; font-size: 0.85em; font-weight: normal; letter-spacing: 0; text-transform: none; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
   .panel h2.hasBtn .hbtns button:hover:not(:disabled) { background: #343945; }
-  #logEl { text-align: left; border-top: none; padding-top: 0; font-size: 0.85em; flex: 1; min-height: 120px; overflow-y: auto; }
-  #logEl div { margin: 0; padding: 5px 6px; opacity: 0.92; border-bottom: 1px solid #262b34; }
-  #logEl div:first-child { background: #22262f; border-radius: 4px; }
+  #logEl, #logElHome, .js-log { text-align: left; border-top: none; padding-top: 0; font-size: 0.85em; flex: 1; min-height: 120px; overflow-y: auto; }
+  #logEl div, #logElHome div, .js-log div { margin: 0; padding: 5px 6px; opacity: 0.92; border-bottom: 1px solid #262b34; }
+  #logEl div:first-child, #logElHome div:first-child, .js-log div:first-child { background: #22262f; border-radius: 4px; }
   /* Unlock announcements stand out in pale green. */
-  #logEl div.logUnlock, #logEl div.logImprovement { color: #D9FFC7; }
- /* Work Log filter modal: fixed overlay + dialog box. */
-  #logFilterModal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement { color: #D9FFC7; }
+  /* Action completions (fullLog) stand out in orange; start/stop lines stay default. */
+  #logEl div.logFull, #logElHome div.logFull, .js-log div.logFull { color: orange; }
+ /* Log + Furniture filter + Select Home modals: fixed overlay + dialog box. */
+  #logFilterModal, #furnFilterModal, #homeModal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
   .modalBox { background: #1b1f26; border: 1px solid #4a4f5c; border-radius: 8px; padding: 14px 18px; width: 460px; max-width: calc(100vw - 32px); text-align: left; }
   .modalBox h3 { margin: 0 0 4px; font-size: 1em; text-align: center; }
   .modalBox label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 0.92em; font-weight: bold; }
@@ -176,6 +245,7 @@
   .filterItem { min-width: 0; }
   .filterItem .modalSub { margin-top: 2px; }
   .modalSub { font-size: 0.8em; opacity: 0.65; margin-left: 22px; }
+  .modalSubHead { margin: 12px 0 2px; font-size: 0.9em; font-weight: bold; opacity: 0.85; }
   .modalNote { margin: 10px 0 0; }
   @media (max-width: 520px) { .modalBox { width: 300px; } .filterGrid { grid-template-columns: 1fr; } }
 .modalBtns { margin-top: 14px; text-align: center; }
@@ -190,6 +260,8 @@
   </div>
   <div id="tabsBar" role="tablist" aria-label="Sections">
     <button id="tabWorkBtn" class="tab active" type="button" role="tab" aria-selected="true">Work</button>
+    <button id="tabHomeBtn" class="tab" type="button" role="tab" aria-selected="false" hidden>Home</button>
+    <button id="tabPlayerBtn" class="tab" type="button" role="tab" aria-selected="false">Player</button>
     <button id="tabOptionsBtn" class="tab" type="button" role="tab" aria-selected="false">Options</button>
   </div>
   <div class="topSpacer" aria-hidden="true"></div>
@@ -199,7 +271,7 @@
     <div id="workGrid">
       <section class="panel" aria-label="Currencies">
         <h2>Currencies</h2>
-        <div id="currenciesCtn"></div>
+        <div id="currenciesCtn" class="js-currencies"></div>
       </section>
       <section class="panel" aria-label="Actions">
         <h2>Actions</h2>
@@ -213,23 +285,60 @@
         </div>
         <section class="panel" aria-label="Vitals">
           <h2>Vitals</h2>
-          <div id="vitalsCtn"></div>
+          <div id="vitalsCtn" class="js-vitals"></div>
         </section>
       </div>
-      <section class="panel" aria-label="Work Log">
-        <h2 class="hasBtn"><span class="hbtns left"><button id="logFilterBtn" type="button">Filters</button></span><span class="htitle">Work Log</span><span class="hbtns"><button id="clearLogBtn" type="button">Clear Log</button></span></h2>
-        <div id="logEl" aria-live="polite"></div>
+      <section class="panel" aria-label="Log">
+        <h2 class="hasBtn"><span class="hbtns left"><button id="logFilterBtn" type="button">Filters</button></span><span class="htitle">Log</span><span class="hbtns"><button id="clearLogBtn" type="button">Clear Log</button></span></h2>
+        <div id="logEl" class="js-log" aria-live="polite"></div>
       </section>
+    </div>
+  </div>
+
+  <div id="tabHome" role="tabpanel" hidden>
+    <div id="homeGrid">
+      <section class="panel" aria-label="Currencies">
+        <h2>Currencies</h2>
+        <div id="currenciesCtnHome" class="js-currencies"></div>
+      </section>
+      <div class="panel">
+        <h2 class="hasBtn"><span class="hbtns left"><span class="homeLabel">Home:</span><button id="homeSelectBtn" type="button">Small Tent</button></span><span class="htitle">Furniture</span><span class="hbtns"><button id="furnFilterBtn" type="button">Filters</button></span></h2>
+        <div class="homeMetaRow"><span id="floorSpaceEl">Floor Space: 0 / 0</span></div>
+        <div id="homeFullNote" class="homeFullNote" hidden>You can't seem to cram anything more in here...</div>
+        <div class="furnSortRow"><span>Sort:</span><button id="sortSpaceBtn" type="button">Floor Space ↕</button><button id="sortNameBtn" type="button">Furnishing ↕</button></div>
+        <div id="furnitureCtn"></div>
+      </div>
+      <section class="panel" aria-label="Log">
+        <h2 class="hasBtn"><span class="hbtns left"><button id="logFilterBtnHome" type="button">Filters</button></span><span class="htitle">Log</span><span class="hbtns"><button id="clearLogBtnHome" type="button">Clear Log</button></span></h2>
+        <div id="logElHome" class="js-log" aria-live="polite"></div>
+      </section>
+    </div>
+  </div>
+
+  <div id="tabPlayer" role="tabpanel" hidden>
+    <div class="panel">
+      <h2>Player</h2>
+      <div class="playerNameRow">
+        <button id="playerNameEditBtn" type="button" title="Rename" aria-label="Rename character">✎</button>
+        <span id="playerNameEl">Placeholder</span>
+        <input id="playerNameInput" hidden maxlength="24">
+      </div>
+      <h3 class="playerStatsHead">Stats</h3>
+      <div id="playerStatsCtn"></div>
     </div>
   </div>
 
 <div id="logFilterModal" hidden>
   <div class="modalBox" role="dialog" aria-modal="true" aria-labelledby="logFilterTitle">
-    <h3 id="logFilterTitle">Work Log Filters</h3>
+    <h3 id="logFilterTitle">Log Filters</h3>
     <div class="filterGrid">
       <div class="filterItem">
-        <label><input id="logActionsChk" type="checkbox"> Actions</label>
-        <div class="modalSub">Action-related logs.</div>
+        <label><input id="logBeginChk" type="checkbox"> Action begin text</label>
+        <div class="modalSub">Messages when actions start.</div>
+      </div>
+      <div class="filterItem">
+        <label><input id="logStopChk" type="checkbox"> Action stop and fullLog text</label>
+        <div class="modalSub">Stop messages and orange completion text.</div>
       </div>
       <div class="filterItem">
         <label><input id="logUpgradesChk" type="checkbox"> Upgrade buy text</label>
@@ -249,13 +358,51 @@
   </div>
 </div>
 
+<div id="homeModal" hidden>
+  <div class="modalBox" role="dialog" aria-modal="true" aria-labelledby="homeModalTitle">
+    <h3 id="homeModalTitle">Select Home</h3>
+    <div id="homeListCtn"></div>
+    <div class="modalBtns"><button id="homeCloseBtn" type="button">Close</button></div>
+  </div>
+</div>
+
+<div id="furnFilterModal" hidden>
+  <div class="modalBox" role="dialog" aria-modal="true" aria-labelledby="furnFilterTitle">
+    <h3 id="furnFilterTitle">Furniture Filters</h3>
+    <div class="filterGrid">
+      <div class="filterItem">
+        <label><input id="furnMaxedChk" type="checkbox"> Maxed</label>
+        <div class="modalSub">Fully-bought furniture.</div>
+      </div>
+      <div class="filterItem">
+        <label><input id="furnOwnedChk" type="checkbox"> Owned</label>
+        <div class="modalSub">Furniture you own.</div>
+      </div>
+      <div class="filterItem">
+        <label><input id="furnUnownedChk" type="checkbox"> Unowned</label>
+        <div class="modalSub">Furniture you don't own yet.</div>
+      </div>
+      <div class="filterItem">
+        <label><input id="furnBlockedChk" type="checkbox"> Blocked</label>
+        <div class="modalSub">Furniture you can't buy right now.</div>
+      </div>
+    </div>
+    <div id="furnTypeSec">
+      <h4 class="modalSubHead">Types</h4>
+      <div class="filterGrid" id="furnTypeGrid"></div>
+      <div class="modalSub modalNote">(Note: Locked furniture stays hidden until its home is owned, regardless of filters.)</div>
+    </div>
+    <div class="modalBtns"><button id="furnFilterCloseBtn" type="button">Close</button></div>
+  </div>
+</div>
+
 <div id="tabOptions" role="tabpanel" hidden>
   <div class="panel">
     <h2>Options</h2>
     <div class="optionRow"><button id="manualSaveBtn" type="button">Save Game</button><span>Save progress in this browser.</span></div>
     <div class="optionRow"><button id="manualLoadBtn" type="button">Load Saved Game</button><span>Load the browser save (also loads on start).</span></div>
     <div class="optionRow"><label><input id="showMaxedChk" type="checkbox"> Show maxed-out Work upgrades</label></div>
-    <div class="optionRow"><label>Work Log Entry Cap <input id="logLimitInput" type="number" min="20" max="1000" step="1" style="width: 80px;"></label><span>Older entries beyond this number are removed (20–1000, default 200).</span></div>
+    <div class="optionRow"><label>Log Entry Cap <input id="logLimitInput" type="number" min="20" max="1000" step="1" style="width: 80px;"></label><span>Older entries beyond this number are removed (20–1000, default 200).</span></div>
     <div class="optionRow"><button id="exportBtn" type="button">Export Save (File)</button><span>Download progress as a file.</span></div>
     <div class="optionRow"><button id="importBtn" type="button">Import Save (File)</button><span>Load progress from a file.</span></div>
     <div class="optionRow"><button id="exportClipBtn" type="button">Export Save (Clipboard)</button><span>Copy progress as text.</span></div>
@@ -277,6 +424,7 @@
 <script src="src/resources.js"></script>
 <script src="src/groups.js"></script>
 <script src="src/upgrades.js"></script>
+<script src="src/furniture.js"></script>
 <script src="src/render.js"></script>
 <script src="src/ui.js"></script>
 <script src="src/main.js"></script>

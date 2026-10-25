@@ -26,29 +26,50 @@ function buildResourceTip(r) {
   return tip;
 }
 
+// Shared resource panels: the same Currencies / Vitals lists render in every
+// tab that has a .js-currencies / .js-vitals container (Work + Home today,
+// more later just by adding the divs). Each resource therefore has ONE ref
+// PER visible copy: uiRefs holds an ARRAY under "r:<id>". Render and the
+// hover-highlight system loop over all copies, so they always stay in sync.
+// (Rows carry no id attribute - duplicate ids would break with mirrors.)
+
+function getResourceRefs(id) {
+  const v = uiRefs.get("r:" + id);
+  if (!v) return [];
+  return Array.isArray(v) ? v : [v];
+}
+
+function pushResourceRef(id, ref) {
+  const key = "r:" + id;
+  const cur = uiRefs.get(key);
+  if (Array.isArray(cur)) cur.push(ref);
+  else if (cur) uiRefs.set(key, [cur, ref]);
+  else uiRefs.set(key, [ref]);
+}
+
 function buildResourceEl(r) {
   if (isCurrency(r)) {
     const line = document.createElement("div");
     line.className = "currency";
-      line.id = "res-" + r.id;
+      line.dataset.res = r.id;
       line.innerHTML = '<span class="cur-val"></span><span class="cur-name"></span>';
     line.querySelector(".cur-name").textContent = r.name;
     if (r.nameColor) line.querySelector(".cur-name").style.color = r.nameColor;
     line.tabIndex = 0;
     line.appendChild(buildResourceTip(r));
-    uiRefs.set("r:" + r.id, { root: line, name: line.querySelector(".cur-name"), val: line.querySelector(".cur-val"), fill: null, tipCount: line.querySelector(".tip-count"), tipRate: line.querySelector(".tip-rate") });
+    pushResourceRef(r.id, { root: line, name: line.querySelector(".cur-name"), val: line.querySelector(".cur-val"), fill: null, tipCount: line.querySelector(".tip-count"), tipRate: line.querySelector(".tip-rate") });
     return line;
   }
   const box = document.createElement("div");
   box.className = "res";
-  box.id = "res-" + r.id;
+  box.dataset.res = r.id;
   box.innerHTML = '<span class="res-name"></span><div class="bar"><div class="fill"></div><span class="res-val"></span></div>';
   box.querySelector(".res-name").textContent = r.name;
   if (r.nameColor) box.querySelector(".res-name").style.color = r.nameColor;
   if (r.barColor) box.querySelector(".fill").style.background = r.barColor;
   box.tabIndex = 0;
   box.appendChild(buildResourceTip(r));
-  uiRefs.set("r:" + r.id, { root: box, name: box.querySelector(".res-name"), val: box.querySelector(".res-val"), fill: box.querySelector(".fill"), tipCount: box.querySelector(".tip-count"), tipRate: box.querySelector(".tip-rate") });
+  pushResourceRef(r.id, { root: box, name: box.querySelector(".res-name"), val: box.querySelector(".res-val"), fill: box.querySelector(".fill"), tipCount: box.querySelector(".tip-count"), tipRate: box.querySelector(".tip-rate") });
   return box;
 }
 

@@ -1,13 +1,13 @@
 // Labor Game saves: file/clipboard import-export plus the browser Manual Save.
 // Save files look like:
-// { game: "labor-game", version: 4, savedAt: "2026-...", amounts: { stamina: 7, coin: 3 }, upgrades: { pockets: 1 }, unlocked: { "u:pockets": true }, options: { showMaxedUpgrades: false, logActions: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: 200 }, stats: { actions: { oddJobs: 12 } }, currentActionId: null, cycles: {} }
+// { game: "labor-game", version: 6, savedAt: "2026-...", amounts: { stamina: 7, coin: 3 }, upgrades: { pockets: 1 }, unlocked: { "u:pockets": true }, options: { showMaxedUpgrades: false, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: 200, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats: { str: 1 }, homes: { tent: true }, currentHome: "tent", furniture: { coinPiles: 1 }, milestones: { makeshiftBed: true }, stats: { actions: { oddJobs: 12 } }, currentActionId: null, cycles: {} }
 // Only ids listed in RESOURCES/ACTIONS/UPGRADES are loaded; missing ones use defaults.
 // Exports use an opaque wrapper (like Antimatter Dimensions saves):
 // LaborGameSavefileFormat4$<base64-zlib-json>EndOfSavefile
 // Old plaintext JSON saves still import as-is.
 
 const SAVE_GAME_ID = "labor-game";
-const SAVE_VERSION = 4;
+const SAVE_VERSION = 6;
 const SAVE_PREFIX = "LaborGameSavefileFormat";
 const SAVE_SUFFIX = "EndOfSavefile";
 // Manual Save: a single browser-local save (localStorage), separate from
@@ -61,6 +61,12 @@ function serializeSave() {
     upgrades: { ...state.upgrades },
     unlocked: { ...state.unlocked },
     options: { ...state.options },
+    playerName: state.playerName,
+    playerStats: { ...state.playerStats },
+    homes: { ...state.homes },
+    currentHome: state.currentHome,
+    furniture: { ...state.furniture },
+    milestones: { ...state.milestones },
     stats: { actions: { ...state.stats.actions } },
     currentActionId: state.currentActionId,
     cycles: Object.fromEntries(Object.entries(state.cycles).map(([k, v]) => [k, { progress: v.progress, paid: v.paid }])),
@@ -73,7 +79,11 @@ function applySaveData(data) {
   if (data.version !== undefined && data.version > SAVE_VERSION) throw new Error("save is from a newer version");
   if (typeof data.amounts !== "object" || data.amounts === null) throw new Error("bad file");
 
-  // Upgrades first: amounts clamp to the *effective* cap (base + effects).
+  // Upgrades first (furniture caps read them), then homes + current home,
+  // then furniture (its cap reads upgrades + home), and only then amounts:
+  // clamping to the *effective* cap needs all three already loaded, or a
+  // save whose cap comes from furniture/a home (e.g. 15 Coin with Coin
+  // Piles) would be wrongly clamped to the smaller pre-load cap on import.
   const upgrades = {};
   const savedUpgrades = (data.upgrades && typeof data.upgrades === "object") ? data.upgrades : {};
   for (const u of UPGRADES) {
@@ -81,6 +91,26 @@ function applySaveData(data) {
     upgrades[u.id] = !Number.isFinite(n) || n < 0 ? 0 : Math.min(u.maxPurchases ?? 1, n);
   }
   state.upgrades = upgrades;
+  // Homes owned (permanent flags) + current home. Unknown ids are dropped.
+  const savedHomes = (data.homes && typeof data.homes === "object") ? data.homes : {};
+  const homes = {};
+  for (const h of HOMES) if (savedHomes[h.id]) homes[h.id] = true;
+  state.homes = homes;
+  state.currentHome = (typeof data.currentHome === "string" && getHome(data.currentHome) && homes[data.currentHome]) ? data.currentHome : null;
+  if (!state.currentHome && homes[HOMES[0]?.id]) state.currentHome = HOMES[0].id;
+  const savedFurniture = (data.furniture && typeof data.furniture === "object") ? data.furniture : {};
+  const furniture = {};
+  for (const f of FURNITURE) {
+    const n = Math.floor(Number(savedFurniture[f.id]));
+    furniture[f.id] = !Number.isFinite(n) || n < 0 ? 0 : Math.min(getEffectiveFurnCap(f), n);
+  }
+  state.furniture = furniture;
+  // Fired one-time milestone flags. Unknown ids are dropped; old saves
+  // (and fresh states) simply haven't fired them yet.
+  const savedMilestones = (data.milestones && typeof data.milestones === "object") ? data.milestones : {};
+  const milestones = {};
+  for (const m of MILESTONES) if (savedMilestones[m.id]) milestones[m.id] = true;
+  state.milestones = milestones;
   const amounts = {};
   for (const r of RESOURCES) {
     const n = Number(data.amounts[r.id]);
@@ -103,13 +133,32 @@ function applySaveData(data) {
     actions[a.id] = !Number.isFinite(n) || n < 0 ? 0 : n;
   }
   state.stats = { actions };
+  state.playerName = normalizePlayerName(data.playerName);
+  const savedPlayerStats = (data.playerStats && typeof data.playerStats === "object") ? data.playerStats : {};
+  const playerStats = {};
+  for (const s of PLAYER_STATS) {
+    const n = Math.floor(Number(savedPlayerStats[s.id]));
+    playerStats[s.id] = Number.isFinite(n) ? n : (s.start ?? 1);
+  }
+  state.playerStats = playerStats;
   state.options = {
     showMaxedUpgrades: !!(data.options && data.options.showMaxedUpgrades),
-    logActions: !data.options || data.options.logActions !== false,
+    // The old single "logActions" toggle maps onto both halves.
+    logActionBegin: !data.options || (data.options.logActionBegin ?? data.options.logActions) !== false,
+    logActionStop: !data.options || (data.options.logActionStop ?? data.options.logActions) !== false,
     logUpgrades: !data.options || data.options.logUpgrades !== false,
     logUnlocks: !data.options || data.options.logUnlocks !== false,
     logImprovements: !data.options || data.options.logImprovements !== false,
     logLimit: normalizeLogLimit(data.options && data.options.logLimit),
+    furnFilters: {
+      maxed: !data.options || !data.options.furnFilters || data.options.furnFilters.maxed !== false,
+      owned: !data.options || !data.options.furnFilters || data.options.furnFilters.owned !== false,
+      unowned: !data.options || !data.options.furnFilters || data.options.furnFilters.unowned !== false,
+      blocked: !data.options || !data.options.furnFilters || data.options.furnFilters.blocked !== false,
+    },
+    furnSort: normalizeFurnSort(data.options && data.options.furnSort),
+    // Per-type visibility (missing tags and old saves default to shown).
+    furnTypes: (data.options && typeof data.options.furnTypes === "object" && data.options.furnTypes) ? { ...data.options.furnTypes } : {},
   };
   delete state.progress;
   // Per-action cycle progress ({ id: { progress, paid } }): stopping keeps
@@ -121,7 +170,7 @@ function applySaveData(data) {
       if (c && typeof c === "object") {
         const p = Number(c.progress);
         cycles[a.id] = {
-          progress: Number.isFinite(p) && p > 0 ? Math.min(p, a.tickSeconds) : 0,
+          progress: Number.isFinite(p) && p > 0 ? Math.min(p, getEffectiveTick(a)) : 0,
           paid: c.paid === true,
         };
       }

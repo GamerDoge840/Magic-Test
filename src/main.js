@@ -6,11 +6,11 @@ setInterval(() => {
 
   const current = state.currentActionId ? getAction(state.currentActionId) : null;
   if (!current) { render(); return; }
-  const eff = current.improvements ? effectiveGains(current) : current.gains;
+  const eff = effectiveGains(current);
 
   // If gains are already full (e.g. Rest at max Stamina), stop cleanly.
   if (gainsAreFull(eff)) {
-    setAction(null, current.fullLog ?? (current.name + " finished: vitals full."));
+    setAction(null, current.fullLog ?? (current.name + " finished: vitals full."), "full");
     return;
   }
 
@@ -19,7 +19,7 @@ setInterval(() => {
   const cyc = state.cycles[current.id] ?? (state.cycles[current.id] = { progress: 0, paid: false });
   if (!cyc.paid) {
     if (!canAfford(current.costs)) {
-      setAction(null, current.fullLog);
+      stopForFunds(current);
       return;
     }
     payCosts(current.costs);
@@ -28,15 +28,16 @@ setInterval(() => {
 
   cyc.progress += dt;
   let guarded = 0;
-  while (cyc.progress >= current.tickSeconds && guarded < 10) {
+  const tick = getEffectiveTick(current);
+  while (cyc.progress >= tick && guarded < 10) {
     guarded++;
-    cyc.progress -= current.tickSeconds;
+    cyc.progress -= tick;
     doTick(current);
-    const effNow = current.improvements ? effectiveGains(current) : current.gains;
+    const effNow = effectiveGains(current);
     if (gainsAreFull(effNow)) {
       cyc.progress = 0;
       cyc.paid = false;
-      setAction(null, current.fullLog ?? (current.name + " finished: vitals full."));
+      setAction(null, current.fullLog ?? (current.name + " finished: vitals full."), "full");
       return;
     }
     // The next cycle starts now: charge up front so stopping later never
@@ -44,7 +45,7 @@ setInterval(() => {
     // progress - resuming pays for the cycle, then continues it.
     if (!canAfford(current.costs)) {
       cyc.paid = false;
-      setAction(null, current.fullLog);
+      stopForFunds(current);
       return;
     }
     payCosts(current.costs);
