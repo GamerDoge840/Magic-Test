@@ -1,13 +1,13 @@
 // Labor Game saves: file/clipboard import-export plus the browser Manual Save.
 // Save files look like:
-// { game: "labor-game", version: 6, savedAt: "2026-...", amounts: { stamina: 7, coin: 3 }, upgrades: { pockets: 1 }, unlocked: { "u:pockets": true }, options: { showMaxedUpgrades: false, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: 200, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats: { str: 1 }, homes: { tent: true }, currentHome: "tent", furniture: { coinPiles: 1 }, milestones: { makeshiftBed: true }, stats: { actions: { oddJobs: 12 } }, currentActionId: null, cycles: {} }
+// { game: "labor-game", version: 10, savedAt: "2026-...", amounts: { stamina: 7, coin: 3 }, seen: { coin: true }, upgrades: { pockets: 1 }, unlocked: { "u:pockets": true }, options: { showMaxedUpgrades: false, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: 200, hidden: { "u:pockets": true }, showMaxedSkills: false, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats: { str: 1 }, homes: { tent: true }, currentHome: "tent", furniture: { coinPiles: 1 }, milestones: { makeshiftBed: true }, skills: { basicKnowledge: { xp: 0, level: 1 } }, stats: { actions: { oddJobs: 12 } }, currentActionId: null, cycles: {}, impBase: { oddJobs: 100 } }
 // Only ids listed in RESOURCES/ACTIONS/UPGRADES are loaded; missing ones use defaults.
 // Exports use an opaque wrapper (like Antimatter Dimensions saves):
 // LaborGameSavefileFormat4$<base64-zlib-json>EndOfSavefile
 // Old plaintext JSON saves still import as-is.
 
 const SAVE_GAME_ID = "labor-game";
-const SAVE_VERSION = 6;
+const SAVE_VERSION = 10;
 const SAVE_PREFIX = "LaborGameSavefileFormat";
 const SAVE_SUFFIX = "EndOfSavefile";
 // Manual Save: a single browser-local save (localStorage), separate from
@@ -58,6 +58,7 @@ function serializeSave() {
     version: SAVE_VERSION,
     savedAt: new Date().toISOString(),
     amounts: { ...state.amounts },
+    seen: { ...(state.seen ?? {}) },
     upgrades: { ...state.upgrades },
     unlocked: { ...state.unlocked },
     options: { ...state.options },
@@ -67,9 +68,13 @@ function serializeSave() {
     currentHome: state.currentHome,
     furniture: { ...state.furniture },
     milestones: { ...state.milestones },
+    skills: Object.fromEntries(Object.entries(state.skills).map(([k, v]) => [k, { xp: v.xp, level: v.level }])),
     stats: { actions: { ...state.stats.actions } },
     currentActionId: state.currentActionId,
     cycles: Object.fromEntries(Object.entries(state.cycles).map(([k, v]) => [k, { progress: v.progress, paid: v.paid }])),
+    // Non-retroactive improvement-cap baselines ({ actionId: run count
+    // when the cap-raising milestone fired }). Missing on old saves.
+    impBase: { ...(state.impBase ?? {}) },
   };
 }
 
@@ -111,6 +116,21 @@ function applySaveData(data) {
   const milestones = {};
   for (const m of MILESTONES) if (savedMilestones[m.id]) milestones[m.id] = true;
   state.milestones = milestones;
+  // Skill XP/levels. Unknown ids dropped; counts clamp to 0..maxLevel and
+  // XP stays a finite non-negative number.
+  const savedSkills = (data.skills && typeof data.skills === "object") ? data.skills : {};
+  const skills = {};
+  for (const s of SKILLS) {
+    const raw = savedSkills[s.id];
+    let xp = 0, level = 0;
+    if (raw && typeof raw === "object") {
+      const rx = Number(raw.xp), rl = Math.floor(Number(raw.level));
+      if (Number.isFinite(rx) && rx > 0) xp = rx;
+      if (Number.isFinite(rl) && rl > 0) level = Math.min(s.maxLevel, rl);
+    }
+    skills[s.id] = { xp, level };
+  }
+  state.skills = skills;
   const amounts = {};
   for (const r of RESOURCES) {
     const n = Number(data.amounts[r.id]);
@@ -133,6 +153,38 @@ function applySaveData(data) {
     actions[a.id] = !Number.isFinite(n) || n < 0 ? 0 : n;
   }
   state.stats = { actions };
+  // Discovered currencies (Currencies panels hide the rest). Saved as
+  // { id: true }; old saves infer it so earned history isn't lost: held
+  // now, started with, paid out by any completed action, or watched by a
+  // fired unlock / spent on owned furniture (which required holding it).
+  const savedSeen = (data.seen && typeof data.seen === "object") ? data.seen : null;
+  const seen = {};
+  if (savedSeen) {
+    for (const r of RESOURCES) if (savedSeen[r.id]) seen[r.id] = true;
+  } else {
+    for (const r of RESOURCES) {
+      if (!isCurrency(r)) continue;
+      if ((amounts[r.id] ?? 0) > 0) { seen[r.id] = true; continue; }
+      if ((r.start ?? 0) > 0) { seen[r.id] = true; continue; }
+      let earned = false;
+      for (const a of ACTIONS) {
+        if ((actions[a.id] ?? 0) <= 0) continue;
+        if ((a.gains?.[r.id] ?? 0) > 0) { earned = true; break; }
+        if ((a.improvements?.bonus?.[r.id] ?? 0) > 0) { earned = true; break; }
+      }
+      if (earned) { seen[r.id] = true; continue; }
+      let held = false;
+      for (const key of Object.keys(unlocked ?? {})) {
+        const item = key.startsWith("a:") ? getAction(key.slice(2)) : key.startsWith("u:") ? getUpgrade(key.slice(2)) : null;
+        if (item?.unlock?.resource === r.id) { held = true; break; }
+      }
+      if (!held) for (const f of FURNITURE) {
+        if ((furniture[f.id] ?? 0) > 0 && (f.cost?.[r.id] ?? 0) > 0) { held = true; break; }
+      }
+      if (held) seen[r.id] = true;
+    }
+  }
+  state.seen = seen;
   state.playerName = normalizePlayerName(data.playerName);
   const savedPlayerStats = (data.playerStats && typeof data.playerStats === "object") ? data.playerStats : {};
   const playerStats = {};
@@ -146,6 +198,14 @@ function applySaveData(data) {
     // The old single "logActions" toggle maps onto both halves.
     logActionBegin: !data.options || (data.options.logActionBegin ?? data.options.logActions) !== false,
     logActionStop: !data.options || (data.options.logActionStop ?? data.options.logActions) !== false,
+    showMaxedSkills: !!(data.options && data.options.showMaxedSkills),
+    // User-hidden item ids (display only). Keep truthy string keys.
+    hidden: (() => {
+      const h = {};
+      const raw = (data.options && typeof data.options.hidden === "object" && !Array.isArray(data.options.hidden)) ? data.options.hidden : {};
+      for (const [k, v] of Object.entries(raw)) if (typeof k === "string" && v) h[k] = true;
+      return h;
+    })(),
     logUpgrades: !data.options || data.options.logUpgrades !== false,
     logUnlocks: !data.options || data.options.logUnlocks !== false,
     logImprovements: !data.options || data.options.logImprovements !== false,
@@ -178,6 +238,16 @@ function applySaveData(data) {
   }
   state.cycles = cycles;
   state.currentActionId = data.currentActionId && getAction(data.currentActionId) ? data.currentActionId : null;
+  // Improvement-cap baselines for the non-retroactive extra levels (saved
+  // per action; old saves predate the system and simply start without).
+  const impBase = {};
+  if (data.impBase && typeof data.impBase === "object") {
+    for (const a of ACTIONS) {
+      const n = Math.floor(Number(data.impBase[a.id]));
+      if (Number.isFinite(n) && n > 0) impBase[a.id] = n;
+    }
+  }
+  state.impBase = impBase;
   lastTime = performance.now();
 }
 

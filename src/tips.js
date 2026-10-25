@@ -26,9 +26,146 @@ function appendTipSection(tip, label, entries, valueRefs) {
   tip.appendChild(sec);
 }
 
+// Visible bounds for an anchor: the viewport shrunk by every clipping
+// ancestor (overflow auto/hidden/scroll - e.g. the Actions scroll list and
+// its panel). Tips must fit inside these bounds, not just the viewport, or
+// the window edge cuts them off.
+function visibleBounds(anchor) {
+  let top = 8, bottom = window.innerHeight - 8;
+  let left = 8, right = window.innerWidth - 8;
+  let el = anchor.parentElement;
+  while (el && el !== document.body) {
+    let st = null;
+    try { st = getComputedStyle(el); } catch (e) { break; }
+    if (st && (st.overflowY === "auto" || st.overflowY === "hidden" || st.overflowY === "scroll" ||
+               st.overflowX === "auto" || st.overflowX === "hidden" || st.overflowX === "scroll")) {
+      const r = el.getBoundingClientRect();
+      if (r.bottom > r.top && r.right > r.left) {
+        if (r.top > top) top = r.top;
+        if (r.bottom < bottom) bottom = r.bottom;
+        if (r.left > left) left = r.left;
+        if (r.right < right) right = r.right;
+      }
+    }
+    el = el.parentElement;
+  }
+  return { top, bottom, left, right };
+}
+// Automatic tooltip fitting (the "tips just work" fix): every tip flips
+// up/down by available room, caps its height to the winning side
+// with internal scroll, and nudges horizontally to stay on screen. Called
+// on hover/focus for every tip type, so long present AND future tips never
+// clip through the top of the screen or blow out the action menu. The CSS
+// max-height backstop covers tips with no JS wiring; this covers placement.
+// Only writes when something changes, so open-tip scroll pos stays stable.
+function fitTip(tip, anchor, prefer) {
+  if (!tip || !anchor) return;
+  const h = tip.offsetHeight;
+  if (!h) return;
+  const b = anchor.getBoundingClientRect();
+  // Room is measured against the visible bounds (viewport shrunk by every
+  // clipping ancestor), so a tip inside the Actions window can never be
+  // placed where the window edge would cut it off.
+  const bounds = typeof visibleBounds === "function"
+    ? visibleBounds(anchor)
+    : { top: 8, bottom: window.innerHeight - 8, left: 8, right: window.innerWidth - 8 };
+  const roomUp = b.top - bounds.top;
+  const roomDown = bounds.bottom - b.bottom;
+  let dir = prefer;
+  if (prefer === "up") {
+    if (roomUp < h + 8 && roomDown > roomUp) dir = "down";
+  } else {
+    if (roomDown < h + 8 && roomUp > roomDown) dir = "up";
+  }
+  // Tips overlap their anchor by 2px instead of floating above/below it
+  // (bottom/top 100% minus 2px): with a gap, the mouse path from the anchor
+  // to the tip crosses a dead zone where :hover drops and the tip blinks
+  // out - making the scrollbar of a long tip unreachable. The overlap is
+  // invisible (the tip paints above, z-index 10) and the hover path stays
+  // unbroken, so long tips can be scrolled while an action runs or idle.
+  const TIP_OFF = "calc(100% - 2px)";
+  if (dir === "up") {
+    if (tip.style.top !== "auto") tip.style.top = "auto";
+    if (tip.style.bottom !== TIP_OFF) tip.style.bottom = TIP_OFF;
+  } else {
+    if (tip.style.bottom !== "auto") tip.style.bottom = "auto";
+    if (tip.style.top !== TIP_OFF) tip.style.top = TIP_OFF;
+  }
+  // Cap to the winning side (never below a readable 80px of content, never
+  // above the CSS cap). The cap is on the content box, so subtract the
+  // tip's own padding/border - otherwise the rendered box still pokes past
+  // the window edge by that chrome.
+  const room = dir === "up" ? roomUp : roomDown;
+  const cs = getComputedStyle(tip);
+  const chrome = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) +
+    (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+  const gap = 0;
+  const cap = Math.max(80, Math.min(Math.floor(room - gap - chrome), Math.min(360, window.innerHeight * 0.7)));
+  if (room < h + 8) {
+    const px = cap + "px";
+    if (tip.style.maxHeight !== px) tip.style.maxHeight = px;
+  } else if (tip.style.maxHeight) {
+    tip.style.maxHeight = "";
+  }
+  // Horizontal clamp for centered tips (left:50% ones): shift inboard when
+  // near a window edge. Left-anchored tips (actions/furniture) skip this.
+  const centered = getComputedStyle(tip).transform !== "none";
+  if (centered) {
+    const r = tip.getBoundingClientRect();
+    let shift = 0;
+    if (r.left < bounds.left) shift = bounds.left - r.left;
+    else if (r.right > bounds.right) shift = bounds.right - r.right;
+    const want = shift ? Math.round(shift) + "px" : "";
+    if (tip.style.marginLeft !== want) tip.style.marginLeft = want;
+  } else if (tip.style.marginLeft) {
+    tip.style.marginLeft = "";
+  }
+}
+
+// Skill XP section for action tooltips: which skills an action feeds per
+// cycle (e.g. Research Scrolls -> Basic Knowledge +1). Static amounts;
+// unknown skill ids still list by id (normalizeConfig already warned).
+// The section is built once with every row, but locked skills (e.g. Odd
+// Jobs Mastery before its unlock milestone) hide until unlocked - unlocks
+// fire mid-session with no UI rebuild, so render() unhides the rows and
+// the section live (see the action block there). Returns refs for that.
+function appendTipXpSection(tip, xp) {
+  const rows = Object.entries(xp ?? {});
+  if (!rows.length) return null;
+  const sec = document.createElement("div");
+  sec.className = "tip-sec";
+  const lab = document.createElement("div");
+  lab.className = "tip-sec-label";
+  lab.textContent = "Skill XP";
+  sec.appendChild(lab);
+  const refs = [];
+  let anyVisible = false;
+  for (const [sid, n] of rows) {
+    const s = typeof getSkill === "function" ? getSkill(sid) : null;
+    const row = document.createElement("div");
+    row.className = "tip-row";
+    const shown = typeof skillUnlocked !== "function" || skillUnlocked(sid);
+    row.hidden = !shown;
+    if (shown) anyVisible = true;
+    const k = document.createElement("span");
+    k.textContent = (s ? s.name : sid) + ":";
+    const v = document.createElement("span");
+    v.textContent = "+" + formatNum(n);
+    row.appendChild(k);
+    row.appendChild(v);
+    sec.appendChild(row);
+    refs.push({ sid, row });
+  }
+  sec.hidden = !anyVisible;
+  tip.appendChild(sec);
+  return { sec, rows: refs };
+}
+
 // Action tips prefer opening upward (never grows the page/scroll area), but
 // flip downward when the actions column itself scrolls and there is no room
-// above the button (otherwise the tip would be cut off).
+// above the button (otherwise the tip would be cut off). Long tips also cap
+// to the winning side via fitTip, so they scroll internally instead of
+// blowing out the menu.
 function placeActionTip(btn) {
   const tip = btn.querySelector(".tip");
   const ctn = document.getElementById("actionsCtn");
@@ -39,13 +176,8 @@ function placeActionTip(btn) {
   const b = btn.getBoundingClientRect();
   const roomUp = b.top - c.top;
   const roomDown = ctn.scrollHeight > ctn.clientHeight + 1 ? c.bottom - b.bottom : Infinity;
-  if (roomUp >= h + 8 || roomUp >= roomDown) {
-    tip.style.top = "auto";
-    tip.style.bottom = "110%";
-  } else {
-    tip.style.top = "110%";
-    tip.style.bottom = "auto";
-  }
+  const prefer = (roomUp >= h + 8 || roomUp >= roomDown) ? "up" : "down";
+  fitTip(tip, btn, prefer);
 }
 
 function describeEffect(e) {
@@ -115,6 +247,23 @@ function effectGains(u) {
 }
 
 let hoverTip = null; // { key, ref, costs } of the action/upgrade whose tip is open
+
+// Tooltip presses never activate their parent: grabbing a long tip's
+// scrollbar, selecting tip text, or clicking inside a tip must not
+// start/stop the action, buy the upgrade, or strike the row - otherwise
+// touching a tooltip while its action runs toggles the run off. One
+// capture-phase guard covers every present and future tip (tips hold no
+// buttons of their own, so nothing inside them needs to click through).
+// Keyboard activation still works: it targets the button itself, not the tip.
+let tipPress = false;
+document.addEventListener("pointerdown", (e) => {
+  tipPress = !!(e.target && e.target.closest && e.target.closest(".tip"));
+}, true);
+document.addEventListener("click", (e) => {
+  const inTip = !!(e.target && e.target.closest && e.target.closest(".tip"));
+  if (inTip || tipPress) { tipPress = false; e.stopPropagation(); }
+  else tipPress = false;
+}, true);
 
 // Tooltip row tints, refreshed while a tip is open: unaffordable cost rows
 // glow red, and gain rows whose resource sits at its storage cap glow orange.

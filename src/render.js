@@ -7,6 +7,14 @@ function render() {
     const refs = getResourceRefs(r.id);
     if (!refs.length) continue;
     const val = state.amounts[r.id] ?? 0;
+    // Discovery: holding a currency marks it seen (covers every present
+    // and future gain path, even ones without an explicit mark call).
+    // Vitals always show; currencies hide until seen.
+    if (isCurrency(r) && val > 0 && !state.seen?.[r.id]) {
+      if (!state.seen) state.seen = {};
+      state.seen[r.id] = true;
+    }
+    const discovered = currencySeen(r);
     // Net gain per second from the running action (gains minus costs).
     // Always through effectiveGains AND the effective tick time: base
     // payout plus every boost (improvement levels, furniture, current-home
@@ -15,13 +23,18 @@ function render() {
     let rate = 0;
     if (current) rate = ((effectiveGains(current)[r.id] ?? 0) - (current.costs[r.id] ?? 0)) / getEffectiveTick(current);
     const max = getEffectiveMax(r.id);
-    // Static screens write the same values every frame; skip the DOM
-    // writes unless something actually changed (DOM writes are the
-    // slowest part of render with hundreds of items on screen).
-    const sig = val + "|" + rate + "|" + (max === Infinity ? "i" : max);
+    // User hiding (per panel kind): ignored while that panel's hiding mode
+    // is on, so struck items show for unhiding. Discovery always applies,
+    // even in hiding mode (like the maxed upgrade gate). All bits are in
+    // the sig so mode flips and strike toggles always repaint.
+    const hideRow = !discovered || (itemHidden("r:" + r.id) && !(isCurrency(r) ? hidingMode.currencies : hidingMode.vitals));
+    const struck = itemHidden("r:" + r.id);
+    const sig = val + "|" + rate + "|" + (max === Infinity ? "i" : max) + "|" + (hideRow ? 1 : 0) + "|" + (struck ? 1 : 0) + "|" + (discovered ? 1 : 0);
     for (const ref of refs) {
     if (ref._sig === sig) continue;
     ref._sig = sig;
+    ref.root.hidden = hideRow;
+    ref.root.classList.toggle("userHidden", struck);
     if (isCurrency(r)) {
       const capText = max === Infinity ? formatNum(val) : formatNum(val) + " / " + formatNum(max);
       ref.name.textContent = displayName(r, val);
@@ -50,25 +63,47 @@ function render() {
     }
   }
 
+  // Collapse resource groups emptied by hiding (all mirrors stay in sync).
+  for (const h of document.querySelectorAll(".js-currencies, .js-vitals")) hideEmptyGroups(h);
+
   for (const a of ACTIONS) {
     const ref = uiRefs.get("a:" + a.id);
     if (!ref) continue;
     const btn = ref.root;
     // unlockMet must run every frame (it logs one-time unlocks), but the
     // DOM writes below are skipped while nothing changed.
-    const hidden = !unlockMet(a, "a");
+    // User hiding is ignored in hiding mode so struck actions show.
+    const hidden = !unlockMet(a, "a") || (!hidingMode.actions && itemHidden("a:" + a.id));
     const isActive = state.currentActionId === a.id;
     const count = state.stats.actions[a.id] ?? 0;
-    const disabled = isActive ? false : (!canAfford(a.costs) || gainsAreFull(effectiveGains(a)));
+    // Skill milestones can discount the price (Scroll Frugality): every
+    // affordability check, cap check, and label below reads the effective
+    // costs so the whole frame agrees on the true price.
+    const effCost = (typeof effectiveCosts === "function") ? effectiveCosts(a) : { ...(a.costs ?? {}) };
+    const disabled = hidingMode.actions ? false : (isActive ? false : (!canAfford(effCost) || gainsAreFull(effectiveGains(a))));
     const cyc = state.cycles[a.id];
     const prog = cyc ? cyc.progress : 0;
     const tick = getEffectiveTick(a);
     const pkey = isActive ? prog.toFixed(3) : "";
-    const overMax = costExceedsMax(a.costs);
-    const sig = (hidden ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + (isActive ? 1 : 0) + "|" + pkey + "|" + count + "|" + (overMax ? 1 : 0);
+    const overMax = costExceedsMax(effCost);
+    // Skill milestones can raise the Improvement cap without any new
+    // completions, so the cap joins the sig - otherwise the tooltip's
+    // max-level line would wait for the next run to refresh.
+    const impCap = a.improvements ? ((typeof getEffectiveImpMax === "function") ? getEffectiveImpMax(a) : a.improvements.maxLevel) : "";
+    // Skill XP rows unhide when their skill unlocks without any new
+    // completions, so the unlock state joins the sig too - otherwise the
+    // rows would wait for the next run to appear.
+    const xpSig = (typeof skillUnlocked === "function" && ref.xpRows) ? ref.xpRows.map(x => skillUnlocked(x.sid) ? "1" : "0").join(",") : "";
+    // Skill milestones can discount the price without any new completions
+    // (e.g. a discount attained purely by XP granted for another reason),
+    // so the effective costs join the sig too - otherwise the tooltip's
+    // Cost row would wait for the next run to refresh.
+    const costSig = Object.keys(effCost).sort().map(id => id + ":" + effCost[id]).join(",");
+    const sig = (hidden ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + (isActive ? 1 : 0) + "|" + pkey + "|" + count + "|" + (overMax ? 1 : 0) + "|" + (itemHidden("a:" + a.id) ? 1 : 0) + "|" + impCap + "|" + xpSig + "|" + costSig;
     if (ref._sig === sig) continue;
     ref._sig = sig;
     btn.hidden = hidden;
+    btn.classList.toggle("userHidden", itemHidden("a:" + a.id));
     btn.classList.toggle("active", isActive);
     btn.setAttribute("aria-pressed", isActive ? "true" : "false");
     // Unusable when unaffordable, or when there is nothing left to gain (e.g. Rest at full Stamina).
@@ -83,12 +118,18 @@ function render() {
     }
     // Improved actions: live level in the header and live progress-to-next
     // in the footer (count is in the sig, so any level change lands here;
-    // writes are no-ops when unchanged).
+    // writes are no-ops when unchanged). The max-level line is live too:
+    // skill milestones can raise the cap mid-run.
     if (a.improvements) {
       const titleText = "[Lvl. " + actionLevel(a) + "] " + a.name;
       if (ref.title && ref.title.textContent !== titleText) ref.title.textContent = titleText;
       const footText = improvementFooter(a);
       if (ref.foot && ref.foot.textContent !== footText) ref.foot.textContent = footText;
+      if (ref.impMax) {
+        const cap = (typeof getEffectiveImpMax === "function") ? getEffectiveImpMax(a) : a.improvements.maxLevel;
+        const maxText = "Max level: " + (cap === Infinity ? "none" : cap) + ".";
+        if (ref.impMax.textContent !== maxText) ref.impMax.textContent = maxText;
+      }
     }
     // Results rows always show the effective payout (base + improvement
     // levels + furniture/home boosts), so tooltips stay truthful for every
@@ -101,6 +142,32 @@ function render() {
         const t = formatNum(eff[g.id] ?? 0);
         if (g.el.textContent !== t) g.el.textContent = t;
       }
+      // Cost rows are live for the same reason: a fresh discount changes
+      // the price without changing the sig, and the per-row check is cheap.
+      for (const c of ref.costs ?? []) {
+        const t = formatNum(effCost[c.id] ?? 0);
+        if (c.el.textContent !== t) c.el.textContent = t;
+      }
+      // Skill XP rows unhide live when their skill unlocks: unlocks fire
+      // mid-session with no UI rebuild (e.g. Basic Knowledge M3 revealing
+      // Odd Jobs Mastery on the Odd Jobs tooltip). Unlocks never reverse,
+      // so rows only ever appear, and the section follows suit.
+      if (ref.xpSec && typeof skillUnlocked === "function") {
+        let anyVisible = false;
+        for (const x of ref.xpRows ?? []) {
+          const show = skillUnlocked(x.sid);
+          if (x.row.hidden === show) x.row.hidden = !show;
+          if (show) anyVisible = true;
+        }
+        if (ref.xpSec.hidden === anyVisible) ref.xpSec.hidden = !anyVisible;
+      }
+      // Auto-written descriptions embed the base costs, so refresh them
+      // when discounts change the price. Custom descriptions stay as-is.
+      if (ref.autoDesc) {
+        const showCosts = Object.fromEntries(Object.entries(effCost).filter(([, n]) => n > 0));
+        const t = autoActionDescription({ tickSeconds: a.tickSeconds, costs: showCosts, gains: effectiveGains(a) });
+        if (ref.desc && ref.desc.textContent !== t) ref.desc.textContent = t;
+      }
     }
   }
 
@@ -111,14 +178,18 @@ function render() {
     const owned = state.upgrades[u.id] ?? 0;
     const maxed = owned >= u.maxPurchases;
     // unlockMet must run every frame (it logs one-time unlocks), but the
-    // DOM writes below are skipped while nothing changed.
-    const hidden = !unlockMet(u, "u") || (maxed && !state.options.showMaxedUpgrades);
-    const disabled = maxed || !canAfford(u.cost);
+    // DOM writes below are skipped while nothing changed. Hiding mode only
+    // reveals user-hidden items; the maxed-out gate (and locks) still apply,
+    // so the Show-maxed option is respected inside hiding mode too.
+    const maxedGate = maxed && !state.options.showMaxedUpgrades;
+    const hidden = !unlockMet(u, "u") || maxedGate || (!hidingMode.actions && itemHidden("u:" + u.id));
+    const disabled = !hidingMode.actions && (maxed || !canAfford(u.cost));
     const overMax = costExceedsMax(u.cost);
-    const sig = (hidden ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + owned + "|" + (overMax ? 1 : 0);
+    const sig = (hidden ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + owned + "|" + (overMax ? 1 : 0) + "|" + (itemHidden("u:" + u.id) ? 1 : 0);
     if (ref._sig === sig) continue;
     ref._sig = sig;
     btn.hidden = hidden;
+    btn.classList.toggle("userHidden", itemHidden("u:" + u.id));
     btn.classList.toggle("owned", owned > 0 && !maxed);
     btn.classList.toggle("maxed", maxed);
     btn.disabled = disabled;
@@ -185,18 +256,27 @@ function render() {
     }
   }
 
-  // Player stats: static for now (nothing modifies them yet), but rendered
-  // through the same sig-skip pattern so future effects just work.
+  // Player stats: base values plus attained skill-milestone boosts (INT
+  // rises with Basic Knowledge). Rendered through the same sig-skip
+  // pattern so future effects just work.
   for (const s of PLAYER_STATS) {
     const ref = uiRefs.get("p:" + s.id);
     if (!ref) continue;
-    const val = state.playerStats[s.id] ?? (s.start ?? 1);
+    const val = getEffectiveStat(s.id);
     const sig = String(val);
     if (ref._sig === sig) continue;
     ref._sig = sig;
     ref.val.textContent = formatNum(val);
     if (ref.tipCount) ref.tipCount.textContent = formatNum(val);
   }
+
+  // Skills tab: unlocked once any skill reaches Level 1; the list and
+  // milestones refresh live. Guarded so stripped-down copies without the
+  // skills script still run.
+  if (typeof tabSkillsBtn !== "undefined" && tabSkillsBtn) {
+    tabSkillsBtn.hidden = !(typeof skillsUnlocked === "function" && skillsUnlocked());
+  }
+  if (typeof renderSkills === "function") renderSkills();
 
   if (!current) {
     const stamina = state.amounts.stamina;
@@ -214,7 +294,16 @@ function render() {
   if (nowCard) nowCard.classList.toggle("busy", !!state.currentActionId);
   if (nowCancelBtn) nowCancelBtn.disabled = !state.currentActionId;
   // Keep the open tooltip's row tints truthful while amounts tick by.
-  if (hoverTip && hoverTip.ref.root.isConnected) tintTip(hoverTip.ref, hoverTip.costs);
+  // Action tips recompute the discounted price (a milestone can land while
+  // the tip is open); other tips reuse the costs captured on open.
+  if (hoverTip && hoverTip.ref.root.isConnected) {
+    let costs = hoverTip.costs;
+    if (hoverTip.key.startsWith("a:") && typeof effectiveCosts === "function") {
+      const act = getAction(hoverTip.key.slice(2));
+      if (act) costs = effectiveCosts(act);
+    }
+    tintTip(hoverTip.ref, costs);
+  }
   else hoverTip = null;
 }
 
@@ -245,6 +334,7 @@ clipLoadBtn.addEventListener("click", loadClipArea);
 tabWorkBtn.addEventListener("click", () => showTab("work"));
 tabHomeBtn.addEventListener("click", () => showTab("home"));
 tabPlayerBtn.addEventListener("click", () => showTab("player"));
+tabSkillsBtn.addEventListener("click", () => showTab("skills"));
 tabOptionsBtn.addEventListener("click", () => showTab("options"));
 showMaxedChk.addEventListener("change", () => {
   state.options.showMaxedUpgrades = showMaxedChk.checked;

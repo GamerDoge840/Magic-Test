@@ -63,6 +63,7 @@ function buildUI() {
   showMaxedChk.checked = !!state.options.showMaxedUpgrades;
   if (logLimitInput) logLimitInput.value = getLogLimit();
   buildPlayerTab();
+  if (typeof buildSkillsTab === "function") buildSkillsTab();
   buildFurnitureCards();
   updateSortButtons();
   syncFurnFilters();
@@ -156,6 +157,13 @@ function buildPlayerStatEl(s) {
   line.tabIndex = 0;
   line.appendChild(buildPlayerStatTip(s));
   uiRefs.set("p:" + s.id, { root: line, name: line.querySelector(".cur-name"), val: line.querySelector(".cur-val"), tipCount: line.querySelector(".tip-count") });
+  // Automatic placement: tall stat tips flip/cap instead of clipping.
+  const statTip = line.querySelector(".tip");
+  if (statTip) {
+    const fit = () => { if (typeof fitTip === "function") fitTip(statTip, line, "down"); };
+    line.addEventListener("mouseenter", fit);
+    line.addEventListener("focus", fit);
+  }
   return line;
 }
 
@@ -236,6 +244,45 @@ furnBlockedChk.addEventListener("change", () => { state.options.furnFilters.bloc
 importInput.addEventListener("change", () => {
   if (importInput.files && importInput.files[0]) importSaveFile(importInput.files[0]);
 });
+// Item hiding (purely visual): the panel's Hide button arms hiding mode
+// (button brightens to Done); every unlocked item in that panel shows, and
+// clicking one strikes it hidden (click again to unhide). Clicking Done
+// exits and the hiding applies. Hidden things keep working - this only
+// changes what is drawn. Saved in state.options.hidden.
+function toggleItemHidden(key) {
+  if (state.options.hidden[key]) delete state.options.hidden[key];
+  else state.options.hidden[key] = true;
+  render();
+}
+
+function syncHideButtons() {
+  const pairs = [
+    [hidingMode.currencies, [currenciesHideBtn, currenciesHideBtnHome]],
+    [hidingMode.vitals, [vitalsHideBtn]],
+    [hidingMode.actions, [actionsHideBtn]],
+  ];
+  let any = false;
+  for (const [on, btns] of pairs) {
+    if (on) any = true;
+    for (const b of btns) {
+      if (!b) continue;
+      b.textContent = on ? "Done" : "⛒";
+      b.classList.toggle("on", on);
+    }
+  }
+  document.body.classList.toggle("hiding", any);
+}
+
+function toggleHidingMode(kind) {
+  hidingMode[kind] = !hidingMode[kind];
+  syncHideButtons();
+  render();
+}
+
+if (currenciesHideBtn) currenciesHideBtn.addEventListener("click", () => toggleHidingMode("currencies"));
+if (currenciesHideBtnHome) currenciesHideBtnHome.addEventListener("click", () => toggleHidingMode("currencies"));
+if (vitalsHideBtn) vitalsHideBtn.addEventListener("click", () => toggleHidingMode("vitals"));
+if (actionsHideBtn) actionsHideBtn.addEventListener("click", () => toggleHidingMode("actions"));
 // Escape closes any open modal (Filters, Select Home) and drops focus from
 // whatever it held, so keyboard users are never stuck in a dialog.
 document.addEventListener("keydown", (e) => {

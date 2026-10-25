@@ -108,6 +108,7 @@ function sellFurniture(id) {
   for (const [rid, n] of Object.entries(f.cost ?? {})) {
     const max = getEffectiveMax(rid);
     state.amounts[rid] = max === Infinity ? (state.amounts[rid] ?? 0) + n : Math.min(max, (state.amounts[rid] ?? 0) + n);
+    if (n > 0) markCurrencySeen(rid);
   }
   for (const r of RESOURCES) {
     const m = getEffectiveMax(r.id);
@@ -144,18 +145,10 @@ function furnitureBuyGains(f) {
 
 // Tip placement: tips open upward, but flip below their anchor when there
 // is no room above the viewport top (the page scrolls, so a tall upward tip
-// would be cut by the top of the screen instead).
+// would be cut by the top of the screen instead). Long tips also cap to
+// the winning side via fitTip, so they scroll internally.
 function placeFurnTip(tip, anchor) {
-  if (!tip || !anchor) return;
-  const h = tip.offsetHeight;
-  if (!h) return;
-  if (anchor.getBoundingClientRect().top - h - 8 < 0) {
-    tip.style.top = "110%";
-    tip.style.bottom = "auto";
-  } else {
-    tip.style.top = "";
-    tip.style.bottom = "";
-  }
+  if (typeof fitTip === "function") fitTip(tip, anchor, "up");
 }
 
 function buildFurnitureCard(f) {
@@ -404,6 +397,13 @@ function buildHomeList() {
     btn.appendChild(tip);
     btn.disabled = isCur || !fits;
     btn.addEventListener("click", () => selectHome(h.id));
+    // Automatic placement: long home tips flip/cap instead of clipping.
+    if (typeof fitTip === "function") {
+      const homeTip = tip;
+      const fit = () => fitTip(homeTip, btn, "up");
+      btn.addEventListener("mouseenter", fit);
+      btn.addEventListener("focus", fit);
+    }
     homeListCtn.appendChild(btn);
   }
 }

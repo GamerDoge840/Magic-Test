@@ -57,7 +57,19 @@ function buildResourceEl(r) {
     if (r.nameColor) line.querySelector(".cur-name").style.color = r.nameColor;
     line.tabIndex = 0;
     line.appendChild(buildResourceTip(r));
+    // Hiding mode: clicking the row strikes it hidden (per panel kind).
+    line.addEventListener("click", () => {
+      if (isCurrency(r) ? hidingMode.currencies : hidingMode.vitals) toggleItemHidden("r:" + r.id);
+    });
     pushResourceRef(r.id, { root: line, name: line.querySelector(".cur-name"), val: line.querySelector(".cur-val"), fill: null, tipCount: line.querySelector(".tip-count"), tipRate: line.querySelector(".tip-rate") });
+    // Automatic placement: tall currency tips flip above the row instead
+    // of running off the bottom of the panel.
+    const curTip = line.querySelector(".tip");
+    if (curTip) {
+      const fit = () => { if (typeof fitTip === "function") fitTip(curTip, line, "down"); };
+      line.addEventListener("mouseenter", fit);
+      line.addEventListener("focus", fit);
+    }
     return line;
   }
   const box = document.createElement("div");
@@ -69,7 +81,19 @@ function buildResourceEl(r) {
   if (r.barColor) box.querySelector(".fill").style.background = r.barColor;
   box.tabIndex = 0;
   box.appendChild(buildResourceTip(r));
+  // Hiding mode: clicking the row strikes it hidden (per panel kind).
+  box.addEventListener("click", () => {
+    if (isCurrency(r) ? hidingMode.currencies : hidingMode.vitals) toggleItemHidden("r:" + r.id);
+  });
   pushResourceRef(r.id, { root: box, name: box.querySelector(".res-name"), val: box.querySelector(".res-val"), fill: box.querySelector(".fill"), tipCount: box.querySelector(".tip-count"), tipRate: box.querySelector(".tip-rate") });
+  // Automatic placement: tall vital tips flip above the row instead of
+  // running off the bottom of the panel.
+  const boxTip = box.querySelector(".tip");
+  if (boxTip) {
+    const fit = () => { if (typeof fitTip === "function") fitTip(boxTip, box, "down"); };
+    box.addEventListener("mouseenter", fit);
+    box.addEventListener("focus", fit);
+  }
   return box;
 }
 

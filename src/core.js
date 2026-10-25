@@ -37,11 +37,22 @@ const clipBox = document.getElementById("clipBox");
 const clipArea = document.getElementById("clipArea");
 const clipLoadBtn = document.getElementById("clipLoadBtn");
 let clipMode = null;
+// Item-hiding mode (purely visual): per panel kind (currencies, vitals,
+// actions). While on, user-hidden items show struck-through so they can be
+// unhidden; exiting re-applies the hiding. Runtime-only, never saved.
+const hidingMode = { currencies: false, vitals: false, actions: false };
+// User-hidden item ids ("a:<id>", "u:<id>", "r:<id>"), from hiding mode.
+// Display-only: hidden things still work (actions run, unlocks land).
+function itemHidden(key) {
+  return !!state.options.hidden[key];
+}
 const tabWorkBtn = document.getElementById("tabWorkBtn");
 const tabPlayerBtn = document.getElementById("tabPlayerBtn");
+const tabSkillsBtn = document.getElementById("tabSkillsBtn");
 const tabOptionsBtn = document.getElementById("tabOptionsBtn");
 const tabWork = document.getElementById("tabWork");
 const tabPlayer = document.getElementById("tabPlayer");
+const tabSkills = document.getElementById("tabSkills");
 const tabOptions = document.getElementById("tabOptions");
 const playerNameEl = document.getElementById("playerNameEl");
 const playerNameInput = document.getElementById("playerNameInput");
@@ -58,6 +69,10 @@ const homeFullNote = document.getElementById("homeFullNote");
 const furnitureCtn = document.getElementById("furnitureCtn");
 const sortSpaceBtn = document.getElementById("sortSpaceBtn");
 const sortNameBtn = document.getElementById("sortNameBtn");
+const currenciesHideBtn = document.getElementById("currenciesHideBtn");
+const currenciesHideBtnHome = document.getElementById("currenciesHideBtnHome");
+const vitalsHideBtn = document.getElementById("vitalsHideBtn");
+const actionsHideBtn = document.getElementById("actionsHideBtn");
 const furnFilterBtn = document.getElementById("furnFilterBtn");
 const furnFilterModal = document.getElementById("furnFilterModal");
 const furnFilterCloseBtn = document.getElementById("furnFilterCloseBtn");
@@ -78,14 +93,17 @@ function showTab(which) {
   tabWork.hidden = which !== "work";
   tabHome.hidden = which !== "home";
   tabPlayer.hidden = which !== "player";
+  if (tabSkills) tabSkills.hidden = which !== "skills";
   tabOptions.hidden = which !== "options";
   tabWorkBtn.classList.toggle("active", which === "work");
   tabHomeBtn.classList.toggle("active", which === "home");
   tabPlayerBtn.classList.toggle("active", which === "player");
+  if (tabSkillsBtn) tabSkillsBtn.classList.toggle("active", which === "skills");
   tabOptionsBtn.classList.toggle("active", which === "options");
   tabWorkBtn.setAttribute("aria-selected", which === "work" ? "true" : "false");
   tabHomeBtn.setAttribute("aria-selected", which === "home" ? "true" : "false");
   tabPlayerBtn.setAttribute("aria-selected", which === "player" ? "true" : "false");
+  if (tabSkillsBtn) tabSkillsBtn.setAttribute("aria-selected", which === "skills" ? "true" : "false");
   tabOptionsBtn.setAttribute("aria-selected", which === "options" ? "true" : "false");
 }
 
@@ -113,7 +131,11 @@ let lastTime = performance.now();
 
 function makeFreshState() {
   const amounts = {};
-  for (const r of RESOURCES) amounts[r.id] = r.start ?? 0;
+  const seen = {};
+  for (const r of RESOURCES) {
+    amounts[r.id] = r.start ?? 0;
+    if ((r.start ?? 0) > 0 && isCurrency(r)) seen[r.id] = true;
+  }
   const upgrades = {};
   for (const u of UPGRADES) upgrades[u.id] = 0;
   const playerStats = {};
@@ -122,7 +144,9 @@ function makeFreshState() {
   for (const f of FURNITURE) furniture[f.id] = 0;
   const homes = {};
   const milestones = {};
-  return { amounts, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: LOG_LIMIT_DEFAULT, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats, homes, currentHome: null, furniture, milestones, stats: { actions: {} }, currentActionId: null, cycles: {} };
+  const skills = {};
+  for (const s of SKILLS) skills[s.id] = { xp: 0, level: 0 };
+  return { amounts, seen, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: LOG_LIMIT_DEFAULT, hidden: {}, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats, homes, currentHome: null, furniture, milestones, skills, stats: { actions: {} }, currentActionId: null, cycles: {}, impBase: {} };
 }
 
 // Player name: trimmed, capped at 24 chars, never blank (falls back to
@@ -140,6 +164,10 @@ function getPlayerStat(id) {
 
 function getHome(id) {
   return HOMES.find(h => h.id === id);
+}
+
+function getSkill(id) {
+  return (typeof SKILLS !== "undefined" ? SKILLS : []).find(s => s.id === id);
 }
 
 function getFurniture(id) {
@@ -162,19 +190,49 @@ function furnitureSpaceUsed() {
   return n;
 }
 
+// Effect collectors: the only two places raw effect lists are gathered,
+// so every value reader below is a filter over one of them. Item effects
+// scale by ownership (upgrades/furniture × owned count, current home ×1);
+// skill milestone effects scale by skill level (see attainedSkill...).
+function activeItemEffects() {
+  const out = [];
+  for (const u of UPGRADES) {
+    const owned = state.upgrades[u.id] ?? 0;
+    if (!owned) continue;
+    for (const e of u.effects || []) out.push({ effect: e, mult: owned });
+  }
+  for (const f of FURNITURE) {
+    const owned = state.furniture[f.id] ?? 0;
+    if (!owned) continue;
+    for (const e of f.effects || []) out.push({ effect: e, mult: owned });
+  }
+  const home = currentHomeDef();
+  if (home) for (const e of home.effects || []) out.push({ effect: e, mult: 1 });
+  return out;
+}
+
+// Every skill milestone effect as { source, req, effect } (attained or
+// not). Value readers use attainedSkillMilestoneEffects(); skillUnlocked
+// uses the full list (a skill is locked while targeted but unattained).
+function allSkillMilestoneEffects() {
+  const out = [];
+  if (typeof SKILLS === "undefined") return out;
+  for (const s of SKILLS) for (const m of s.milestones ?? []) for (const e of m.effects ?? []) out.push({ source: s.id, req: m.level, effect: e });
+  return out;
+}
+function attainedSkillMilestoneEffects() {
+  return allSkillMilestoneEffects().filter(x => skillLevel(x.source) >= x.req);
+}
+
 // Effective furniture purchase cap: base maxPurchases plus every owned
 // "furnitureCap" upgrade effect and the current home's (e.g. Medium Tent's
 // upgrade lets you stack a third Coin Pile).
 function getEffectiveFurnCap(f) {
   let cap = f.maxPurchases ?? 1;
   if (cap !== Infinity) {
-    for (const u of UPGRADES) {
-      const owned = state.upgrades[u.id] ?? 0;
-      if (!owned) continue;
-      for (const e of u.effects || []) if (e.type === "furnitureCap" && e.furniture === f.id) cap += e.amount * owned;
+    for (const { effect: e, mult } of activeItemEffects()) {
+      if (e.type === "furnitureCap" && e.furniture === f.id) cap += e.amount * mult;
     }
-    const home = currentHomeDef();
-    if (home) for (const e of home.effects || []) if (e.type === "furnitureCap" && e.furniture === f.id) cap += e.amount;
   }
   return cap;
 }
@@ -185,18 +243,9 @@ function getEffectiveFurnCap(f) {
 const MIN_TICK_SECONDS = 0.1;
 function getEffectiveTick(a) {
   let t = a.tickSeconds;
-  for (const u of UPGRADES) {
-    const owned = state.upgrades[u.id] ?? 0;
-    if (!owned) continue;
-    for (const e of u.effects || []) if (e.type === "time" && e.action === a.id) t -= e.amount * owned;
+  for (const { effect: e, mult } of activeItemEffects()) {
+    if (e.type === "time" && e.action === a.id) t -= e.amount * mult;
   }
-  for (const f of FURNITURE) {
-    const owned = state.furniture[f.id] ?? 0;
-    if (!owned) continue;
-    for (const e of f.effects || []) if (e.type === "time" && e.action === a.id) t -= e.amount * owned;
-  }
-  const home = currentHomeDef();
-  if (home) for (const e of home.effects || []) if (e.type === "time" && e.action === a.id) t -= e.amount;
   return Math.max(MIN_TICK_SECONDS, t);
 }
 
@@ -234,6 +283,29 @@ function isCurrency(def) {
   if (def.kind === "currency") return true;
   if (def.kind === "vital") return false;
   return def.max === Infinity;
+}
+
+// Currency discovery: a currency row stays hidden in every Currencies
+// panel until the player has held it at least once (any positive amount,
+// from any system - actions, refunds, future mechanics). Vitals always
+// show. `seen` is saved; fresh resources with start > 0 count as seen.
+// The render loop also lazily marks anything currently held, so future
+// gain paths work with no extra wiring - just grant the resource.
+function markCurrencySeen(id) {
+  const rid = typeof id === "string" ? id : id && id.id;
+  if (!rid) return;
+  const def = getResource(rid);
+  if (def && !isCurrency(def)) return;
+  if (!state.seen) state.seen = {};
+  state.seen[rid] = true;
+}
+
+function currencySeen(rOrId) {
+  const def = typeof rOrId === "string" ? getResource(rOrId) : rOrId;
+  if (!def) return true;
+  if (!isCurrency(def)) return true;
+  if ((def.start ?? 0) > 0) return true;
+  return !!state.seen?.[def.id];
 }
 
 function formatNum(n) {
@@ -353,10 +425,11 @@ function checkMilestones() {
 }
 
 function hideEmptyGroups(ctn) {
-  // Collapse sections whose every button is hidden (unlock/maxed-gated),
-  // then headers whose every group is hidden.
+  // Collapse sections whose every button is hidden (unlock/maxed/user
+  // hidden), then headers whose every group is hidden. Resource rows
+  // (.currency/.res) count too, so hiding a panel's last row collapses it.
   for (const g of ctn.querySelectorAll(".taskGroup")) {
-    const btns = [...g.querySelectorAll("button")];
+    const btns = [...g.querySelectorAll("button, .currency, .res")];
     g.hidden = btns.length > 0 && btns.every(b => b.hidden);
   }
   for (const h of ctn.querySelectorAll(".taskHeader")) {
@@ -366,31 +439,12 @@ function hideEmptyGroups(ctn) {
 }
 
 function getEffectiveMax(resourceId) {
-  // Base max from RESOURCES plus every owned "max" upgrade effect.
+  // Base max from RESOURCES plus every active "max" item effect.
   const def = getResource(resourceId);
   if (!def || def.max === undefined || def.max === Infinity) return Infinity;
   let max = def.max;
-  for (const u of UPGRADES) {
-    const owned = state.upgrades[u.id] ?? 0;
-    if (!owned) continue;
-    for (const e of u.effects || []) {
-      if (e.type === "max" && e.resource === resourceId) max += e.amount * owned;
-    }
-  }
-  // Furniture "max" effects, then the current home's (homes boost the
-  // place you actually live in, not the ones you just own).
-  for (const f of FURNITURE) {
-    const owned = state.furniture[f.id] ?? 0;
-    if (!owned) continue;
-    for (const e of f.effects || []) {
-      if (e.type === "max" && e.resource === resourceId) max += e.amount * owned;
-    }
-  }
-  const home = currentHomeDef();
-  if (home) {
-    for (const e of home.effects || []) {
-      if (e.type === "max" && e.resource === resourceId) max += e.amount;
-    }
+  for (const { effect: e, mult } of activeItemEffects()) {
+    if (e.type === "max" && e.resource === resourceId) max += e.amount * mult;
   }
   return max;
 }
@@ -444,17 +498,38 @@ function payCosts(costs) {
   for (const [id, n] of Object.entries(costs ?? {})) state.amounts[id] -= n;
 }
 
+// Effective improvement cap: base maxLevel plus every attained
+// "improvementCap" skill-milestone bonus for that action (e.g. Odd Jobs
+// Mastery raises Odd Jobs' cap by 5). Uncapped actions stay uncapped.
+function getEffectiveImpMax(a) {
+  const imp = a && a.improvements;
+  if (!imp) return 0;
+  if (imp.maxLevel === Infinity) return Infinity;
+  return imp.maxLevel + (typeof improvementCapBonus === "function" ? improvementCapBonus(a.id) : 0);
+}
+
 // Improvement level from completions: every `every` runs is +1 level,
-// capped at maxLevel. A pure function of the run count - no extra state,
-// so level-ups can never be missed or double-fired.
+// capped at the effective max. Raising the cap is never retroactive: past
+// the base cap, extra levels must be re-earned with completions past both
+// the base cap and the milestone that raised it (tracked per action in
+// state.impBase), so unlocking headroom never grants levels instantly.
 function actionLevel(a) {
   const imp = a.improvements;
   if (!imp) return 0;
-  return Math.min(imp.maxLevel, Math.floor((state.stats.actions[a.id] ?? 0) / imp.every));
+  const count = state.stats.actions[a.id] ?? 0;
+  const earned = Math.floor(count / imp.every);
+  if (imp.maxLevel === Infinity) return earned;
+  const bonus = typeof improvementCapBonus === "function" ? improvementCapBonus(a.id) : 0;
+  if (bonus <= 0) return Math.min(imp.maxLevel, earned);
+  if (earned < imp.maxLevel) return earned;
+  const base = state.impBase ?? {};
+  const since = Math.max(Number.isFinite(base[a.id]) ? base[a.id] : 0, imp.maxLevel * imp.every);
+  return Math.min(imp.maxLevel + bonus, imp.maxLevel + Math.floor(Math.max(0, count - since) / imp.every));
 }
 
 // One cycle's payout: base gains plus the improvement bonus per level,
-// plus owned furniture and current-home "gain" effects for this action.
+// plus every active item "gain" effect and every attained skill-milestone
+// "gain" effect for this action (e.g. Sleeping quickens Rest).
 function effectiveGains(a) {
   const out = { ...(a.gains ?? {}) };
   const imp = a.improvements;
@@ -462,18 +537,12 @@ function effectiveGains(a) {
     const lvl = actionLevel(a);
     if (lvl > 0) for (const [id, n] of Object.entries(imp.bonus)) out[id] = (out[id] ?? 0) + n * lvl;
   }
-  for (const f of FURNITURE) {
-    const owned = state.furniture[f.id] ?? 0;
-    if (!owned) continue;
-    for (const e of f.effects || []) {
-      if (e.type === "gain" && e.action === a.id && e.resource) out[e.resource] = (out[e.resource] ?? 0) + e.amount * owned;
-    }
+  for (const { effect: e, mult } of activeItemEffects()) {
+    if (e.type === "gain" && e.action === a.id && e.resource) out[e.resource] = (out[e.resource] ?? 0) + e.amount * mult;
   }
-  const home = currentHomeDef();
-  if (home) {
-    for (const e of home.effects || []) {
-      if (e.type === "gain" && e.action === a.id && e.resource) out[e.resource] = (out[e.resource] ?? 0) + e.amount;
-    }
+  for (const x of attainedSkillMilestoneEffects()) {
+    const e = x.effect;
+    if (e.type === "gain" && e.action === a.id && e.resource) out[e.resource] = (out[e.resource] ?? 0) + e.amount * (e.perLevel ? skillLevel(x.source) : 1);
   }
   return out;
 }
@@ -481,7 +550,7 @@ function effectiveGains(a) {
 // Bottom line of an improved action's tooltip: progress to the next level.
 function improvementFooter(a) {
   const imp = a.improvements;
-  if (actionLevel(a) >= imp.maxLevel) return "Max level";
+  if (actionLevel(a) >= getEffectiveImpMax(a)) return "Max level";
   const pct = Math.floor(((state.stats.actions[a.id] ?? 0) % imp.every) / imp.every * 100);
   return pct + "% to next Improvement";
 }
@@ -494,7 +563,7 @@ function normalizeConfig() {
   // share one DOM id. Later duplicates are removed, keeping the first.
   // Entries added later at runtime should call normalizeConfig() again
   // before buildUI().
-  for (const [arr, kind] of [[RESOURCES, "resource"], [ACTIONS, "action"], [UPGRADES, "upgrade"], [PLAYER_STATS, "player stat"], [HOMES, "home"], [FURNITURE, "furniture"], [MILESTONES, "milestone"]]) {
+  for (const [arr, kind] of [[RESOURCES, "resource"], [ACTIONS, "action"], [UPGRADES, "upgrade"], [PLAYER_STATS, "player stat"], [HOMES, "home"], [FURNITURE, "furniture"], [MILESTONES, "milestone"], [SKILLS, "skill"]]) {
     const seen = new Set();
     for (let i = 0; i < arr.length; i++) {
       const e = arr[i];
@@ -603,59 +672,149 @@ function normalizeConfig() {
       delete item[field];
     }
   };
-  // Effect entries shared by upgrades, furniture, and homes. `allow`
-  // lists which types are valid here: "max" ({ resource, amount }),
-  // "gain" ({ action, resource, amount }), "home" ({ home }),
-  // "furnitureCap" ({ furniture, amount } = +amount to that furniture's
-  // purchase cap), "time" ({ action, amount } = that many fewer seconds
-  // per cycle of that action). Returns the cleaned effect, or null when
-  // it should be skipped.
-  const cleanEffect = (e, ownerLabel, allow) => {
+  // Effect registry: every { type: ... } effect in ONE table, shared by
+  // upgrades, homes, furniture, AND skill milestones - so milestone effects
+  // stay as easy as upgrade effects. To add a new effect type:
+  //   1. add an entry below (validation + which item kinds allow it),
+  //   2. add a reader over activeItemEffects() and/or
+  //      attainedSkillMilestoneEffects() (see the collectors beneath),
+  //   3. if upgrades can carry it, teach describeEffect() its display text.
+  // Readers never loop raw lists - they filter one of the two collectors.
+  // Each entry's clean() preserves that family's history: item effects
+  // (upgrade/home/furniture) warn about unknown ids but keep the effect,
+  // while skill effects skip unknown targets outright.
+  const EFFECT_DEFS = {
+    max: {
+      contexts: ["upgrade", "home", "furniture"],
+      clean(e, ownerLabel) {
+        if (typeof e.resource !== "string" || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+          warn(ownerLabel + ': skipped an invalid effect (use { type: "max", resource, amount }).');
+          return null;
+        }
+        if (!getResource(e.resource)) warn(ownerLabel + ': effect targets unknown resource "' + e.resource + '".');
+        return { type: "max", resource: e.resource, amount: e.amount };
+      },
+    },
+    gain: {
+      contexts: ["home", "furniture", "skill"],
+      clean(e, ownerLabel, kind) {
+        if (typeof e.action !== "string" || typeof e.resource !== "string" || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+          warn(ownerLabel + ': skipped an invalid effect (use { type: "gain", action, resource, amount }).');
+          return null;
+        }
+        // Skill-gated payout: times the skill's level when perLevel (e.g.
+        // Sleeping restores extra Stamina). Read through effectiveGains.
+        if (kind === "skill") {
+          if (!getAction(e.action) || !getResource(e.resource)) {
+            warn(ownerLabel + ': skipped an invalid effect (use { type: "gain", action, resource, amount }).');
+            return null;
+          }
+          return { type: "gain", action: e.action, resource: e.resource, amount: e.amount, perLevel: e.perLevel === true };
+        }
+        if (!getAction(e.action)) warn(ownerLabel + ': effect targets unknown action "' + e.action + '".');
+        if (!getResource(e.resource)) warn(ownerLabel + ': effect targets unknown resource "' + e.resource + '".');
+        return { type: "gain", action: e.action, resource: e.resource, amount: e.amount };
+      },
+    },
+    home: {
+      contexts: ["upgrade"],
+      clean(e, ownerLabel) {
+        if (typeof e.home !== "string" || !getHome(e.home)) {
+          warn(ownerLabel + ': skipped an invalid effect (use { type: "home", home }).');
+          return null;
+        }
+        return { type: "home", home: e.home };
+      },
+    },
+    furnitureCap: {
+      contexts: ["upgrade", "home"],
+      clean(e, ownerLabel) {
+        if (typeof e.furniture !== "string" || !getFurniture(e.furniture) || !Number.isInteger(e.amount) || e.amount < 1) {
+          warn(ownerLabel + ': skipped an invalid effect (use { type: "furnitureCap", furniture, amount }).');
+          return null;
+        }
+        return { type: "furnitureCap", furniture: e.furniture, amount: e.amount };
+      },
+    },
+    time: {
+      contexts: ["upgrade", "furniture", "home"],
+      clean(e, ownerLabel) {
+        if (typeof e.action !== "string" || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+          warn(ownerLabel + ': skipped an invalid effect (use { type: "time", action, amount }).');
+          return null;
+        }
+        if (!getAction(e.action)) warn(ownerLabel + ': effect targets unknown action "' + e.action + '".');
+        return { type: "time", action: e.action, amount: e.amount };
+      },
+    },
+    stat: {
+      contexts: ["skill"],
+      clean(e, ownerLabel) {
+        if (typeof e.stat !== "string" || !getPlayerStat(e.stat) || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount === 0) {
+          warn(ownerLabel + ': skipped an invalid effect (use { type: "stat", stat, amount }).');
+          return null;
+        }
+        return { type: "stat", stat: e.stat, amount: e.amount, perLevel: e.perLevel === true };
+      },
+    },
+    cost: {
+      contexts: ["skill"],
+      clean(e, ownerLabel) {
+        // Cost discount: each cycle of `action` costs `amount` less of
+        // `resource` (floored at zero), e.g. Scroll Frugality makes Buy
+        // Scrolls cost 2.5 less Coin per scroll.
+        if (typeof e.action !== "string" || !getAction(e.action) || typeof e.resource !== "string" || !getResource(e.resource) || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+          warn(ownerLabel + ': skipped an invalid effect (use { type: "cost", action, resource, amount }).');
+          return null;
+        }
+        return { type: "cost", action: e.action, resource: e.resource, amount: e.amount };
+      },
+    },
+    improvementCap: {
+      contexts: ["skill"],
+      clean(e, ownerLabel) {
+        // Improvement headroom: `action` can earn `amount` more Improvement
+        // levels past its base max (re-earned, never retroactive).
+        const target = (typeof e.action === "string") ? getAction(e.action) : null;
+        if (!target || !target.improvements || !Number.isInteger(e.amount) || e.amount < 1) {
+          warn(ownerLabel + ': skipped an invalid effect (use { type: "improvementCap", action, amount } on an improved action).');
+          return null;
+        }
+        return { type: "improvementCap", action: e.action, amount: e.amount };
+      },
+    },
+    skill: {
+      contexts: ["skill"],
+      clean(e, ownerLabel, kind, ownerId) {
+        // Skill unlock: earning this milestone lets `skill` gain XP (locked
+        // skills earn nothing and hide from tooltips until unlocked).
+        if (typeof e.skill !== "string" || !getSkill(e.skill)) {
+          warn(ownerLabel + ': skipped an invalid effect (use { type: "skill", skill }).');
+          return null;
+        }
+        if (e.skill === ownerId) {
+          warn(ownerLabel + ": a skill cannot unlock itself, skipped.");
+          return null;
+        }
+        return { type: "skill", skill: e.skill };
+      },
+    },
+  };
+  // Effect entries shared by upgrades, homes, furniture, and skill
+  // milestones. `kind` gates which types are valid here: "upgrade",
+  // "home", "furniture", or "skill" (see EFFECT_DEFS contexts). Returns
+  // the cleaned effect, or null when it should be skipped.
+  const cleanEffect = (e, ownerLabel, kind, ownerId) => {
     if (!e || typeof e !== "object" || typeof e.type !== "string") {
       warn(ownerLabel + ": skipped an invalid effect.");
       return null;
     }
-    if (e.type === "max" && allow.includes("max")) {
-      if (typeof e.resource !== "string" || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
-        warn(ownerLabel + ': skipped an invalid effect (use { type: "max", resource, amount }).');
-        return null;
-      }
-      if (!getResource(e.resource)) warn(ownerLabel + ': effect targets unknown resource "' + e.resource + '".');
-      return { type: "max", resource: e.resource, amount: e.amount };
+    const def = EFFECT_DEFS[e.type];
+    if (!def || !def.contexts.includes(kind)) {
+      warn(ownerLabel + ": skipped an invalid effect.");
+      return null;
     }
-    if (e.type === "gain" && allow.includes("gain")) {
-      if (typeof e.action !== "string" || typeof e.resource !== "string" || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
-        warn(ownerLabel + ': skipped an invalid effect (use { type: "gain", action, resource, amount }).');
-        return null;
-      }
-      if (!getAction(e.action)) warn(ownerLabel + ': effect targets unknown action "' + e.action + '".');
-      if (!getResource(e.resource)) warn(ownerLabel + ': effect targets unknown resource "' + e.resource + '".');
-      return { type: "gain", action: e.action, resource: e.resource, amount: e.amount };
-    }
-    if (e.type === "home" && allow.includes("home")) {
-      if (typeof e.home !== "string" || !getHome(e.home)) {
-        warn(ownerLabel + ': skipped an invalid effect (use { type: "home", home }).');
-        return null;
-      }
-      return { type: "home", home: e.home };
-    }
-    if (e.type === "furnitureCap" && allow.includes("furnitureCap")) {
-      if (typeof e.furniture !== "string" || !getFurniture(e.furniture) || !Number.isInteger(e.amount) || e.amount < 1) {
-        warn(ownerLabel + ': skipped an invalid effect (use { type: "furnitureCap", furniture, amount }).');
-        return null;
-      }
-      return { type: "furnitureCap", furniture: e.furniture, amount: e.amount };
-    }
-    if (e.type === "time" && allow.includes("time")) {
-      if (typeof e.action !== "string" || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
-        warn(ownerLabel + ': skipped an invalid effect (use { type: "time", action, amount }).');
-        return null;
-      }
-      if (!getAction(e.action)) warn(ownerLabel + ': effect targets unknown action "' + e.action + '".');
-      return { type: "time", action: e.action, amount: e.amount };
-    }
-    warn(ownerLabel + ": skipped an invalid effect.");
-    return null;
+    return def.clean(e, ownerLabel, kind, ownerId);
   };
   const cleanMaxPurchases = (item, ownerLabel) => {
     if (item.maxPurchases === undefined) item.maxPurchases = 1;
@@ -676,6 +835,24 @@ function normalizeConfig() {
     }
     a.costs = cleanMap(a.costs, 'Action "' + a.id + '"', "cost");
     a.gains = cleanMap(a.gains, 'Action "' + a.id + '"', "gain");
+    // Skill XP per completed cycle: { skillId: amount }. Unknown skills
+    // warn and are skipped (the engine grants what's left in doTick).
+    if (a.xp === undefined) a.xp = {};
+    else if (!a.xp || typeof a.xp !== "object" || Array.isArray(a.xp)) {
+      warn('Action "' + a.id + '": bad xp, ignored.');
+      a.xp = {};
+    } else {
+      const cleaned = {};
+      for (const [k, v] of Object.entries(a.xp)) {
+        if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
+          warn('Action "' + a.id + '": bad xp amount for "' + k + '", skipped.');
+          continue;
+        }
+        if (!getSkill(k)) warn('Action "' + a.id + '": xp grants unknown skill "' + k + '".');
+        cleaned[k] = v;
+      }
+      a.xp = cleaned;
+    }
     cleanUnlock(a, 'Action "' + a.id + '"');
     cleanTags(a, 'Action "' + a.id + '"');
     cleanHeader(a, 'Action "' + a.id + '"');
@@ -698,7 +875,15 @@ function normalizeConfig() {
       warn('Action "' + a.id + '": bad description, auto-generated.');
       delete a.description;
     }
-    if (!a.description) a.description = autoActionDescription(a);
+    // Remember whether the description was auto-written: auto text embeds
+    // the base costs, so it is refreshed live (discounts change it), while
+    // custom descriptions are left exactly as written.
+    if (a.description === undefined) {
+      a.description = autoActionDescription(a);
+      a._autoDesc = true;
+    } else if (a._autoDesc === undefined) {
+      a._autoDesc = false;
+    }
     cleanLogField(a, "startLog", 'Action "' + a.id + '"');
     cleanLogField(a, "stopLog", 'Action "' + a.id + '"');
     cleanLogField(a, "fullLog", 'Action "' + a.id + '"');
@@ -717,7 +902,7 @@ function normalizeConfig() {
     } else {
       const kept = [];
       for (const e of u.effects) {
-        const c = cleanEffect(e, 'Upgrade "' + u.id + '"', ["max", "home", "furnitureCap", "time"]);
+        const c = cleanEffect(e, 'Upgrade "' + u.id + '"', "upgrade");
         if (c) kept.push(c);
       }
       u.effects = kept;
@@ -761,7 +946,7 @@ function normalizeConfig() {
     } else {
       const kept = [];
       for (const e of h.effects) {
-        const c = cleanEffect(e, 'Home "' + h.id + '"', ["max", "gain", "furnitureCap", "time"]);
+        const c = cleanEffect(e, 'Home "' + h.id + '"', "home");
         if (c) kept.push(c);
       }
       h.effects = kept;
@@ -785,7 +970,7 @@ function normalizeConfig() {
     } else {
       const kept = [];
       for (const e of f.effects) {
-        const c = cleanEffect(e, 'Furniture "' + f.id + '"', ["max", "gain", "time"]);
+        const c = cleanEffect(e, 'Furniture "' + f.id + '"', "furniture");
         if (c) kept.push(c);
       }
       f.effects = kept;
@@ -862,6 +1047,66 @@ function normalizeConfig() {
     if (m.category !== undefined && typeof m.category !== "string") {
       warn(mLabel + ": bad category, using the default.");
       delete m.category;
+    }
+  }
+  // Skills: leveled abilities fed by action XP. Bad numbers reset to safe
+  // defaults so one typo can't break the tab; bad milestones are skipped.
+  // Level curve: 0 -> 1 always costs 1 XP; 1 -> 2 costs baseXp; later
+  // levels multiply by scaling each time. Milestone effects use the shared
+  // EFFECT_DEFS registry above (same { type, ... } shape as upgrades) -
+  // see its header for how to add a type.
+  for (const s of SKILLS) {
+    const sLabel = 'Skill "' + (s.id || "?") + '"';
+    if (typeof s.name !== "string" || !s.name) s.name = s.id;
+    if (!Number.isInteger(s.maxLevel) || s.maxLevel <= 0) {
+      if (s.maxLevel !== undefined) warn(sLabel + ": bad maxLevel, reset to 1.");
+      s.maxLevel = 1;
+    }
+    if (typeof s.baseXp !== "number" || !Number.isFinite(s.baseXp) || s.baseXp <= 0) {
+      if (s.baseXp !== undefined) warn(sLabel + ": bad baseXp, reset to 3.");
+      s.baseXp = 3;
+    }
+    if (typeof s.scaling !== "number" || !Number.isFinite(s.scaling) || s.scaling < 1) {
+      if (s.scaling !== undefined) warn(sLabel + ": bad scaling, reset to 1.5.");
+      s.scaling = 1.5;
+    }
+    if (s.description !== undefined && typeof s.description !== "string") {
+      warn(sLabel + ": bad description, ignored.");
+      delete s.description;
+    }
+    // Flavor works exactly like actions: an italic line at the bottom of
+    // the tooltip. Skills without one show no flavor line at all.
+    if (s.flavor !== undefined && typeof s.flavor !== "string") {
+      warn(sLabel + ": bad flavor, ignored.");
+      delete s.flavor;
+    }
+    cleanTags(s, sLabel);
+    if (s.milestones === undefined) s.milestones = [];
+    if (!Array.isArray(s.milestones)) {
+      warn(sLabel + ": bad milestones, ignored.");
+      s.milestones = [];
+    } else {
+      const kept = [];
+      for (const m of s.milestones) {
+        if (!m || typeof m !== "object") { warn(sLabel + ": skipped an invalid milestone."); continue; }
+        if (!Number.isInteger(m.level) || m.level < 1 || m.level > s.maxLevel) { warn(sLabel + ": skipped a milestone with a bad level."); continue; }
+        if (typeof m.text !== "string" || !m.text) { warn(sLabel + ": skipped a milestone with no text."); continue; }
+        // Custom names render as "[Lvl. N] <name>" (level auto-prepended);
+        // without one the header reads "[Lvl. N] Milestone".
+        let name = undefined;
+        if (m.name !== undefined) {
+          if (typeof m.name !== "string" || !m.name.trim()) warn(sLabel + ": milestone " + m.level + " has a bad name, ignored.");
+          else name = m.name.trim();
+        }
+        const effs = [];
+        for (const e of (Array.isArray(m.effects) ? m.effects : [])) {
+          const c = cleanEffect(e, sLabel + " milestone " + m.level, "skill", s.id);
+          if (c) effs.push(c);
+        }
+        kept.push({ level: m.level, name, text: m.text, effects: effs });
+      }
+      kept.sort((x, y) => x.level - y.level);
+      s.milestones = kept;
     }
   }
   return warnings;

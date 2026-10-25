@@ -16,13 +16,16 @@ setInterval(() => {
 
   // A running cycle is always paid for (charged at start, or for the next
   // cycle right at completion). This is just a safety net for odd states.
+  // Skill milestones can discount the price, so this reads the effective
+  // costs - same as the start/continue payments below.
+  const effTickCost = (typeof effectiveCosts === "function") ? effectiveCosts(current) : { ...(current.costs ?? {}) };
   const cyc = state.cycles[current.id] ?? (state.cycles[current.id] = { progress: 0, paid: false });
   if (!cyc.paid) {
-    if (!canAfford(current.costs)) {
+    if (!canAfford(effTickCost)) {
       stopForFunds(current);
       return;
     }
-    payCosts(current.costs);
+    payCosts(effTickCost);
     cyc.paid = true;
   }
 
@@ -43,12 +46,12 @@ setInterval(() => {
     // The next cycle starts now: charge up front so stopping later never
     // loses paid time. If unaffordable, stop but keep the leftover
     // progress - resuming pays for the cycle, then continues it.
-    if (!canAfford(current.costs)) {
+    if (!canAfford(effTickCost)) {
       cyc.paid = false;
       stopForFunds(current);
       return;
     }
-    payCosts(current.costs);
+    payCosts(effTickCost);
   }
   render();
   // 50ms refresh keeps the action-bar countdowns smooth. Action speed is

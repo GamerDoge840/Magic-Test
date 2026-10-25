@@ -88,7 +88,11 @@ function buildUpgradeBtn(u) {
   }
   btn.appendChild(tip);
 
-  btn.addEventListener("click", () => buyUpgrade(u.id));
+  btn.addEventListener("click", () => {
+    // Hiding mode: clicking strikes the upgrade hidden instead of buying it.
+    if (hidingMode.actions) { toggleItemHidden("u:" + u.id); return; }
+    buyUpgrade(u.id);
+  });
   uiRefs.set("u:" + u.id, { root: btn, label, costs: costRefs, tc: count });
   const hi = (on) => hiResources({ costs: u.cost, gains: effectGains(u) }, on);
   btn.addEventListener("mouseenter", () => openTip("u:" + u.id, btn, hi, u.cost));

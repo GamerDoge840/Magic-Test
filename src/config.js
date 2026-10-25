@@ -56,6 +56,11 @@
         startLog/stopLog/fullLog also accept an array of variants -
         one is picked at random each time, e.g.
         startLog: ["You help someone.", "You help someone else."]
+      - xp: (optional, default {}) skill XP granted per completed cycle,
+        e.g. xp: { basicKnowledge: 1 }. Unknown skill ids warn and skip.
+        Shown in the tooltip under "Skill XP". XP for a skill locked
+        behind an unattained unlock milestone is skipped, and its row
+        hides from the tooltip until unlocked (see SKILLS).
       - tags: (optional) identifying chips under the tooltip header,
         e.g. tags: ["Work", "Charismatic"]. Check from code with
         hasTag(item, "Work") or itemsWithTag("Work").
@@ -72,8 +77,10 @@
     ============================================================ */
 
 const RESOURCES = [
-  { id: "stamina", name: "Stamina", start: 10, max: 10, group: "Body", barColor: "#FFFCAD", tooltip: "Physical capacity for labor.", tags: ["Body", "Basic Need"]},
+  { id: "stamina", name: "Stamina", start: 10, max: 10, group: "Body", barColor: "#FFFCAD", tooltip: "Physical capacity for labor. Restored by simply resting.", tags: ["Body", "Basic Need"]},
   { id: "coin",    name: "Coin",    start: 0,  max: 5, kind: "currency", group: "Basic", nameColor: "#B87333", plural: "Coins", tooltip: "Copper-forged coins, standard-issue currency in many parts of the world.", tags: ["Currency"] },
+  { id: "scroll",  name: "Scroll",  start: 0,  max: 4, kind: "currency", group: "Knowledge", nameColor: "#f6eee3", plural: "Scrolls", tooltip: "Perhaps the simplest form of stored knowledge.", tags: ["Currency", "Knowledge", "Written"] },
+  { id: "research", name: "Research", start: 0, max: 10, kind: "currency", group: "Basic", nameColor: "#BDFFFB", tooltip: "Research into the nature of many things of this world.", tags: ["Currency", "Knowledge"] },
 ];
 
 // PLAYER_STATS: the six character stats shown on the Player tab.
@@ -172,7 +179,7 @@ const FURNITURE = [
     maxPurchases: 2,
     requiresHome: "mediumTent",
     tags: ["Recovery", "Furniture"],
-    description: "Some slightly expensive yet comfortable pillows.",
+    description: "Some slightly overpriced yet comfortable pillows.",
     buyLog: "You buy some pillows from the store.",
     sellLog: "You sell some pillows.",
     effects: [
@@ -212,6 +219,7 @@ const ACTIONS = [
     tickSeconds: 1,
     costs: { stamina: 1 },
     gains: { coin: 0.5 },
+    xp: { oddJobsMastery: 0.25 },
     description: "Help some people out and get some meagre pay.",
     startLog: ["You start to help someone get their cat out of a tree.", "You start helping an old man sweep his porch.", "You start helping someone move some storage boxes.", "You start helping a shopkeep restock their goods.", "You start helping someone deliver an envelope."],
     stopLog: "You stop helping.",
@@ -233,11 +241,54 @@ const ACTIONS = [
     tickSeconds: 2,
     costs: {},
     gains: { stamina: 1 },
-    description: "Rest on the ground.",
-    startLog: "You lie down on the ground.",
+    xp: { sleeping: 0.1 },
+    description: "Relax for a moment to catch your breath.",
+    startLog: "You lie down.",
     stopLog: "You get up.",
     fullLog: "You feel rested.",
     runtext: "Resting...",
+  },
+  {
+    id: "buyScrolls",
+    name: "Buy Scrolls",
+    header: "Shop",
+    group: "Resources",
+    tags: ["Shopping", "Knowledge"],
+    tickSeconds: 1,
+    costs: { coin: 10 },
+    gains: { scroll: 1 },
+    description: "Purchase some simple scrolls of basic know-how from the general store.",
+    startLog: "You start buying some scrolls from a shop.",
+    stopLog: "You step away from buying scrolls.",
+    fullLog: "You don't have enough money to buy any more scrolls.",
+    runtext: "Buying scrolls...",
+    unlock: { resource: "coin", amount: 25 },
+    unlockLog: "Since you've never been to school, you reckon it might be a good idea to start learning things.",
+  },
+  {
+    id: "researchScrolls",
+    name: "Research Scrolls",
+    header: "Tasks",
+    group: "Research",
+    tags: ["Knowledge"],
+    tickSeconds: 7.5,
+    costs: { stamina: 5, scroll: 1 },
+    gains: { research: 1 },
+    xp: { basicKnowledge: 1 },
+    description: "Look through your scrolls in an attempt to expand your general knowledge of things.",
+    startLog: "You fetch a scroll, unroll it, and begin reading.",
+    stopLog: "You pause researching scrolls.",
+    fullLog: "You finish up studying your scrolls, for now.",
+    runtext: "Reading scrolls...",
+    flavor: "Scrolling through scrolls...",
+    unlock: { resource: "scroll", amount: 1 },
+    unlockLog: "Now that you have bought your first scroll, you may begin expanding your understanding.",
+    improvements: {
+      every: 10,
+      maxLevel: 10,
+      bonus: { research: 0.1 },
+      improvementLog: "[Research Scrolls Improved!] You have improved at looking through your scrolls.",
+    },
   },
 
   // QUICK ADD - minimal action (gains only, 1s, auto description):
@@ -280,6 +331,10 @@ const ACTIONS = [
                 { type: "time", action: "rest", amount: 0.1 }
                 = 0.1s less per cycle of that action.
                 Bad entries are skipped with a warning in the Work Log.
+                Effects share one { type, ... } shape everywhere (upgrades,
+                homes, furniture, skill milestones): skill-only types are
+                listed under SKILLS, and all types are validated by one
+                registry (EFFECT_DEFS in core.js).
      - maxPurchases: (optional, default 1) Infinity = no limit. Fully-bought upgrades hide automatically; the player can re-show them with Options > Show maxed-out Work upgrades.
      - group: (optional, default "Tasks") section name, shared with
        ACTIONS: same name = same section, actions first. "Shop" is not
@@ -307,7 +362,7 @@ const UPGRADES = [
     name: "Small Tent",
     group: "Housing",
     header: "Shop",
-    tags: ["Housing"],
+    tags: ["Shopping", "Housing"],
     description: "Buy a small tent. It's more intended for storage rather than for someone to live in, but...",
     cost: { coin: 10 },
     maxPurchases: 1,
@@ -323,7 +378,7 @@ const UPGRADES = [
     name: "Medium Tent",
     group: "Housing",
     header: "Shop",
-    tags: ["Housing"],
+    tags: ["Shopping", "Housing"],
     description: "A slightly larger tent. Only a marginal upgrade, but you'll take anything.",
     cost: { coin: 20 },
     maxPurchases: 1,
@@ -340,7 +395,7 @@ const UPGRADES = [
     name: "Pockets",
     group: "Storage",
     header: "Upgrades",
-    tags: ["Storage", "Clothing Augment"],
+    tags: ["Shopping", "Storage", "Clothing Augment"],
     description: "Buy some new trousers with better pockets.",
     cost: { coin: 5 },
     maxPurchases: 1,
@@ -367,5 +422,130 @@ const UPGRADES = [
   //     { type: "max", resource: "stamina", amount: 2 },
   //   ],
   // },
+];
+
+// SKILLS: leveled abilities fed by action XP (see action `xp`).
+// The Skills tab unlocks once any skill reaches Level 1.
+//   - id / name: (name defaults to id)
+//   - maxLevel: (required) level cap, positive integer.
+//   - baseXp: (optional, default 3) XP needed to go Level 1 -> 2.
+//   - scaling: (optional, default 1.5) growth per level after that (>= 1).
+//   XP curve (effortlessly retuned via baseXp/scaling): Level 0 -> 1 always
+//   costs exactly 1 XP; Level 1 -> 2 costs baseXp; every level after
+//   multiplies by scaling again (e.g. base 5, scaling 1.5: 7.5 to reach
+//   Level 3, 11.25 for Level 4, 16.875 for Level 5, ...).
+//   - description: (optional) tooltip text.
+//   - flavor: (optional) italic line at the bottom of the tooltip, exactly
+//     like actions (skills without one show no flavor line).
+//   - tags: (optional) tooltip chips, e.g. tags: ["Skill"].
+//   - milestones: (optional, default []) level-gated boosts, each:
+//       { level: <skill level>, name: "<custom name>", text: "<shown in
+//         list + balloon>", effects: [...] }. Only attained milestones plus
+//       the NEXT one show; attained ones render green. `name` is optional:
+//       the header auto-prepends the level, so name "Scroll Frugality" at
+//       level 2 renders as "[Lvl. 2] Scroll Frugality" (without one it
+//       reads "[Lvl. N] Milestone"). Effects apply while attained:
+//         { type: "stat", stat: "int", amount: 0.1 } = +0.1 to that Main
+//         Stat; add perLevel: true to multiply by the skill's level.
+//         { type: "cost", action: "buyScrolls", resource: "coin",
+//           amount: 2.5 } = that action costs 2.5 less of that resource per
+//         cycle (floored at zero, stacking across milestones).
+//         { type: "gain", action: "rest", resource: "stamina",
+//           amount: 0.05, perLevel: true } = that action pays out extra of
+//         that resource per cycle (times the skill's level with perLevel).
+//         { type: "improvementCap", action: "oddJobs", amount: 5 } = that
+//         action can earn 5 more Improvement levels past its base max;
+//         the new levels must be earned with further completions, never
+//         granted retroactively.
+//         { type: "skill", skill: "sleeping" } = unlocks that skill:
+//         locked skills earn no XP, hide from tooltips, and stay out of
+//         the Skills tab (below Level 1) until unlocked.
+//         All effect types are validated by one registry (EFFECT_DEFS in
+//         core.js) - see its header to add a type.
+// Reaching a level logs "[Level Up] Attained Level N in <name>." (green);
+// attaining a milestone fires a balloon notification with its text.
+const SKILLS = [
+  {
+    id: "basicKnowledge",
+    name: "Basic Knowledge",
+    maxLevel: 10,
+    baseXp: 3,
+    scaling: 1.5,
+    tags: ["Skill", "Knowledge"],
+    description: "Fundamental understanding of just what exactly your existence is.",
+    milestones: [
+      {
+        level: 1,
+        name: "Grasp Understanding",
+        text: "Add +0.1 to INT per level of Basic Knowledge.",
+        effects: [
+          { type: "stat", stat: "int", amount: 0.1, perLevel: true },
+        ],
+      },
+      {
+        level: 2,
+        name: "Scroll Frugality",
+        text: "Scrolls cost 2.5 less Coins each.",
+        effects: [
+          { type: "cost", action: "buyScrolls", resource: "coin", amount: 2.5 },
+        ],
+      },
+      {
+        level: 3,
+        name: "Basic Task Skills",
+        text: "Unlock two new skills based on Odd Jobs and Rest.",
+        effects: [
+          { type: "skill", skill: "oddJobsMastery" },
+          { type: "skill", skill: "sleeping" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "oddJobsMastery",
+    name: "Odd Jobs Mastery",
+    maxLevel: 10,
+    baseXp: 5,
+    scaling: 1.5,
+    tags: ["Skill", "Work"],
+    description: "Get better and better at helping random folks.",
+    milestones: [
+      {
+        level: 1,
+        name: "Seasoned Helper",
+        text: "Odd Jobs' Improvement cap increased by 5. (Doesn't apply retroactively.).",
+        effects: [
+          { type: "improvementCap", action: "oddJobs", amount: 5 },
+        ],
+      },
+      {
+        level: 2,
+        name: "Easier Odd Jobs",
+        text: "Odd Jobs costs 0.15 less Stamina each time.",
+        effects: [
+          { type: "cost", action: "oddJobs", resource: "stamina", amount: 0.15 },
+        ],
+      },
+    ],
+  },
+  {
+    id: "sleeping",
+    name: "Sleeping",
+    maxLevel: 10,
+    baseXp: 2,
+    scaling: 2,
+    tags: ["Skill", "Recovery"],
+    description: "Unconscious ability for better sleep.",
+    milestones: [
+      {
+        level: 1,
+        name: "Calm Rest",
+        text: "Rest restores +0.05 Stamina per Sleeping level.",
+        effects: [
+          { type: "gain", action: "rest", resource: "stamina", amount: 0.05, perLevel: true },
+        ],
+      },
+    ],
+  },
 ];
 

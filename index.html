@@ -92,14 +92,26 @@
   }
   .actionBtn.active { outline: 3px solid #333; font-weight: bold; }
   .shopBtn.owned { outline: 2px solid #333; }
-  .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip, .furnCard .tip, .homeRow .tip {
+  .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip, .furnCard .tip, .homeRow .tip, .skillRow .tip {
     display: none;
     position: absolute;
-    bottom: 110%;
+    bottom: calc(100% - 2px);
     left: 50%;
     transform: translateX(-50%);
     min-width: 180px;
     max-width: 240px;
+    /* Size to the content (not the anchor): shrink-to-fit on an absolutely
+       positioned tip clamps to narrow anchors like action buttons, which
+       wrapped long rows ("Odd Jobs Mastery:" split over two lines with the
+       value stranded far right). max-content grows to the longest row, still
+       capped at 240px where normal text wrapping resumes. */
+    width: max-content;
+    /* Automatic backstop for long tips (present and future): a tip never
+       grows past the viewport - it scrolls internally instead of clipping
+       through the top of the screen or blowing out the action menu. */
+    max-height: min(360px, 70vh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     border: 1px solid #4a4f5c;
     background: #22262f;
     color: #eee;
@@ -109,7 +121,7 @@
     padding: 6px 8px;
     white-space: normal;
     z-index: 10;
-    pointer-events: none;
+    pointer-events: auto;
   }
   @media (prefers-color-scheme: light) {
     body { background: #f2f2f2; color: #111; }
@@ -121,8 +133,9 @@
     .panel h2 { background: #e0e0e0; }
     .actionBtn, .shopBtn { background: #f5f5f5; color: #111; border-color: #999; }
     .actionBtn:hover:not(:disabled), .shopBtn:hover:not(:disabled) { background: #e8e8e8; }
-    .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip, .furnCard .tip, .homeRow .tip { background: #fff; color: #000; border-color: #999; }
+    .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip, .furnCard .tip, .homeRow .tip, .skillRow .tip { background: #fff; color: #000; border-color: #999; }
     .panel h2.hasBtn .hbtns button { background: #e4e4e4; color: #222; border-color: #aaa; }
+    .panel h2.hasBtn .hbtns button.on { background: #fff; border-color: #666; color: #111; box-shadow: 0 0 8px rgba(0,0,0,0.25); }
     #playerNameEditBtn { background: #e4e4e4; color: #222; border-color: #aaa; }
     #playerNameInput { background: #fff; color: #000; border-color: #999; }
     .furnCard { background: #f5f5f5; border-color: #999; }
@@ -132,13 +145,23 @@
     .tip-sec { border-color: #999; }
     .tip-tag { background: #e4e4e4; border-color: #aaa; }
     .modalBox { background: #fff; color: #111; border-color: #bbb; }
+    .skillRow { background: #f5f5f5; color: #111; border-color: #999; }
+    .skillRow:hover:not(:disabled) { background: #e8e8e8; }
+    .skillXbar { background: rgba(0, 0, 0, 0.12); }
+    .mileRow { background: #f5f5f5; color: #111; border-color: #999; }
+    .mileRow.attained { background: #C2FF5E; border-color: #9fd63f; color: #111; }
+    .balloon { background: #fff; color: #111; border-color: #2e7d32; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); }
+    .balloon-head { color: #2e7d32; }
+    .balloon-x { border-color: #999; }
+    .balloon-x:hover { background: #e8e8e8; }
   }
   .actionBtn:hover .tip, .actionBtn:focus-visible .tip,
   .shopBtn:hover .tip, .shopBtn:focus-visible .tip,
   .currency:hover .tip, .currency:focus-visible .tip,
-  .res:hover .tip, .res:focus-visible .tip { display: block; }
+  .res:hover .tip, .res:focus-visible .tip,
+  .skillRow:hover .tip, .skillRow:focus-visible .tip { display: block; }
   /* Resource tooltips open downward so they never collide with panel headers. */
-  .currency .tip, .res .tip { bottom: auto; top: 110%; }
+  .currency .tip, .res .tip { bottom: auto; top: calc(100% - 2px); }
   .tip-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-weight: bold; font-size: 1.1em; }
   .tip-count { font-weight: bold; white-space: nowrap; font-size: 0.85em; }
   .tip-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 1px 0 3px; }
@@ -147,13 +170,14 @@
   .tip-sec { border-top: 1px solid #4a4f5c; margin-top: 6px; padding-top: 4px; }
   .tip-sec-label { font-style: italic; opacity: 0.85; }
   .tip-row { display: flex; justify-content: flex-start; gap: 8px; padding-left: 10px; }
+  .tip-row[hidden] { display: none; }
   /* Tooltip rows: unaffordable costs glow red, gains at storage cap glow orange. */
   .tip-row.short { color: #d93636; }
   .tip-row.capped { color: #d97a00; }
   .tip-flavor { font-style: italic; opacity: 0.75; margin-top: 6px; }
   /* Action tooltips open upward so they never stretch the scroll area. */
-  #actionsCtn .actionBtn .tip { bottom: 110%; top: auto; left: 0; transform: none; }
-  #actionsCtn .shopBtn .tip { bottom: 110%; top: auto; left: 0; transform: none; }
+  #actionsCtn .actionBtn .tip { bottom: calc(100% - 2px); top: auto; left: 0; transform: none; }
+  #actionsCtn .shopBtn .tip { bottom: calc(100% - 2px); top: auto; left: 0; transform: none; }
   /* Disabled buttons dim their label, but keep their tooltip full-contrast. */
   .actionBtn:disabled, .shopBtn:disabled { opacity: 1; color: #777; }
   .row { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; flex-wrap: wrap; }
@@ -229,6 +253,43 @@
   .panel h2.hasBtn .htitle { flex: 1; text-align: center; }
   .panel h2.hasBtn .hbtns button { padding: 2px 10px; font-size: 0.85em; font-weight: normal; letter-spacing: 0; text-transform: none; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
   .panel h2.hasBtn .hbtns button:hover:not(:disabled) { background: #343945; }
+  /* Hiding mode: the armed Hide button brightens into a Done button. */
+  .panel h2.hasBtn .hbtns button.on { background: #4a5160; border-color: #9aa3b5; color: #fff; font-weight: bold; box-shadow: 0 0 8px rgba(255,255,255,0.25); }
+  /* User-hidden items: struck-through while hiding mode reveals them. */
+  .actionBtn.userHidden .action-label, .shopBtn.userHidden .action-label,
+  .currency.userHidden .cur-name, .currency.userHidden .cur-val,
+  .res.userHidden .res-name, .res.userHidden .res-val { text-decoration: line-through; }
+  .currency.userHidden, .res.userHidden, .actionBtn.userHidden, .shopBtn.userHidden { opacity: 0.75; }
+  /* While any hiding mode is armed, hideable things show a pointer. */
+  body.hiding .currency, body.hiding .res, body.hiding .actionBtn, body.hiding .shopBtn { cursor: pointer; }
+  /* Skills tab: list + milestones two-column grid (stacks on phones). */
+  #tabSkills { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #skillsGrid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 8px; margin-bottom: 0; text-align: left; align-items: start; flex: 1; min-height: 0; }
+  @media (max-width: 700px) { #skillsGrid { grid-template-columns: 1fr; } }
+  .skillsToggleRow { display: flex; gap: 6px; align-items: center; justify-content: flex-start; font-size: 0.85em; margin-bottom: 8px; }
+  #skillsCtn { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; overflow: visible; }
+  @media (max-width: 1100px) { #skillsCtn { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 520px) { #skillsCtn { grid-template-columns: 1fr; } }
+  #skillsCtn .emptyNote { opacity: 0.6; font-size: 0.9em; }
+  .skillRow { position: relative; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 8px 10px; text-align: left; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .skillRow:hover:not(:disabled) { background: #343945; }
+  .skillRow.selected { outline: 2px solid #7fd97f; }
+  /* Hovered rows rise above neighbors so tooltips are never covered. */
+  .skillRow:hover { z-index: 11; }
+  .skillTop { font-weight: bold; }
+  .skillXbar { height: 8px; background: rgba(0, 0, 0, 0.35); border-radius: 999px; overflow: hidden; }
+  .skillXfill { height: 100%; width: 0%; background: #7fd97f; }
+  .skillSub { font-size: 0.8em; opacity: 0.8; }
+  .mileRow { background: #2a2e37; border: 1px solid #4a4f5c; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
+  .mileRow.attained { background: #C2FF5E; border-color: #C2FF5E; color: #111; }
+  .mileHead { font-weight: bold; margin-bottom: 2px; }
+  /* Balloon notifications: fixed top-right cards, X dismisses, auto-gone in 15s. */
+  #balloons { position: fixed; top: 12px; right: 12px; z-index: 100; display: flex; flex-direction: column; gap: 8px; max-width: min(340px, calc(100vw - 24px)); }
+  .balloon { background: #22262f; border: 1px solid #7fd97f; border-radius: 8px; padding: 10px 12px; text-align: left; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); }
+  .balloon-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: bold; color: #7fd97f; margin-bottom: 4px; }
+  .balloon-x { background: transparent; border: 1px solid #4a4f5c; color: inherit; border-radius: 6px; cursor: pointer; padding: 0 8px; font-size: 0.85em; }
+  .balloon-x:hover { background: #343945; }
+  .balloon-body { font-size: 0.9em; }
   #logEl, #logElHome, .js-log { text-align: left; border-top: none; padding-top: 0; font-size: 0.85em; flex: 1; min-height: 120px; overflow-y: auto; }
   #logEl div, #logElHome div, .js-log div { margin: 0; padding: 5px 6px; opacity: 0.92; border-bottom: 1px solid #262b34; }
   #logEl div:first-child, #logElHome div:first-child, .js-log div:first-child { background: #22262f; border-radius: 4px; }
@@ -262,6 +323,7 @@
     <button id="tabWorkBtn" class="tab active" type="button" role="tab" aria-selected="true">Work</button>
     <button id="tabHomeBtn" class="tab" type="button" role="tab" aria-selected="false" hidden>Home</button>
     <button id="tabPlayerBtn" class="tab" type="button" role="tab" aria-selected="false">Player</button>
+    <button id="tabSkillsBtn" class="tab" type="button" role="tab" aria-selected="false" hidden>Skills</button>
     <button id="tabOptionsBtn" class="tab" type="button" role="tab" aria-selected="false">Options</button>
   </div>
   <div class="topSpacer" aria-hidden="true"></div>
@@ -270,11 +332,11 @@
   <div id="tabWork" role="tabpanel">
     <div id="workGrid">
       <section class="panel" aria-label="Currencies">
-        <h2>Currencies</h2>
+        <h2 class="hasBtn"><span class="htitle">Currencies</span><span class="hbtns"><button id="currenciesHideBtn" type="button" title="Hide currencies">⛒</button></span></h2>
         <div id="currenciesCtn" class="js-currencies"></div>
       </section>
       <section class="panel" aria-label="Actions">
-        <h2>Actions</h2>
+        <h2 class="hasBtn"><span class="htitle">Actions</span><span class="hbtns"><button id="actionsHideBtn" type="button" title="Hide actions and upgrades">⛒</button></span></h2>
         <div id="actionsCtn"></div>
       </section>
       <div class="vitalsCol">
@@ -284,7 +346,7 @@
           <button id="nowCancelBtn" type="button" title="Stop current action" aria-label="Stop current action">Stop</button>
         </div>
         <section class="panel" aria-label="Vitals">
-          <h2>Vitals</h2>
+          <h2 class="hasBtn"><span class="htitle">Vitals</span><span class="hbtns"><button id="vitalsHideBtn" type="button" title="Hide vitals">⛒</button></span></h2>
           <div id="vitalsCtn" class="js-vitals"></div>
         </section>
       </div>
@@ -298,7 +360,7 @@
   <div id="tabHome" role="tabpanel" hidden>
     <div id="homeGrid">
       <section class="panel" aria-label="Currencies">
-        <h2>Currencies</h2>
+        <h2 class="hasBtn"><span class="htitle">Currencies</span><span class="hbtns"><button id="currenciesHideBtnHome" type="button" title="Hide currencies">⛒</button></span></h2>
         <div id="currenciesCtnHome" class="js-currencies"></div>
       </section>
       <div class="panel">
@@ -315,6 +377,8 @@
     </div>
   </div>
 
+<div id="balloons" aria-live="polite"></div>
+
   <div id="tabPlayer" role="tabpanel" hidden>
     <div class="panel">
       <h2>Player</h2>
@@ -323,8 +387,22 @@
         <span id="playerNameEl">Placeholder</span>
         <input id="playerNameInput" hidden maxlength="24">
       </div>
-      <h3 class="playerStatsHead">Stats</h3>
+      <h3 class="playerStatsHead">Main Stats</h3>
       <div id="playerStatsCtn"></div>
+    </div>
+  </div>
+
+  <div id="tabSkills" role="tabpanel" hidden>
+    <div id="skillsGrid">
+      <div class="panel">
+        <h2>Skills</h2>
+        <label class="skillsToggleRow"><input id="showMaxedSkillsChk" type="checkbox"> Show maxed-out skills</label>
+        <div id="skillsCtn"></div>
+      </div>
+      <section class="panel" aria-label="Milestones">
+        <h2 id="milesSkillEl">Skills</h2>
+        <div id="milesCtn"></div>
+      </section>
     </div>
   </div>
 
@@ -425,6 +503,7 @@
 <script src="src/groups.js"></script>
 <script src="src/upgrades.js"></script>
 <script src="src/furniture.js"></script>
+<script src="src/skills.js"></script>
 <script src="src/render.js"></script>
 <script src="src/ui.js"></script>
 <script src="src/main.js"></script>

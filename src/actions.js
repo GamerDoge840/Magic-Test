@@ -1,14 +1,15 @@
 // Labor Game actions: cycles, improvements, tooltips, buttons.
 function doTick(action) {
-  // Costs were already paid when this cycle started (see setAction); a
-  // completion only pays out gains (with the improvement bonus), counts
-  // the run, and fires improvement level-ups.
+  // One cycle's payout gains (with the improvement bonus), counts
+  // the run, grants skill XP, and fires improvement level-ups.
   const eff = effectiveGains(action);
   for (const [id, n] of Object.entries(eff)) {
     const max = getEffectiveMax(id);
     const cur = state.amounts[id] ?? 0;
     state.amounts[id] = max === Infinity ? cur + n : Math.min(max, cur + n);
+    if (n > 0) markCurrencySeen(id);
   }
+  for (const [sid, n] of Object.entries(action.xp ?? {})) gainSkillXp(sid, n);
   const count = (state.stats.actions[action.id] ?? 0) + 1;
   state.stats.actions[action.id] = count;
   const imp = action.improvements;
@@ -26,15 +27,18 @@ function setAction(id, stopMsg, stopCategory = "stop") {  const prev = state.cur
   if (action) {
     // Costs are per cycle, paid up front: starting a fresh (unpaid) cycle
     // charges, while resuming a paid cycle picked up mid-bar is free.
-    // Progress is tracked per action, so stopping never loses it.
+    // Progress is tracked per action, so stopping never loses it. Skill
+    // milestones can discount the price (Scroll Frugality), so every
+    // check and payment below reads through effectiveCosts.
     const cyc = state.cycles[id] ?? (state.cycles[id] = { progress: 0, paid: false });
     if (!cyc.paid) {
-      if (!canAfford(action.costs)) {
-        log("Not enough for " + action.name + " (" + describeCost(action.costs) + ").");
+      const startCost = (typeof effectiveCosts === "function") ? effectiveCosts(action) : { ...(action.costs ?? {}) };
+      if (!canAfford(startCost)) {
+        log("Not enough for " + action.name + " (" + describeCost(startCost) + ").");
         render();
         return;
       }
-      payCosts(action.costs);
+      payCosts(startCost);
       cyc.paid = true;
     }
     state.currentActionId = id;
@@ -90,8 +94,10 @@ function buildActionBtn(a) {
   appendTipSection(tip, "Cost", a.costs ?? {}, costRefs);
   // Results rows are live for improved actions (payout grows per level):
   // build rows for base gains plus any bonus-only resources, then update.
-  // Furniture/home "gain" effects add payout too, so their resources get
-  // rows even when the base action pays nothing of them.
+  // Furniture/home/skill-milestone "gain" effects add payout too, so their
+  // resources get rows even when the base action pays nothing of them
+  // (skill rows read 0 until their milestone lands, like unlevelled
+  // improvement bonuses - render() fills them in live).
   const gainBase = { ...(a.gains ?? {}) };
   for (const k of Object.keys(a.improvements?.bonus ?? {})) if (!(k in gainBase)) gainBase[k] = 0;
   for (const f of FURNITURE) {
@@ -104,8 +110,21 @@ function buildActionBtn(a) {
       if (e.type === "gain" && e.action === a.id && e.resource && !(e.resource in gainBase)) gainBase[e.resource] = 0;
     }
   }
+  if (typeof allSkillMilestoneEffects === "function") {
+    for (const x of allSkillMilestoneEffects()) {
+      const e = x.effect;
+      if (e.type === "gain" && e.action === a.id && e.resource && !(e.resource in gainBase)) gainBase[e.resource] = 0;
+    }
+  }
   const gainRefs = [];
   appendTipSection(tip, "Results", gainBase, gainRefs);
+  // Skill XP the action grants per cycle (e.g. Research Scrolls -> Basic
+  // Knowledge). Listed right after Results so no payout goes unmentioned.
+  // Rows for locked skills build hidden and unhide live in render().
+  const xpBuilt = (typeof appendTipXpSection === "function") ? appendTipXpSection(tip, a.xp) : null;
+  // The max-level line is live (skill milestones can raise the cap), so
+  // keep its row: render() refreshes the text whenever the cap moves.
+  let impMaxRow = null;
   if (a.improvements) {
     const impSec = document.createElement("div");
     impSec.className = "tip-sec";
@@ -113,30 +132,34 @@ function buildActionBtn(a) {
     impLab.className = "tip-sec-label";
     impLab.textContent = "Improvement";
     impSec.appendChild(impLab);
-    const impLines = ["Level up every " + a.improvements.every + " actions.", "Max level: " + (a.improvements.maxLevel === Infinity ? "none" : a.improvements.maxLevel) + "."];
+    const impMax = (typeof getEffectiveImpMax === "function") ? getEffectiveImpMax(a) : a.improvements.maxLevel;
+    const impLines = ["Level up every " + a.improvements.every + " actions.", "Max level: " + (impMax === Infinity ? "none" : impMax) + "."];
     const impBonus = describeCost(a.improvements.bonus);
     if (impBonus) impLines.push("Bonus per level: +" + impBonus + ".");
-    for (const t of impLines) {
+    impLines.forEach((t, i) => {
       const row = document.createElement("div");
       row.className = "tip-row";
       row.textContent = t;
       impSec.appendChild(row);
-    }
+      if (i === 1) impMaxRow = row;
+    });
     tip.appendChild(impSec);
   }
-  if (a.flavor) {
-    const flavor = document.createElement("div");
-    flavor.className = "tip-flavor";
-    flavor.textContent = a.flavor;
-    tip.appendChild(flavor);
-  }
   // Bottom line for improved actions: live progress to the next level.
+  // Built before the flavor so the flavor always lands last: description,
+  // Cost, Results, Skill XP, Improvement, "% to next", then flavor.
   let foot = null;
   if (a.improvements) {
     foot = document.createElement("div");
     foot.className = "tip-flavor";
     foot.textContent = improvementFooter(a);
     tip.appendChild(foot);
+  }
+  if (a.flavor) {
+    const flavor = document.createElement("div");
+    flavor.className = "tip-flavor";
+    flavor.textContent = a.flavor;
+    tip.appendChild(flavor);
   }
   btn.appendChild(tip);
 
@@ -150,16 +173,21 @@ function buildActionBtn(a) {
   time.className = "action-time";
   progress.appendChild(time);
   btn.appendChild(progress);
-  uiRefs.set("a:" + a.id, { root: btn, label, title, foot, costs: costRefs, gains: gainRefs, fill, prog: progress, time, tc: count });
+  uiRefs.set("a:" + a.id, { root: btn, label, title, foot, desc, autoDesc: !!a._autoDesc, costs: costRefs, gains: gainRefs, fill, prog: progress, time, tc: count, impMax: impMaxRow, xpSec: xpBuilt ? xpBuilt.sec : null, xpRows: xpBuilt ? xpBuilt.rows : null });
 
   btn.addEventListener("click", () => {
+    // Hiding mode: clicking strikes the action hidden instead of running it.
+    if (hidingMode.actions) { toggleItemHidden("a:" + a.id); return; }
     if (state.currentActionId === a.id) setAction(null);
     else setAction(a.id);
   });
   const hi = (on) => hiResources(a, on);
-  btn.addEventListener("mouseenter", () => openTip("a:" + a.id, btn, hi, a.costs));
+  // Tints compare live amounts against the price, so hover passes the
+  // discounted costs (not the base ones) for the unaffordable glow.
+  const effForTip = () => (typeof effectiveCosts === "function") ? effectiveCosts(a) : (a.costs ?? {});
+  btn.addEventListener("mouseenter", () => openTip("a:" + a.id, btn, hi, effForTip()));
   btn.addEventListener("mouseleave", () => closeTip("a:" + a.id, hi));
-  btn.addEventListener("focus", () => openTip("a:" + a.id, btn, hi, a.costs));
+  btn.addEventListener("focus", () => openTip("a:" + a.id, btn, hi, effForTip()));
   btn.addEventListener("blur", () => closeTip("a:" + a.id, hi));
   return btn;
 }
