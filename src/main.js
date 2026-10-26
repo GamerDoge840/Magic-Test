@@ -4,6 +4,21 @@ setInterval(() => {
   const dt = (now - lastTime) / 1000;
   lastTime = now;
 
+  // Timed upgrade builds (see buildTime): one runs at a time, progress
+  // and payment survive pauses - exactly like action cycles. Each
+  // completion grants one purchase, then stops (even if repeatable).
+  // Ticks independently of actions (no action need be running).
+  if (state.activeBuildId) {
+    const bu = (typeof getUpgrade === "function") ? getUpgrade(state.activeBuildId) : null;
+    const bb = (bu && state.builds) ? state.builds[bu.id] : null;
+    if (!bu || !bu.buildTime || !bb) state.activeBuildId = null;
+    else if ((state.upgrades[bu.id] ?? 0) >= getEffectiveUpgradeCap(bu)) state.activeBuildId = null;
+    else {
+      bb.progress += dt;
+      if (bb.progress >= bu.buildTime) completeBuild(bu);
+    }
+  }
+
   const current = state.currentActionId ? getAction(state.currentActionId) : null;
   if (!current) { render(); return; }
   const eff = effectiveGains(current);

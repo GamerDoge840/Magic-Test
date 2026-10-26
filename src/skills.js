@@ -236,8 +236,29 @@ function buildSkillRow(s) {
 
 function buildSkillsTab() {
   if (!skillsCtn) return;
+  // Collapsed groups survive rebuilds (same snapshot/restore as the
+  // actions panel and resource panels).
+  const open = (typeof snapDetailsOpen === "function") ? snapDetailsOpen(skillsCtn) : null;
   skillsCtn.innerHTML = "";
-  for (const s of SKILLS) skillsCtn.appendChild(buildSkillRow(s));
+  // Skill groups work exactly like currency/action groups: `group` (plus
+  // optional `header`) files rows into collapsible sections in first-use
+  // order. Ungrouped skills land in "General".
+  const { top, slotFor } = makeSlotCollector();
+  for (const s of SKILLS) slotFor(s, "General").items.push(s);
+  const buildButtons = (slot, wrap) => {
+    for (const s of slot.items) wrap.appendChild(buildSkillRow(s));
+  };
+  if (!top.length) {
+    const d = document.createElement("div");
+    d.className = "emptyNote";
+    d.textContent = "No skills yet.";
+    skillsCtn.appendChild(d);
+  }
+  for (const entry of top) {
+    if (entry.kind === "header") skillsCtn.appendChild(buildHeaderSection(entry, "skillBtns", buildButtons));
+    else skillsCtn.appendChild(buildGroupDetails(entry.slot, "skillBtns", buildButtons));
+  }
+  if (typeof restoreDetailsOpen === "function") restoreDetailsOpen(skillsCtn, open);
   if (showMaxedSkillsChk) showMaxedSkillsChk.checked = !!state.options.showMaxedSkills;
   if (selectedSkillId && !getSkill(selectedSkillId)) selectedSkillId = null;
   // Milestones panel rebuilds on first render via its sig.
@@ -270,7 +291,9 @@ function renderSkills() {
     for (const g of ref.xpRefs ?? []) g.el.textContent = formatNum(st.xp) + " / " + formatNum(need);
   }
   if (milesCtn) {
-    const msig = (sel ? sel.id : "-") + "|" + SKILLS.map(s => skillLevel(s.id)).join(",");
+    // Per-milestone hidden state joins the sig so (un)hiding repaints.
+    const mkeys = sel ? (sel.milestones ?? []).map(m => itemHidden("m:" + sel.id + ":" + m.level) ? "1" : "0").join(",") : "";
+    const msig = (sel ? sel.id : "-") + "|" + SKILLS.map(s => skillLevel(s.id)).join(",") + "|" + mkeys + "|" + (hidingMode.milestones ? 1 : 0);
     if (milesCtn._sig !== msig) {
       milesCtn._sig = msig;
       buildMilesPanel(sel);
@@ -280,11 +303,17 @@ function renderSkills() {
 
 // Right side: selected skill's name + attained milestones and the next one.
 // Attained rows glow light-green; the next one looks like other UI.
+// Milestones hide individually ("m:<skillId>:<level>"): while
+// milestones-hiding mode is armed, clicking a row toggles just that row;
+// otherwise hidden rows are skipped (a fully-hidden list shows a
+// "Milestones hidden." note instead). Like all user hiding this is
+// display-only: effects keep applying and milestones still attain.
 function buildMilesPanel(sel) {
   milesCtn.innerHTML = "";
   if (milesSkillEl) milesSkillEl.textContent = sel ? sel.name : "No skills yet";
   if (!sel) return;
   const lvl = skillLevel(sel.id);
+  const mkey = (m) => "m:" + sel.id + ":" + m.level;
   let shownNext = false;
   let any = false;
   for (const m of sel.milestones ?? []) {
@@ -293,9 +322,19 @@ function buildMilesPanel(sel) {
       if (shownNext) continue;
       shownNext = true;
     }
+    // Hidden rows still render (struck-through) while the mode is armed
+    // so they can be unhidden; otherwise they are skipped entirely.
+    const mHidden = itemHidden(mkey(m));
+    if (mHidden && !hidingMode.milestones) continue;
     any = true;
     const row = document.createElement("div");
-    row.className = "mileRow" + (attained ? " attained" : "");
+    row.className = "mileRow" + (attained ? " attained" : "") + (mHidden ? " userHidden" : "");
+    row.addEventListener("click", () => {
+      if (!hidingMode.milestones) return;
+      // Drop any legacy per-skill key (superseded by per-milestone keys).
+      delete state.options.hidden["m:" + sel.id];
+      toggleItemHidden(mkey(m));
+    });
     const head = document.createElement("div");
     head.className = "mileHead";
     // Custom names render with the level auto-prepended: "[Lvl. 2] Scroll
@@ -311,7 +350,7 @@ function buildMilesPanel(sel) {
   if (!any) {
     const d = document.createElement("div");
     d.className = "emptyNote";
-    d.textContent = "No milestones defined.";
+    d.textContent = (sel.milestones ?? []).length ? "Milestones hidden." : "No milestones defined.";
     milesCtn.appendChild(d);
   }
 }

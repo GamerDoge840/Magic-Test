@@ -9,7 +9,7 @@ function doTick(action) {
     state.amounts[id] = max === Infinity ? cur + n : Math.min(max, cur + n);
     if (n > 0) markCurrencySeen(id);
   }
-  for (const [sid, n] of Object.entries(action.xp ?? {})) gainSkillXp(sid, n);
+  for (const [sid, n] of Object.entries(effectiveXp(action))) gainSkillXp(sid, n);
   const count = (state.stats.actions[action.id] ?? 0) + 1;
   state.stats.actions[action.id] = count;
   const imp = action.improvements;

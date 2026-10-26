@@ -1,21 +1,14 @@
-// Labor Game upgrades: buying, max effects, buttons.
-function buyUpgrade(id) {
-  const u = getUpgrade(id);
-  if (!u) return;
-  const owned = state.upgrades[id] ?? 0;
-  if (owned >= u.maxPurchases) {
-    log(u.name + " is already maxed out.");
-    return;
-  }
-  if (!canAfford(u.cost)) {
-    log("Not enough for " + u.name + " (" + describeCost(u.cost) + ").");
-    return;
-  }
-  for (const [rid, n] of Object.entries(u.cost ?? {})) state.amounts[rid] -= n;
-  state.upgrades[id] = owned + 1;
-  // Home grants: the first home ever acquired also becomes current.
-  // Homes with `replaces` override (remove) the listed homes and become
-  // current instantly - e.g. Medium Tent replaces Small Tent.
+// Labor Game upgrades: buying, timed builds, max effects, buttons.
+function upgradeBuildState(id) {
+  return state.builds[id] ?? (state.builds[id] = { progress: 0, paid: false });
+}
+
+// Shared completion for instant buys and finished timed builds: grant
+// the purchase, apply home grants (first home auto-equips; `replaces`
+// homes override the listed ones and become current instantly), log it.
+function grantUpgrade(u) {
+  const cap = (typeof getEffectiveUpgradeCap === "function") ? getEffectiveUpgradeCap(u) : (u.maxPurchases ?? 1);
+  state.upgrades[u.id] = (state.upgrades[u.id] ?? 0) + 1;
   for (const e of u.effects ?? []) {
     if (e.type === "home" && e.home) {
       const h = getHome(e.home);
@@ -29,8 +22,71 @@ function buyUpgrade(id) {
       }
     }
   }
-  const cap = u.maxPurchases === Infinity ? "no limit" : formatNum(u.maxPurchases);
-  log((u.buyLog ?? "Bought: " + u.name) + " (" + state.upgrades[id] + "/" + cap + ").", "upgrade");
+  log((u.buyLog ?? "Bought: " + u.name) + " (" + state.upgrades[u.id] + "/" + (cap === Infinity ? "no limit" : formatNum(cap)) + ").", "upgrade");
+}
+
+function buyUpgrade(id) {
+  const u = getUpgrade(id);
+  if (!u) return;
+  // Timed purchase: costs are paid when the build starts, clicking again
+  // pauses it, and resuming a paid build is free - exactly like actions.
+  if (u.buildTime) { buildUpgrade(u); return; }
+  const owned = state.upgrades[id] ?? 0;
+  const cap = (typeof getEffectiveUpgradeCap === "function") ? getEffectiveUpgradeCap(u) : (u.maxPurchases ?? 1);
+  if (owned >= cap) {
+    log(u.name + " is already maxed out.");
+    return;
+  }
+  if (!canAfford(u.cost)) {
+    log("Not enough for " + u.name + " (" + describeCost(u.cost) + ").");
+    return;
+  }
+  for (const [rid, n] of Object.entries(u.cost ?? {})) state.amounts[rid] -= n;
+  grantUpgrade(u);
+  render();
+}
+
+// Start/pause/resume a timed build. One build runs at a time; starting a
+// new one pauses whatever was running (its progress and payment are
+// kept). Each completion grants exactly one purchase, then stops.
+function buildUpgrade(u) {
+  const owned = state.upgrades[u.id] ?? 0;
+  const cap = (typeof getEffectiveUpgradeCap === "function") ? getEffectiveUpgradeCap(u) : (u.maxPurchases ?? 1);
+  if (owned >= cap) {
+    log(u.name + " is already maxed out.");
+    return;
+  }
+  // Clicking the running build pauses it; progress and payment are kept.
+  if (state.activeBuildId === u.id) {
+    state.activeBuildId = null;
+    lastTime = performance.now();
+    render();
+    return;
+  }
+  const b = upgradeBuildState(u.id);
+  if (!b.paid) {
+    if (!canAfford(u.cost)) {
+      log("Not enough for " + u.name + " (" + describeCost(u.cost) + ").");
+      render();
+      return;
+    }
+    for (const [rid, n] of Object.entries(u.cost ?? {})) state.amounts[rid] -= n;
+    b.paid = true;
+  }
+  state.activeBuildId = u.id;
+  lastTime = performance.now();
+  render();
+}
+
+// Finish a timed build: grant the purchase, then reset so a repeatable
+// timed upgrade pays again for its next purchase. Stops either way.
+function completeBuild(u) {
+  const cap = (typeof getEffectiveUpgradeCap === "function") ? getEffectiveUpgradeCap(u) : (u.maxPurchases ?? 1);
+  state.activeBuildId = null;
+  if ((state.upgrades[u.id] ?? 0) >= cap) { render(); return; }
+  grantUpgrade(u);
+  state.builds[u.id] = { progress: 0, paid: false };
+  lastTime = performance.now();
   render();
 }
 
@@ -59,7 +115,7 @@ function buildUpgradeBtn(u) {
   if (headTags) tip.appendChild(headTags);
   const desc = document.createElement("div");
   desc.className = "tip-desc";
-  desc.textContent = u.description ?? autoUpgradeDescription({ cost: u.cost ?? {}, effects: u.effects ?? [] });
+  desc.textContent = u.description ?? autoUpgradeDescription({ cost: u.cost ?? {}, effects: u.effects ?? [], buildTime: u.buildTime });
   tip.appendChild(desc);
   const costRefs = [];
   appendTipSection(tip, "Cost", u.cost ?? {}, costRefs);
@@ -88,12 +144,26 @@ function buildUpgradeBtn(u) {
   }
   btn.appendChild(tip);
 
+  // Timed upgrades show action-style progress while building (refs below;
+  // render fills them). Instant upgrades never activate, so it stays put.
+  const progress = document.createElement("div");
+  progress.className = "action-progress";
+  progress.setAttribute("aria-hidden", "true");
+  progress.hidden = true; // render unhides only while a buildTime build runs
+  const fill = document.createElement("div");
+  fill.className = "action-fill";
+  progress.appendChild(fill);
+  const time = document.createElement("span");
+  time.className = "action-time";
+  progress.appendChild(time);
+  btn.appendChild(progress);
+
   btn.addEventListener("click", () => {
     // Hiding mode: clicking strikes the upgrade hidden instead of buying it.
     if (hidingMode.actions) { toggleItemHidden("u:" + u.id); return; }
     buyUpgrade(u.id);
   });
-  uiRefs.set("u:" + u.id, { root: btn, label, costs: costRefs, tc: count });
+  uiRefs.set("u:" + u.id, { root: btn, label, costs: costRefs, tc: count, fill, prog: progress, time });
   const hi = (on) => hiResources({ costs: u.cost, gains: effectGains(u) }, on);
   btn.addEventListener("mouseenter", () => openTip("u:" + u.id, btn, hi, u.cost));
   btn.addEventListener("mouseleave", () => closeTip("u:" + u.id, hi));

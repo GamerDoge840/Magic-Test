@@ -60,6 +60,17 @@ function visibleBounds(anchor) {
 // Only writes when something changes, so open-tip scroll pos stays stable.
 function fitTip(tip, anchor, prefer) {
   if (!tip || !anchor) return;
+  // Measure the tip's TRUE geometry first: stale inline writes from a
+  // previous fit would otherwise distort this run. A leftover maxHeight
+  // shrinks the measured height, so the cap looks unneeded, gets cleared,
+  // and the tip balloons past the window with no further run to fix it;
+  // a leftover margin clamp shifts the measured rect, so the new clamp
+  // compounds sideways instead of centering. Display itself is CSS-driven
+  // (:hover) and untouched - only fitTip's own four props reset.
+  tip.style.top = "";
+  tip.style.bottom = "";
+  tip.style.maxHeight = "";
+  tip.style.marginLeft = "";
   const h = tip.offsetHeight;
   if (!h) return;
   const b = anchor.getBoundingClientRect();
@@ -91,16 +102,19 @@ function fitTip(tip, anchor, prefer) {
     if (tip.style.bottom !== "auto") tip.style.bottom = "auto";
     if (tip.style.top !== TIP_OFF) tip.style.top = TIP_OFF;
   }
-  // Cap to the winning side (never below a readable 80px of content, never
-  // above the CSS cap). The cap is on the content box, so subtract the
-  // tip's own padding/border - otherwise the rendered box still pokes past
-  // the window edge by that chrome.
+  // Cap to the winning side (never above the CSS cap). The 80px
+  // readability floor yields to geometry: a shorter scrollbox keeps every
+  // line reachable, while even 1px of overflow gets cut off by the panel -
+  // so a side with 76px of room gets a 76px tip, not an 80px one poking
+  // through. Only with no room at all do we fall back to 80px.
   const room = dir === "up" ? roomUp : roomDown;
   const cs = getComputedStyle(tip);
   const chrome = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) +
     (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
   const gap = 0;
-  const cap = Math.max(80, Math.min(Math.floor(room - gap - chrome), Math.min(360, window.innerHeight * 0.7)));
+  const avail = Math.floor(room - gap - chrome);
+  const cssCap = Math.min(360, window.innerHeight * 0.7);
+  const cap = avail <= 0 ? 80 : avail < 80 ? avail : Math.min(avail, cssCap);
   if (room < h + 8) {
     const px = cap + "px";
     if (tip.style.maxHeight !== px) tip.style.maxHeight = px;
@@ -154,7 +168,7 @@ function appendTipXpSection(tip, xp) {
     row.appendChild(k);
     row.appendChild(v);
     sec.appendChild(row);
-    refs.push({ sid, row });
+    refs.push({ sid, row, el: v });
   }
   sec.hidden = !anyVisible;
   tip.appendChild(sec);
@@ -180,50 +194,6 @@ function placeActionTip(btn) {
   fitTip(tip, btn, prefer);
 }
 
-function describeEffect(e) {
-  if (e.type === "max") {
-    const def = getResource(e.resource);
-    return "+" + formatNum(e.amount) + " " + (def ? def.name : e.resource) + " max";
-  }
-  if (e.type === "gain") {
-    const def = getResource(e.resource);
-    const act = e.action ? getAction(e.action) : null;
-    return "+" + formatNum(e.amount) + " " + (def ? def.name : e.resource) + " to " + (act ? act.name : e.action);
-  }
-  if (e.type === "home") {
-    const h = e.home ? getHome(e.home) : null;
-    return "Home: " + (h ? h.name : e.home);
-  }
-  if (e.type === "furnitureCap") {
-    const f = e.furniture ? getFurniture(e.furniture) : null;
-    return "+" + formatNum(e.amount) + " " + (f ? f.name : e.furniture) + " purchase cap";
-  }
-  if (e.type === "time") {
-    const act = e.action ? getAction(e.action) : null;
-    return "-" + formatNum(e.amount) + "s " + (act ? act.name : e.action) + " time";
-  }
-  return e.type + (e.resource ? " " + e.resource : "");
-}
-
-function autoActionDescription(a) {
-  const tick = formatDuration(a.tickSeconds, (s) => formatNum(s) + "s");
-  const hasCosts = a.costs && Object.keys(a.costs).length > 0;
-  const hasGains = a.gains && Object.keys(a.gains).length > 0;
-  if (hasCosts && hasGains) return "Spend " + describeCost(a.costs) + " \u2192 +" + describeCost(a.gains) + " (" + tick + ").";
-  if (hasGains) return "+" + describeCost(a.gains) + " (" + tick + ").";
-  if (hasCosts) return "Spend " + describeCost(a.costs) + " (" + tick + ").";
-  return "Takes " + tick + ".";
-}
-
-function autoUpgradeDescription(u) {
-  const hasCost = u.cost && Object.keys(u.cost).length > 0;
-  const hasFx = u.effects && u.effects.length > 0;
-  if (hasCost && hasFx) return describeCost(u.cost) + " \u2192 " + u.effects.map(describeEffect).join(", ") + ".";
-  if (hasFx) return u.effects.map(describeEffect).join(", ") + ".";
-  if (hasCost) return "Costs " + describeCost(u.cost) + ".";
-  return "No effect.";
-}
-
 // Fill defaults, auto-write missing descriptions, and turn config
 // mistakes into warnings instead of crashes (bad entries are removed in
 // place, so later engine loops stay safe). Lets minimal entries work:
@@ -244,6 +214,16 @@ function effectGains(u) {
   const out = {};
   for (const e of u.effects ?? []) if (e.resource) out[e.resource] = 0;
   return out;
+}
+
+// A stopped action sitting on a paid cycle resumes for free, so its tip
+// rows must not glow red for costs that won't be charged this cycle.
+// (A running paid action keeps the normal tint - its next cycles pay.)
+function tipCostsFor(action, costs) {
+  if (!action) return costs;
+  const cyc = state.cycles[action.id];
+  if (cyc && cyc.paid && state.currentActionId !== action.id) return {};
+  return costs;
 }
 
 let hoverTip = null; // { key, ref, costs } of the action/upgrade whose tip is open
@@ -282,7 +262,8 @@ function openTip(key, btn, hi, costs) {
   hi(true);
   const ref = uiRefs.get(key);
   hoverTip = ref ? { key, ref, costs } : null;
-  if (ref) tintTip(ref, costs);
+  // Paid-resume actions tint against a free ride (see tipCostsFor).
+  if (ref) tintTip(ref, key.startsWith("a:") ? tipCostsFor(getAction(key.slice(2)), costs) : costs);
 }
 
 function closeTip(key, hi) {

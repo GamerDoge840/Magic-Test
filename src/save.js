@@ -7,7 +7,7 @@
 // Old plaintext JSON saves still import as-is.
 
 const SAVE_GAME_ID = "labor-game";
-const SAVE_VERSION = 10;
+const SAVE_VERSION = 11;
 const SAVE_PREFIX = "LaborGameSavefileFormat";
 const SAVE_SUFFIX = "EndOfSavefile";
 // Manual Save: a single browser-local save (localStorage), separate from
@@ -72,6 +72,10 @@ function serializeSave() {
     stats: { actions: { ...state.stats.actions } },
     currentActionId: state.currentActionId,
     cycles: Object.fromEntries(Object.entries(state.cycles).map(([k, v]) => [k, { progress: v.progress, paid: v.paid }])),
+    // Timed upgrade builds ({ id: { progress, paid } }) + the running one.
+    // Missing on old saves (v10 and earlier predate timed upgrades).
+    builds: Object.fromEntries(Object.entries(state.builds ?? {}).map(([k, v]) => [k, { progress: v.progress, paid: v.paid }])),
+    activeBuildId: (typeof state.activeBuildId === "string" && getUpgrade(state.activeBuildId)) ? state.activeBuildId : null,
     // Non-retroactive improvement-cap baselines ({ actionId: run count
     // when the cap-raising milestone fired }). Missing on old saves.
     impBase: { ...(state.impBase ?? {}) },
@@ -131,6 +135,15 @@ function applySaveData(data) {
     skills[s.id] = { xp, level };
   }
   state.skills = skills;
+  // Upgrade caps can come from skill milestones (e.g. Pouch Organizing
+  // raises Pockets), which only just loaded - so re-clamp now that
+  // skill levels are known. Effective caps only ever grow past the base.
+  if (typeof getEffectiveUpgradeCap === "function") {
+    for (const u of UPGRADES) {
+      const cap = getEffectiveUpgradeCap(u);
+      if ((state.upgrades[u.id] ?? 0) > cap) state.upgrades[u.id] = cap;
+    }
+  }
   const amounts = {};
   for (const r of RESOURCES) {
     const n = Number(data.amounts[r.id]);
@@ -238,6 +251,30 @@ function applySaveData(data) {
   }
   state.cycles = cycles;
   state.currentActionId = data.currentActionId && getAction(data.currentActionId) ? data.currentActionId : null;
+  // Timed upgrade builds ({ id: { progress, paid } }) + the running one.
+  // Old saves have none - start fresh. The active build only resumes when
+  // it is still paid for and unbought; anything else stays paused.
+  const builds = {};
+  if (data.builds && typeof data.builds === "object") {
+    for (const u of UPGRADES) {
+      if (!u.buildTime) continue;
+      const b = data.builds[u.id];
+      if (b && typeof b === "object") {
+        const p = Number(b.progress);
+        builds[u.id] = {
+          progress: Number.isFinite(p) && p > 0 ? Math.min(p, u.buildTime) : 0,
+          paid: b.paid === true,
+        };
+      }
+    }
+  }
+  state.builds = builds;
+  state.activeBuildId = (typeof data.activeBuildId === "string" && getUpgrade(data.activeBuildId)) ? data.activeBuildId : null;
+  if (state.activeBuildId) {
+    const u = getUpgrade(state.activeBuildId);
+    const b = state.builds[u.id];
+    if (!u.buildTime || !b || !b.paid || (state.upgrades[u.id] ?? 0) >= getEffectiveUpgradeCap(u)) state.activeBuildId = null;
+  }
   // Improvement-cap baselines for the non-retroactive extra levels (saved
   // per action; old saves predate the system and simply start without).
   const impBase = {};
@@ -248,6 +285,13 @@ function applySaveData(data) {
     }
   }
   state.impBase = impBase;
+  // Hiding mode is a live, in-progress gesture (armed Hide button, struck
+  // rows revealed) - never part of a save. Importing must disarm it, or a
+  // mode armed before the import would linger over the fresh state.
+  // Previously hidden items STAY hidden (state.options.hidden is saved);
+  // only the armed mode itself is forced off.
+  for (const k of Object.keys(hidingMode)) hidingMode[k] = false;
+  if (typeof syncHideButtons === "function") syncHideButtons();
   lastTime = performance.now();
 }
 

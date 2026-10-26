@@ -35,12 +35,14 @@ function log(msg, category = "system") {
   lastLogMsg = msg;
   lastLogCount = 1;
   // Category marker: lets the Filters window hide/show lines already in
-  // the log, retroactively. System lines stay unmarked (always shown).
+  // the log, retroactively. System and milestone lines stay unmarked by
+  // filters (always shown) - milestones get their own class for color.
   const cls = category === "start" ? "logStart"
     : category === "stop" ? "logStop"
     : category === "full" ? "logFull"
     : category === "upgrade" ? "logUpgrade"
     : category === "unlock" ? "logUnlock"
+    : category === "milestone" ? "logMilestone"
     : category === "improvement" ? "logImprovement" : "";
   for (const el of allLogEls()) {
     const line = document.createElement("div");

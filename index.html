@@ -12,31 +12,58 @@
   html { height: 100%; }
   html, body { height: 100%; }
   body { text-align: center; font-family: Verdana, Geneva, sans-serif; max-width: 1400px; margin: 0 auto; padding: 12px 16px; background: #101216; color: #e9eaee; min-height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; }
-  h1 { margin: 0; font-size: 1.4em; letter-spacing: 0.5px; }
+  h1 { margin: 0; font-size: 1.25em; letter-spacing: 0.5px; }
   .sub { opacity: 0.65; margin: 2px 0 0; font-size: 0.85em; }
-  #topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; text-align: left; flex: none; }
-  #topbar .brand { min-width: 160px; }
-  #topbar .topSpacer { min-width: 160px; }
-  #tabsBar { display: flex; gap: 8px; justify-content: center; margin-bottom: 0; }
-  .tab { background: #22262f; color: #cfd3dc; border: 1px solid #3a3f4b; border-radius: 6px; }
-  .tab.active { outline: none; font-weight: bold; background: #313743; color: #fff; border-color: #565e70; box-shadow: inset 0 2px 0 rgba(255,255,255,0.08); }
-  #tabWork { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  /* Currencies column is 250px (not 200px) so the centered currency
-     tooltips (up to 240px wide) always fit inside the panel instead of
-     having their ends cut off by the panel's overflow:hidden. */
-  #workGrid { display: grid; grid-template-columns: 250px minmax(0, 1.8fr) minmax(0, 1fr) 300px; gap: 8px; margin-bottom: 0; text-align: left; align-items: stretch; flex: 1; min-height: 0; }
-  @media (max-width: 1100px) { #workGrid { grid-template-columns: 1fr 1fr; flex: none; } #workGrid .panel { max-height: 60vh; } #topbar .topSpacer { display: none; } }
-  @media (max-width: 700px) { #workGrid { grid-template-columns: 1fr; } #workGrid .panel { max-height: none; } #topbar { flex-direction: column; } #topbar .brand { text-align: center; } }
-  .panel { border: 1px solid #333842; border-radius: 8px; padding: 0 12px 12px; background: #1b1f26; display: flex; flex-direction: column; min-height: 0; }
-  #workGrid .panel { overflow: hidden; }
-  .panel h2 { margin: 0 -12px 10px; padding: 8px 10px; font-size: 0.8em; text-transform: uppercase; letter-spacing: 1px; text-align: center; background: #262b34; border-radius: 8px 8px 0 0; opacity: 1; flex: none; }
-  #currenciesCtn, #vitalsCtn, .js-currencies, .js-vitals { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-  #actionsCtn { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+  /* Top bar: brand left, tab pills center, current-action status right.
+     The status card lives here so the running action is visible on every tab. */
+  #topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; text-align: left; flex: none; }
+  #topbar .brand { min-width: 150px; }
+  #tabsBar { display: flex; gap: 6px; justify-content: center; margin-bottom: 0; flex: 1; flex-wrap: wrap; }
+  .tab { background: #22262f; color: #cfd3dc; border: 1px solid #3a3f4b; border-radius: 6px; padding: 7px 16px; }
+  .tab:hover:not(.active) { background: #2a2e37; color: #fff; }
+  .tab.active { outline: none; font-weight: bold; background: #313743; color: #fff; border-color: #565e70; border-bottom: 2px solid #7fd97f; box-shadow: inset 0 2px 0 rgba(255,255,255,0.08); }
+  #nowCard { display: flex; align-items: center; gap: 8px; background: #1b1f26; border: 1px solid #333842; border-radius: 8px; padding: 6px 10px; margin-bottom: 0; flex: none; min-width: 200px; max-width: 300px; }
+  #nowDot { width: 9px; height: 9px; border-radius: 50%; background: #777; flex: none; }
+  #nowCard.busy #nowDot { background: #7fd97f; box-shadow: 0 0 6px rgba(127,217,127,0.8); }
+  #statusEl { min-height: 0; margin: 0; font-weight: bold; font-size: 0.85em; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #nowCancelBtn { padding: 2px 9px; font-size: 0.95em; line-height: 1.2; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
+  #nowCancelBtn:disabled { opacity: 0.35; cursor: default; }
+  #resetBtn { background: #c00; color: #fff; border-color: #900; }
+  #tabWork, #tabHome, #tabSkills { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #tabPlayer { flex: 1; min-height: 0; }
+  /* Main three-column shell: resource rail | center stage | log.
+     Shared by Work (actions center) and Home (furniture center). */
+  #workGrid, #homeGrid { display: grid; grid-template-columns: 268px minmax(0, 1fr) 320px; gap: 10px; margin-bottom: 0; text-align: left; align-items: stretch; flex: 1; min-height: 0; }
+  @media (max-width: 1100px) {
+    #workGrid, #homeGrid { grid-template-columns: 240px minmax(0, 1fr); flex: none; }
+    #workGrid .panel-log, #homeGrid .panel-log { grid-column: 1 / -1; max-height: 34vh; }
+    #topbar { flex-wrap: wrap; }
+  }
+  @media (max-width: 700px) {
+    #workGrid, #homeGrid { grid-template-columns: 1fr; }
+    #workGrid .panel-actions, #homeGrid .panel-actions { order: -1; }
+    #workGrid .panel-log, #homeGrid .panel-log { max-height: 44vh; }
+    #topbar { flex-direction: column; align-items: stretch; }
+    #topbar .brand { text-align: center; }
+    #nowCard { max-width: none; }
+  }
+  .panel { border: 1px solid #333842; border-radius: 10px; padding: 0 12px 12px; background: #1b1f26; display: flex; flex-direction: column; min-height: 0; }
+  #workGrid .panel, #homeGrid .panel { overflow: hidden; }
+  .panel h2 { margin: 0 -12px 10px; padding: 9px 12px; font-size: 0.78em; text-transform: uppercase; letter-spacing: 1.5px; text-align: left; color: #cfd3dc; background: #20252d; border-bottom: 1px solid #333842; border-radius: 10px 10px 0 0; opacity: 1; flex: none; border-left: 3px solid #7fd97f; }
+  .sideCol { display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
+  .sideCol .panel { flex: 1; }
+  #currenciesCtn, #vitalsCtn, .js-currencies, .js-vitals { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
+  #actionsCtn { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
   #actionsCtn .taskGroup { flex: 1; display: flex; flex-direction: column; }
   #actionsCtn .taskGroup:not([open]) { flex: none; }
   #actionsCtn .taskGroup .taskBtns { flex: 1; align-content: start; }
-  .currency { display: flex; justify-content: flex-start; gap: 6px; font-weight: bold; padding: 6px 8px; position: relative; border-radius: 6px; background: #22262f; margin-bottom: 6px; font-size: 0.92em; white-space: nowrap; }
-  .tip-rate { text-align: right; opacity: 0.8; }
+  /* Resource rows (Kittens-style): name left, value right. The builders
+     emit value-then-name spans, so the order swaps here in CSS only. */
+  .currency { display: flex; justify-content: flex-start; align-items: baseline; gap: 6px; font-weight: bold; padding: 6px 8px; position: relative; border-radius: 6px; background: #22262f; border: 1px solid transparent; margin-bottom: 6px; font-size: 0.92em; white-space: nowrap; }
+  .currency:hover { border-color: #3a3f4b; }
+  .currency .cur-name { order: 1; }
+  .currency .cur-val { order: 2; margin-left: auto; }
+  .tip-rate { text-align: center; opacity: 0.8; }
   .emptyNote { opacity: 0.6; font-size: 0.9em; }
   .res { border: none; padding: 0; text-align: left; margin-bottom: 10px; position: relative; display: flex; align-items: center; gap: 8px; }
   /* Mousing over an action faintly rings the currencies/vitals it drains
@@ -44,22 +71,13 @@
   .currency.spendHi, .res.spendHi { box-shadow: 0 0 0 2px rgba(255, 120, 120, 0.4); border-radius: 6px; }
   .currency.gainHi, .res.gainHi { box-shadow: 0 0 0 2px rgba(150, 255, 180, 0.4); border-radius: 6px; }
   .res-name { width: 64px; flex: none; font-size: 0.85em; font-weight: bold; opacity: 0.9; }
-  .bar { position: relative; flex: 1; height: 20px; border: 1px solid #000; background: #0e1013; border-radius: 999px; overflow: hidden; }
+  .bar { position: relative; flex: 1; height: 22px; border: 1px solid #000; background: #0e1013; border-radius: 999px; overflow: hidden; }
   .fill { height: 100%; width: 0%; background: #555; border-radius: 999px; }
-  .res-val { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); font-size: 0.72em; font-weight: bold; background: rgba(0,0,0,0.55); color: #fff; padding: 1px 7px; border-radius: 999px; pointer-events: none; white-space: nowrap; }
-  .vitalsCol { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-  .vitalsCol .panel { flex: 1; }
-  #nowCard { display: flex; align-items: center; gap: 8px; background: #22262f; border: 1px solid #3a3f4b; border-radius: 6px; padding: 6px 8px; margin-bottom: 0; flex: none; }
-  #nowDot { width: 9px; height: 9px; border-radius: 50%; background: #777; flex: none; }
-  #nowCard.busy #nowDot { background: #7fd97f; box-shadow: 0 0 6px rgba(127,217,127,0.8); }
-  #statusEl { min-height: 0; margin: 0; font-weight: bold; font-size: 0.85em; flex: 1; }
-  #nowCancelBtn { padding: 2px 9px; font-size: 0.95em; line-height: 1.2; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
-  #nowCancelBtn:disabled { opacity: 0.35; cursor: default; }
-  #resetBtn { background: #c00; color: #fff; border-color: #900; }
+  .res-val { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); font-size: 0.72em; font-weight: bold; background: rgba(0, 0, 0, 0.55); color: #fff; padding: 1px 7px; border-radius: 999px; pointer-events: none; white-space: nowrap; }
   #actionsCtn { display: flex; flex-direction: column; gap: 8px; margin-bottom: 0; }
-  .taskGroup { border: 1px solid #333842; border-radius: 6px; }
-  .taskGroup > summary { cursor: pointer; padding: 6px 10px; background: #262b34; border-radius: 6px 6px 0 0; font-size: 0.82em; font-weight: bold; text-align: center; list-style: none; }
-  .taskGroup:not([open]) > summary { border-radius: 6px; }
+  .taskGroup { border: 1px solid #333842; border-radius: 8px; background: #161a20; }
+  .taskGroup > summary { cursor: pointer; padding: 7px 10px; background: #20252d; border-radius: 8px 8px 0 0; font-size: 0.82em; font-weight: bold; text-align: left; letter-spacing: 0.5px; list-style: none; color: #cfd3dc; }
+  .taskGroup:not([open]) > summary { border-radius: 8px; }
   .taskGroup > summary::-webkit-details-marker { display: none; }
   .taskGroup > summary::before { content: "▸ "; opacity: 0.7; }
   .taskGroup[open] > summary::before { content: "▾ "; }
@@ -71,27 +89,30 @@
      NOTE: no overflow:hidden here — it would clip the buttons'
      tooltips, which open above/below them (see Pockets). Rounded
      corners are handled per-piece below instead. */
-  .taskHeader { border: 1px solid #333842; border-radius: 6px; flex: none; }
-  .taskHeader-title { padding: 6px 10px; font-size: 0.85em; font-weight: bold; text-align: center; background: #20252d; letter-spacing: 0.5px; border-radius: 5px 5px 0 0; }
-  .taskHeader .taskGroup { border: none; border-top: 1px solid #333842; border-radius: 0; }
-  .taskHeader .taskGroup > summary { border-radius: 0; }
-  .taskHeader .taskGroup:last-child { border-radius: 0 0 5px 5px; }
-  .taskHeader .taskGroup:last-child:not([open]) > summary { border-radius: 0 0 5px 5px; }
+  .taskHeader { border: 1px solid #333842; border-radius: 8px; flex: none; background: #161a20; }
+  .taskHeader-title { padding: 7px 10px; font-size: 0.85em; font-weight: bold; text-align: left; letter-spacing: 0.5px; background: #20252d; border-radius: 7px 7px 0 0; color: #cfd3dc; border-left: 3px solid #565e70; }
+  .taskHeader .taskGroup { border: none; border-top: 1px solid #333842; border-radius: 0; background: transparent; }
+  .taskHeader .taskGroup > summary { border-radius: 0; background: transparent; }
+  .taskHeader .taskGroup:last-child { border-radius: 0 0 7px 7px; }
+  .taskHeader .taskGroup:last-child:not([open]) > summary { border-radius: 0 0 7px 7px; }
   #currenciesCtn .taskHeader, #vitalsCtn .taskHeader, .js-currencies .taskHeader, .js-vitals .taskHeader { margin-bottom: 10px; }
-  .actionBtn, .shopBtn { position: relative; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
-  .actionBtn:hover:not(:disabled), .shopBtn:hover:not(:disabled) { background: #343945; }
-  .actionBtn .action-label { position: relative; z-index: 1; }
+  /* Action / upgrade cards: full-width rows with a hover lift and a green
+     running edge. Upgrades read as cards too, with a green owned edge. */
+  .actionBtn, .shopBtn { position: relative; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 8px; padding: 10px 12px; text-align: left; transition: transform 0.08s ease, border-color 0.08s ease, background 0.08s ease; }
+  .actionBtn:hover:not(:disabled), .shopBtn:hover:not(:disabled) { background: #343945; border-color: #6b7484; transform: translateY(-1px); }
+  .actionBtn .action-label, .shopBtn .action-label { position: relative; z-index: 1; font-weight: bold; }
   .actionBtn { transition: padding-bottom 0.15s ease; }
-  .actionBtn.active { padding-bottom: 26px; }
-  .actionBtn .action-progress { position: absolute; left: 6px; right: 6px; bottom: 4px; height: 16px; background: rgba(0, 0, 0, 0.15); border-radius: 999px; overflow: hidden; z-index: 2; pointer-events: none; }
-  .actionBtn .action-fill { height: 100%; width: 0%; background: #333; }
-  .actionBtn .action-time { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3; font-size: 0.68em; font-weight: bold; line-height: 1; background: rgba(0, 0, 0, 0.55); color: #fff; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+  .actionBtn.active { padding-bottom: 26px; border-color: #7fd97f; box-shadow: 0 0 0 1px #7fd97f, 0 2px 10px rgba(127,217,127,0.25); font-weight: bold; }
+  .shopBtn.building { padding-bottom: 26px; border-color: #7fd97f; }
+  .actionBtn .action-progress, .shopBtn .action-progress { position: absolute; left: 6px; right: 6px; bottom: 4px; height: 16px; background: rgba(0, 0, 0, 0.15); border-radius: 999px; overflow: hidden; z-index: 2; pointer-events: none; }
+  .actionBtn .action-fill, .shopBtn .action-fill { height: 100%; width: 0%; background: #333; }
+  .actionBtn .action-time, .shopBtn .action-time { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3; font-size: 0.68em; font-weight: bold; line-height: 1; background: rgba(0, 0, 0, 0.55); color: #fff; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
   @media (prefers-color-scheme: dark) {
-    .actionBtn .action-progress { background: rgba(255, 255, 255, 0.2); }
-    .actionBtn .action-fill { background: #eee; }
+    .actionBtn .action-progress, .shopBtn .action-progress { background: rgba(255, 255, 255, 0.2); }
+    .actionBtn .action-fill, .shopBtn .action-fill { background: #eee; }
   }
-  .actionBtn.active { outline: 3px solid #333; font-weight: bold; }
-  .shopBtn.owned { outline: 2px solid #333; }
+  .shopBtn.owned { outline: 2px solid #7fd97f; }
+  .shopBtn.maxed { border-style: dashed; }
   .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip, .furnCard .tip, .homeRow .tip, .skillRow .tip {
     display: none;
     position: absolute;
@@ -112,31 +133,255 @@
     max-height: min(360px, 70vh);
     overflow-y: auto;
     overscroll-behavior: contain;
-    border: 1px solid #4a4f5c;
-    background: #22262f;
+    border: 1px solid #565e70;
+    background: #161a20;
     color: #eee;
     font-size: 0.85em;
     font-weight: normal;
     text-align: left;
-    padding: 6px 8px;
+    padding: 10px 12px;
     white-space: normal;
     z-index: 10;
     pointer-events: auto;
+    border-radius: 6px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
   }
+  .actionBtn:hover .tip, .actionBtn:focus-visible .tip,
+  .shopBtn:hover .tip, .shopBtn:focus-visible .tip,
+  .currency:hover .tip, .currency:focus-visible .tip,
+  .res:hover .tip, .res:focus-visible .tip,
+  .skillRow:hover .tip, .skillRow:focus-visible .tip { display: block; }
+  /* Hovered/focused tip anchors rise above later siblings. The hover lift
+     (translateY) turns the anchor into a stacking context, which would
+     otherwise trap its tip (z-index 10) underneath buttons further down
+     the list - e.g. Odd Jobs' tip painted over by Rest/Pockets. Same guard
+     the furniture cards and skill rows already have. Rows included too:
+     disabled/user-hidden states also form stacking contexts (opacity). */
+  .actionBtn:hover, .actionBtn:focus-visible,
+  .shopBtn:hover, .shopBtn:focus-visible,
+  .currency:hover, .currency:focus-visible,
+  .res:hover, .res:focus-visible,
+  .homeRow:hover, .homeRow:focus-visible { z-index: 11; }
+  /* Resource tooltips open downward so they never collide with panel headers. */
+  .currency .tip, .res .tip { bottom: auto; top: calc(100% - 2px); }
+  /* ...and size to the row (not the content): unlike action buttons, rows
+     are as wide as the window, so shrink-to-fit keeps the tip inside it.
+     (width:max-content in the base rule would force 258px even in a
+     narrower window, cutting the right edge off.) */
+  .currency .tip, .res .tip { width: auto; }
+  /* Tooltip content (Kittens-style): header row, centered description,
+     divider-separated sections with centered small-cap labels,
+     name-left/value-right rows, centered flavor line. */
+  .tip-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-weight: bold; font-size: 1.08em; padding-bottom: 6px; border-bottom: 1px solid #3a3f4b; }
+  .tip-count { font-weight: bold; white-space: nowrap; font-size: 0.85em; color: #9aa3b5; }
+  .tip-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin: 6px 0 2px; }
+  .tip-tag { font-size: 0.72em; font-weight: normal; background: #2c313b; border: 1px solid #454b58; border-radius: 999px; padding: 1px 8px; opacity: 0.9; white-space: nowrap; }
+  .tip-desc { margin: 6px 0 2px; text-align: center; color: #b9bec7; }
+  .tip-sec { border-top: 1px solid #3a3f4b; margin-top: 8px; padding-top: 6px; }
+  .tip-sec-label { display: table-caption; caption-side: top; font-style: normal; font-size: 0.82em; letter-spacing: 1px; text-transform: uppercase; text-align: center; opacity: 0.85; color: #8b93a3; margin-bottom: 2px; }
+  .tip-row { display: flex; justify-content: space-between; gap: 12px; }
+  .tip-row[hidden] { display: none; }
+  /* Tooltip rows: unaffordable costs glow red, gains at storage cap glow orange. */
+  .tip-row.short { color: #d93636; }
+  .tip-row.short span:last-child { font-weight: bold; }
+  .tip-row.capped { color: #d97a00; }
+  /* Compact rows: each section shrink-wraps to its content like a table, so
+     short rows read "Stamina: 1" instead of stretching the value to the far
+     edge. Labels share one column, values right-align in the next - the
+     Kittens look, with no dead space. Table (not grid) rows keep the
+     short/capped color tints inheriting onto the value spans. */
+  .tip-sec { display: table; width: fit-content; max-width: 100%; }
+  .tip-sec > .tip-row { display: table-row; }
+  .tip-sec > .tip-row > span { display: table-cell; }
+  .tip-sec > .tip-row > span + span { text-align: right; padding-left: 10px; }
+  .tip-sec > .tip-row[hidden] { display: none; }
+  .tip-flavor { font-style: italic; text-align: center; color: #8fd6ff; opacity: 0.9; margin-top: 8px; padding-top: 6px; border-top: 1px solid #3a3f4b; }
+  /* Action tooltips open upward so they never stretch the scroll area. */
+  #actionsCtn .actionBtn .tip { bottom: calc(100% - 2px); top: auto; left: 0; transform: none; }
+  #actionsCtn .shopBtn .tip { bottom: calc(100% - 2px); top: auto; left: 0; transform: none; }
+  /* Disabled buttons dim their label, but keep their tooltip full-contrast. */
+  .actionBtn:disabled, .shopBtn:disabled { opacity: 1; color: #777; }
+  .row { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .optionRow { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+  .optionRow span { font-size: 0.9em; opacity: 0.8; }
+  #tabOptions .panel { max-width: 620px; margin: 0 auto; text-align: left; width: 100%; box-sizing: border-box; }
+  #tabPlayer { display: flex; flex-direction: column; align-items: center; }
+  #tabPlayer .panel { max-width: 620px; margin: 0 auto; text-align: left; width: 100%; box-sizing: border-box; }
+  .playerNameRow { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  #playerNameEl { font-size: 1.25em; font-weight: bold; }
+  #playerNameInput { font-size: 1.1em; padding: 4px 8px; border-radius: 6px; border: 1px solid #4a4f5c; background: #0e1013; color: inherit; max-width: 240px; }
+  #playerNameEditBtn { padding: 2px 10px; font-size: 0.9em; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
+  #playerNameEditBtn:hover { background: #343945; }
+  .playerStatsHead { text-align: center; text-decoration: none; text-transform: uppercase; letter-spacing: 1.5px; font-size: 0.8em; color: #cfd3dc; margin: 4px 0 10px; border-bottom: 1px solid #333842; padding-bottom: 8px; }
+  #playerStatsCtn { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  @media (max-width: 700px) { #playerStatsCtn { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 420px) { #playerStatsCtn { grid-template-columns: 1fr; } }
+  /* Home tab grid: Currencies | Furniture | Log.
+     NOTE: unlike Work, home panels have NO overflow/max-height caps - caps
+     clipped the furniture tooltips and made the mirrored lists short. Panels
+     size to the grid (desktop) or content (stacked) and the page scrolls. */
+  /* Emphasized Home controls: the current-home picker and the furniture
+     Filters button are the two main actions in this tab, so they read as
+     primary buttons next to the smaller Sort toggles. */
+  #homeSelectBtn, #furnFilterBtn { font-size: 1em; font-weight: bold; padding: 6px 14px; background: #313743; color: #fff; border: 1px solid #6b7484; box-shadow: inset 0 2px 0 rgba(255,255,255,0.08), 0 2px 6px rgba(0,0,0,0.3); }
+  #homeSelectBtn:hover:not(:disabled), #furnFilterBtn:hover:not(:disabled) { background: #3d4451; border-color: #7fd97f; }
+  /* Select Home submenu as a 2-column grid of home cards (1 column on phones). */
+  #homeListCtn { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  @media (max-width: 520px) { #homeListCtn { grid-template-columns: 1fr; } }
+  .homeLabel { font-size: 0.85em; opacity: 0.8; align-self: center; }
+  .homeMetaRow { display: flex; justify-content: flex-end; margin-bottom: 8px; font-size: 0.9em; font-weight: bold; }
+  .homeFullNote { font-style: italic; opacity: 0.8; margin-bottom: 8px; text-align: center; }
+  .furnSortRow { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 0.9em; }
+  .furnSortRow > span { opacity: 0.8; }
+  .furnSortRow button { padding: 2px 10px; font-size: 0.85em; white-space: nowrap; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
+  .furnSortRow button:hover { background: #343945; }
+  .furnSortRow button.active { font-weight: bold; background: #313743; color: #fff; border-color: #565e70; }
+  #furnitureCtn { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; overflow: visible; }
+  .furnCard { position: relative; background: #22262f; border: 1px solid #3a3f4b; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; transition: border-color 0.08s ease, transform 0.08s ease; }
+  .furnCard:hover { border-color: #6b7484; }
+  /* Hovered card rises above its grid neighbors so its downward-opening
+     tooltip is never covered by the next row. */
+  .furnCard:hover, .furnCard:focus-within { z-index: 11; }
+  .furnTop { display: flex; gap: 8px; align-items: baseline; font-weight: bold; }
+  .furnSpace { opacity: 0.85; }
+  .furnName { flex: 1; }
+  .furnOwned { opacity: 0.85; font-size: 0.9em; }
+  .furnBtns { display: flex; gap: 8px; }
+  .furnBtns button { flex: 1; position: relative; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 7px 10px; }
+  .furnBtns button:hover:not(:disabled) { background: #343945; border-color: #7fd97f; }
+  .furnBtns button:disabled { opacity: 1; color: #777; cursor: default; }
+  .furnCard > .tip.furnInfo { left: 0; transform: none; }
+  .furnCard:hover > .tip.furnInfo, .furnCard:focus-within > .tip.furnInfo { display: block; }
+  .furnCard:has(.furnSell:hover) > .tip.furnInfo, .furnCard:has(.furnSell:focus-visible) > .tip.furnInfo { display: none; }
+  .furnSell:hover > .tip, .furnSell:focus-visible > .tip { display: block; }
+  .homeRow { position: relative; display: flex; gap: 8px; align-items: center; width: 100%; box-sizing: border-box; margin: 0; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 8px; padding: 9px 12px; text-align: left; }
+  .homeRow:hover:not(:disabled) { background: #343945; border-color: #6b7484; }
+  .homeRow:disabled { opacity: 1; color: #777; cursor: default; }
+  .homeRow.current { outline: 2px solid #7fd97f; }
+  .homeRow .homeRowName { flex: 1; font-weight: bold; }
+  .homeRow .homeRowSpace { opacity: 0.85; font-size: 0.9em; }
+  .homeRow .homeRowStatus { opacity: 0.7; font-size: 0.85em; min-width: 60px; text-align: right; }
+  .homeRow:hover > .tip, .homeRow:focus-visible > .tip { display: block; }
+  .homeRow > .tip { left: 0; transform: none; }
+  #clipBox { margin-bottom: 8px; }
+  #clipArea { width: 100%; box-sizing: border-box; font-family: monospace; }
+  button { padding: 8px 14px; font-size: 1em; cursor: pointer; }
+  button:disabled { cursor: default; opacity: 0.45; }
+  button:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 2px solid #7fd97f; outline-offset: 1px; }
+  .panel h2.hasBtn { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .panel h2.hasBtn .hbtns { position: static; transform: none; display: flex; gap: 6px; }
+  .panel h2.hasBtn .htitle { flex: 1; }
+  .panel h2.hasBtn .hbtns button { padding: 2px 10px; font-size: 0.85em; font-weight: normal; letter-spacing: 0; text-transform: none; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; white-space: nowrap; }
+  .panel h2.hasBtn .hbtns button:hover:not(:disabled) { background: #343945; }
+  /* Hiding mode: the armed Hide button brightens into a Done button. */
+  .panel h2.hasBtn .hbtns button.on { background: #4a5160; border-color: #9aa3b5; color: #fff; font-weight: bold; box-shadow: 0 0 8px rgba(255,255,255,0.25); }
+  /* User-hidden items: struck-through while hiding mode reveals them. */
+  .actionBtn.userHidden .action-label, .shopBtn.userHidden .action-label,
+  .currency.userHidden .cur-name, .currency.userHidden .cur-val,
+  .res.userHidden .res-name, .res.userHidden .res-val { text-decoration: line-through; }
+  .currency.userHidden, .res.userHidden, .actionBtn.userHidden, .shopBtn.userHidden { opacity: 0.75; }
+  /* While any hiding mode is armed, hideable things show a pointer. */
+  body.hiding .currency, body.hiding .res, body.hiding .actionBtn, body.hiding .shopBtn { cursor: pointer; }
+  body.hiding .mileRow { cursor: pointer; }
+  /* User-hidden milestones: struck-through while the mode reveals them. */
+  .mileRow.userHidden .mileHead, .mileRow.userHidden .mileBody { text-decoration: line-through; }
+  .mileRow.userHidden { opacity: 0.75; }
+  #milesCtn .emptyNote { opacity: 0.6; font-size: 0.9em; }
+  /* Skills tab: list + milestones merged into one box (headers stay). */
+  /* Skills panels clip at their borders like Work/Home panels, and each
+     side scrolls internally instead of spilling past the window. */
+  #skillsGrid > .panel { overflow: hidden; }
+  #milesCtn { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
+  #tabSkills { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #skillsGrid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 0; margin-bottom: 0; text-align: left; align-items: stretch; flex: 1; min-height: 0; }
+  /* The two windows merge into one box (headers stay): the seam shares a
+     single border and all inner corners stay square. Width-only border
+     tweak so light mode's border color still applies. */
+  #skillsGrid > .panel:first-child { border-right-width: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  #skillsGrid > .panel:first-child h2 { border-top-right-radius: 0; }
+  #skillsGrid > .panel:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+  #skillsGrid > .panel:last-child h2 { border-top-left-radius: 0; }
+  @media (max-width: 700px) {
+    #skillsGrid { grid-template-columns: 1fr; gap: 8px; }
+    #skillsGrid > .panel:first-child { border-right-width: 1px; border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
+    #skillsGrid > .panel:first-child h2 { border-top-right-radius: 10px; }
+    #skillsGrid > .panel:last-child { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
+    #skillsGrid > .panel:last-child h2 { border-top-left-radius: 10px; }
+  }
+  .skillsToggleRow { display: flex; gap: 6px; align-items: center; justify-content: flex-start; font-size: 0.85em; margin-bottom: 8px; }
+  #skillsCtn { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
+  .skillBtns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  @media (max-width: 1100px) { .skillBtns { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 520px) { .skillBtns { grid-template-columns: 1fr; } }
+  #skillsCtn .emptyNote { opacity: 0.6; font-size: 0.9em; }
+  .skillRow { position: relative; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 8px; padding: 10px 12px; text-align: left; display: flex; flex-direction: column; gap: 8px; min-width: 0; transition: border-color 0.08s ease, transform 0.08s ease; }
+  .skillRow:hover:not(:disabled) { background: #343945; border-color: #6b7484; transform: translateY(-1px); }
+  .skillRow.selected { outline: 2px solid #7fd97f; }
+  /* Hovered rows rise above neighbors so tooltips are never covered. */
+  .skillRow:hover { z-index: 11; }
+  .skillTop { font-weight: bold; }
+  .skillXbar { height: 10px; background: rgba(0, 0, 0, 0.35); border-radius: 999px; overflow: hidden; }
+  .skillXfill { height: 100%; width: 0%; background: #7fd97f; }
+  .skillSub { font-size: 0.8em; opacity: 0.8; }
+  .mileRow { background: #2a2e37; border: 1px solid #4a4f5c; border-radius: 8px; padding: 9px 12px; margin-bottom: 8px; }
+  .mileRow.attained { background: #C2FF5E; border-color: #C2FF5E; color: #111; }
+  .mileHead { font-weight: bold; margin-bottom: 2px; }
+  /* Balloon notifications: fixed top-right cards, X dismisses, auto-gone in 15s. */
+  #balloons { position: fixed; top: 12px; right: 12px; z-index: 100; display: flex; flex-direction: column; gap: 8px; max-width: min(340px, calc(100vw - 24px)); }
+  .balloon { background: #22262f; border: 1px solid #7fd97f; border-radius: 8px; padding: 10px 12px; text-align: left; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); }
+  .balloon-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: bold; color: #7fd97f; margin-bottom: 4px; }
+  .balloon-x { background: transparent; border: 1px solid #4a4f5c; color: inherit; border-radius: 6px; cursor: pointer; padding: 0 8px; font-size: 0.85em; }
+  .balloon-x:hover { background: #343945; }
+  .balloon-body { font-size: 0.9em; }
+  #logEl, #logElHome, .js-log { text-align: left; border-top: none; padding-top: 0; font-size: 0.85em; flex: 1; min-height: 120px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
+  #logEl div, #logElHome div, .js-log div { margin: 0; padding: 5px 6px; opacity: 0.92; border-bottom: 1px solid #262b34; }
+  #logEl div:first-child, #logElHome div:first-child, .js-log div:first-child { background: #22262f; border-radius: 4px; }
+  /* Unlock announcements stand out in pale green. */
+  #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement { color: #D9FFC7; }
+  /* Action completions (fullLog) stand out in orange; start/stop lines stay default. */
+  #logEl div.logFull, #logElHome div.logFull, .js-log div.logFull { color: orange; }
+  /* One-time milestones stand out in pale yellow. */
+  #logEl div.logMilestone, #logElHome div.logMilestone, .js-log div.logMilestone { color: #FFFFA1; }
+ /* Log + Furniture filter + Select Home modals: fixed overlay + dialog box. */
+  #logFilterModal, #furnFilterModal, #homeModal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .modalBox { background: #1b1f26; border: 1px solid #4a4f5c; border-radius: 10px; padding: 14px 18px; width: 460px; max-width: calc(100vw - 32px); text-align: left; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6); }
+  .modalBox h3 { margin: 0 0 4px; font-size: 1em; text-align: center; }
+  .modalBox label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 0.92em; font-weight: bold; }
+  .filterGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; margin-top: 10px; }
+  .filterItem { min-width: 0; }
+  .filterItem .modalSub { margin-top: 2px; }
+  .modalSub { font-size: 0.8em; opacity: 0.65; margin-left: 22px; }
+  .modalSubHead { margin: 12px 0 2px; font-size: 0.9em; font-weight: bold; opacity: 0.85; }
+  .modalNote { margin: 10px 0 0; }
+  @media (max-width: 520px) { .modalBox { width: 300px; } .filterGrid { grid-template-columns: 1fr; } }
+.modalBtns { margin-top: 14px; text-align: center; }
+  /* Thin scrollbars on dark scroll areas. */
+  #currenciesCtn::-webkit-scrollbar, #vitalsCtn::-webkit-scrollbar, #actionsCtn::-webkit-scrollbar,
+  #logEl::-webkit-scrollbar, #logElHome::-webkit-scrollbar, .js-log::-webkit-scrollbar { width: 8px; }
+  #currenciesCtn::-webkit-scrollbar-thumb, #vitalsCtn::-webkit-scrollbar-thumb, #actionsCtn::-webkit-scrollbar-thumb,
+  #logEl::-webkit-scrollbar-thumb, #logElHome::-webkit-scrollbar-thumb, .js-log::-webkit-scrollbar-thumb { background: #4a4f5c; border-radius: 4px; }
   @media (prefers-color-scheme: light) {
     body { background: #f2f2f2; color: #111; }
     .panel { background: #fff; border-color: #bbb; }
     .currency, #nowCard { background: #eee; }
     .tab { background: #e4e4e4; color: #222; border-color: #aaa; }
-    .tab.active { background: #333; color: #fff; border-color: #333; }
-    .taskGroup > summary { background: #e0e0e0; }
-    .panel h2 { background: #e0e0e0; }
+    .tab.active { background: #333; color: #fff; border-color: #333; border-bottom-color: #2e7d32; }
+    .taskGroup > summary, .taskHeader-title { background: #e0e0e0; color: #111; }
+    .taskGroup, .taskHeader { background: #fff; border-color: #bbb; }
+    .taskHeader .taskGroup { border-top-color: #bbb; }
+    .panel h2 { background: #e8e8e8; color: #222; border-bottom-color: #bbb; }
     .actionBtn, .shopBtn { background: #f5f5f5; color: #111; border-color: #999; }
     .actionBtn:hover:not(:disabled), .shopBtn:hover:not(:disabled) { background: #e8e8e8; }
     .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip, .furnCard .tip, .homeRow .tip, .skillRow .tip { background: #fff; color: #000; border-color: #999; }
+    .tip-head { border-bottom-color: #ccc; }
+    .tip-count { color: #555; }
+    .tip-desc { color: #333; }
+    .tip-sec { border-color: #ccc; }
+    .tip-sec-label { color: #555; }
+    .tip-flavor { color: #0b6e99; border-top-color: #ccc; }
     .panel h2.hasBtn .hbtns button { background: #e4e4e4; color: #222; border-color: #aaa; }
     .panel h2.hasBtn .hbtns button.on { background: #fff; border-color: #666; color: #111; box-shadow: 0 0 8px rgba(0,0,0,0.25); }
-    #playerNameEditBtn { background: #e4e4e4; color: #222; border-color: #aaa; }
+    #playerNameEditBtn { background: #e4e4e4; color: #222; border-color: #999; }
     #playerNameInput { background: #fff; color: #000; border-color: #999; }
     .furnCard { background: #f5f5f5; border-color: #999; }
     .furnSortRow button, .furnBtns button, .homeRow { background: #f5f5f5; color: #111; border-color: #999; }
@@ -154,162 +399,19 @@
     .balloon-head { color: #2e7d32; }
     .balloon-x { border-color: #999; }
     .balloon-x:hover { background: #e8e8e8; }
+    .playerStatsHead { color: #666; border-bottom-color: #ccc; }
+    .optionRow button { background: #e4e4e4; color: #222; border: 1px solid #aaa; border-radius: 6px; }
+    .optionRow input { background: #fff; color: #000; border: 1px solid #999; border-radius: 6px; }
+    /* Dark-mode resource/log hues wash out on white: darken the config-driven
+       inline colors (hue preserved via filter) and log accents for light mode. */
+    .currency .cur-name, .res .res-name { filter: brightness(0.55); }
+    .currency .cur-val, .res .res-val { filter: brightness(0.75); }
+    #logEl div:first-child, #logElHome div:first-child, .js-log div:first-child { background: #e2e2e2; }
+    #logEl div, #logElHome div, .js-log div { border-bottom-color: #ddd; }
+    #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement { color: #1c7a1c; }
+    #logEl div.logFull, #logElHome div.logFull, .js-log div.logFull { color: #c96a00; }
+    #logEl div.logMilestone, #logElHome div.logMilestone, .js-log div.logMilestone { color: #8a6d00; }
   }
-  .actionBtn:hover .tip, .actionBtn:focus-visible .tip,
-  .shopBtn:hover .tip, .shopBtn:focus-visible .tip,
-  .currency:hover .tip, .currency:focus-visible .tip,
-  .res:hover .tip, .res:focus-visible .tip,
-  .skillRow:hover .tip, .skillRow:focus-visible .tip { display: block; }
-  /* Resource tooltips open downward so they never collide with panel headers. */
-  .currency .tip, .res .tip { bottom: auto; top: calc(100% - 2px); }
-  .tip-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-weight: bold; font-size: 1.1em; }
-  .tip-count { font-weight: bold; white-space: nowrap; font-size: 0.85em; }
-  .tip-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 1px 0 3px; }
-  .tip-tag { font-size: 0.72em; font-weight: normal; background: #2c313b; border: 1px solid #454b58; border-radius: 999px; padding: 1px 8px; opacity: 0.9; white-space: nowrap; }
-  .tip-desc { margin: 2px 0 2px; }
-  .tip-sec { border-top: 1px solid #4a4f5c; margin-top: 6px; padding-top: 4px; }
-  .tip-sec-label { font-style: italic; opacity: 0.85; }
-  .tip-row { display: flex; justify-content: flex-start; gap: 8px; padding-left: 10px; }
-  .tip-row[hidden] { display: none; }
-  /* Tooltip rows: unaffordable costs glow red, gains at storage cap glow orange. */
-  .tip-row.short { color: #d93636; }
-  .tip-row.capped { color: #d97a00; }
-  .tip-flavor { font-style: italic; opacity: 0.75; margin-top: 6px; }
-  /* Action tooltips open upward so they never stretch the scroll area. */
-  #actionsCtn .actionBtn .tip { bottom: calc(100% - 2px); top: auto; left: 0; transform: none; }
-  #actionsCtn .shopBtn .tip { bottom: calc(100% - 2px); top: auto; left: 0; transform: none; }
-  /* Disabled buttons dim their label, but keep their tooltip full-contrast. */
-  .actionBtn:disabled, .shopBtn:disabled { opacity: 1; color: #777; }
-  .row { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; flex-wrap: wrap; }
-  .optionRow { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
-  .optionRow span { font-size: 0.9em; opacity: 0.8; }
-  #tabOptions .panel { max-width: 560px; margin: 0 auto; text-align: left; }
-  #tabPlayer { flex: 1; min-height: 0; }
-  #tabPlayer .panel { max-width: 560px; margin: 0 auto; text-align: left; }
-  .playerNameRow { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-  #playerNameEl { font-size: 1.25em; font-weight: bold; }
-  #playerNameInput { font-size: 1.1em; padding: 4px 8px; border-radius: 6px; border: 1px solid #4a4f5c; background: #0e1013; color: inherit; max-width: 240px; }
-  #playerNameEditBtn { padding: 2px 10px; font-size: 0.9em; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
-  #playerNameEditBtn:hover { background: #343945; }
-  .playerStatsHead { text-align: center; text-decoration: underline; margin: 4px 0 10px; font-size: 1em; }
-  #playerStatsCtn { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  #tabHome { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  /* Home tab grid: Currencies | Furniture | Log.
-     NOTE: unlike Work, home panels have NO overflow/max-height caps - caps
-     clipped the furniture tooltips and made the mirrored lists short. Panels
-     size to the grid (desktop) or content (stacked) and the page scrolls. */
-  #homeGrid { display: grid; grid-template-columns: 250px minmax(0, 1.8fr) 300px; gap: 8px; margin-bottom: 0; text-align: left; align-items: stretch; flex: 1; min-height: 0; }
-  @media (max-width: 1100px) { #homeGrid { grid-template-columns: 1fr; flex: none; } }
-  #tabHome .panel { max-width: none; margin: 0; }
-  /* Emphasized Home controls: the current-home picker and the furniture
-     Filters button are the two main actions in this tab, so they read as
-     primary buttons next to the smaller Sort toggles. */
-  #homeSelectBtn, #furnFilterBtn { font-size: 1em; font-weight: bold; padding: 6px 14px; background: #313743; color: #fff; border: 1px solid #6b7484; box-shadow: inset 0 2px 0 rgba(255,255,255,0.08), 0 2px 6px rgba(0,0,0,0.3); }
-  #homeSelectBtn:hover:not(:disabled), #furnFilterBtn:hover:not(:disabled) { background: #3d4451; border-color: #7fd97f; }
-  /* Select Home submenu as a 2-column grid of home cards (1 column on phones). */
-  #homeListCtn { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
-  @media (max-width: 520px) { #homeListCtn { grid-template-columns: 1fr; } }
-  .homeLabel { font-size: 0.85em; opacity: 0.8; align-self: center; }
-  .homeMetaRow { display: flex; justify-content: flex-end; margin-bottom: 8px; font-size: 0.9em; font-weight: bold; }
-  .homeFullNote { font-style: italic; opacity: 0.8; margin-bottom: 8px; text-align: center; }
-  .furnSortRow { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 0.9em; }
-  .furnSortRow > span { opacity: 0.8; }
-  .furnSortRow button { padding: 2px 10px; font-size: 0.85em; white-space: nowrap; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
-  .furnSortRow button:hover { background: #343945; }
-  .furnSortRow button.active { font-weight: bold; background: #313743; color: #fff; border-color: #565e70; }
-  #furnitureCtn { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; overflow: visible; }
-  @media (max-width: 700px) { #furnitureCtn { grid-template-columns: 1fr; } }
-  .furnCard { position: relative; background: #22262f; border: 1px solid #3a3f4b; border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
-  /* Hovered card rises above its grid neighbors so its downward-opening
-     tooltip is never covered by the next row. */
-  .furnCard:hover, .furnCard:focus-within { z-index: 11; }
-  .furnTop { display: flex; gap: 8px; align-items: baseline; font-weight: bold; }
-  .furnSpace { opacity: 0.85; }
-  .furnName { flex: 1; }
-  .furnOwned { opacity: 0.85; font-size: 0.9em; }
-  .furnBtns { display: flex; gap: 8px; }
-  .furnBtns button { flex: 1; position: relative; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
-  .furnBtns button:hover:not(:disabled) { background: #343945; }
-  .furnBtns button:disabled { opacity: 1; color: #777; cursor: default; }
-  .furnCard > .tip.furnInfo { left: 0; transform: none; }
-  .furnCard:hover > .tip.furnInfo, .furnCard:focus-within > .tip.furnInfo { display: block; }
-  .furnCard:has(.furnSell:hover) > .tip.furnInfo, .furnCard:has(.furnSell:focus-visible) > .tip.furnInfo { display: none; }
-  .furnSell:hover > .tip, .furnSell:focus-visible > .tip { display: block; }
-  .homeRow { position: relative; display: flex; gap: 8px; align-items: center; width: 100%; box-sizing: border-box; margin: 0; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 8px 10px; text-align: left; }
-  .homeRow:hover:not(:disabled) { background: #343945; }
-  .homeRow:disabled { opacity: 1; color: #777; cursor: default; }
-  .homeRow.current { outline: 2px solid #7fd97f; }
-  .homeRow .homeRowName { flex: 1; font-weight: bold; }
-  .homeRow .homeRowSpace { opacity: 0.85; font-size: 0.9em; }
-  .homeRow .homeRowStatus { opacity: 0.7; font-size: 0.85em; min-width: 60px; text-align: right; }
-  .homeRow:hover > .tip, .homeRow:focus-visible > .tip { display: block; }
-  .homeRow > .tip { left: 0; transform: none; }
-  #clipBox { margin-bottom: 8px; }
-  #clipArea { width: 100%; box-sizing: border-box; font-family: monospace; }
-  button { padding: 8px 14px; font-size: 1em; cursor: pointer; }
-  button:disabled { cursor: default; opacity: 0.45; }
-  .panel h2.hasBtn { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-  .panel h2.hasBtn .hbtns { position: static; transform: none; display: flex; gap: 6px; }
-  .panel h2.hasBtn .htitle { flex: 1; text-align: center; }
-  .panel h2.hasBtn .hbtns button { padding: 2px 10px; font-size: 0.85em; font-weight: normal; letter-spacing: 0; text-transform: none; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
-  .panel h2.hasBtn .hbtns button:hover:not(:disabled) { background: #343945; }
-  /* Hiding mode: the armed Hide button brightens into a Done button. */
-  .panel h2.hasBtn .hbtns button.on { background: #4a5160; border-color: #9aa3b5; color: #fff; font-weight: bold; box-shadow: 0 0 8px rgba(255,255,255,0.25); }
-  /* User-hidden items: struck-through while hiding mode reveals them. */
-  .actionBtn.userHidden .action-label, .shopBtn.userHidden .action-label,
-  .currency.userHidden .cur-name, .currency.userHidden .cur-val,
-  .res.userHidden .res-name, .res.userHidden .res-val { text-decoration: line-through; }
-  .currency.userHidden, .res.userHidden, .actionBtn.userHidden, .shopBtn.userHidden { opacity: 0.75; }
-  /* While any hiding mode is armed, hideable things show a pointer. */
-  body.hiding .currency, body.hiding .res, body.hiding .actionBtn, body.hiding .shopBtn { cursor: pointer; }
-  /* Skills tab: list + milestones two-column grid (stacks on phones). */
-  #tabSkills { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  #skillsGrid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 8px; margin-bottom: 0; text-align: left; align-items: start; flex: 1; min-height: 0; }
-  @media (max-width: 700px) { #skillsGrid { grid-template-columns: 1fr; } }
-  .skillsToggleRow { display: flex; gap: 6px; align-items: center; justify-content: flex-start; font-size: 0.85em; margin-bottom: 8px; }
-  #skillsCtn { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; overflow: visible; }
-  @media (max-width: 1100px) { #skillsCtn { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-  @media (max-width: 520px) { #skillsCtn { grid-template-columns: 1fr; } }
-  #skillsCtn .emptyNote { opacity: 0.6; font-size: 0.9em; }
-  .skillRow { position: relative; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 8px 10px; text-align: left; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-  .skillRow:hover:not(:disabled) { background: #343945; }
-  .skillRow.selected { outline: 2px solid #7fd97f; }
-  /* Hovered rows rise above neighbors so tooltips are never covered. */
-  .skillRow:hover { z-index: 11; }
-  .skillTop { font-weight: bold; }
-  .skillXbar { height: 8px; background: rgba(0, 0, 0, 0.35); border-radius: 999px; overflow: hidden; }
-  .skillXfill { height: 100%; width: 0%; background: #7fd97f; }
-  .skillSub { font-size: 0.8em; opacity: 0.8; }
-  .mileRow { background: #2a2e37; border: 1px solid #4a4f5c; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
-  .mileRow.attained { background: #C2FF5E; border-color: #C2FF5E; color: #111; }
-  .mileHead { font-weight: bold; margin-bottom: 2px; }
-  /* Balloon notifications: fixed top-right cards, X dismisses, auto-gone in 15s. */
-  #balloons { position: fixed; top: 12px; right: 12px; z-index: 100; display: flex; flex-direction: column; gap: 8px; max-width: min(340px, calc(100vw - 24px)); }
-  .balloon { background: #22262f; border: 1px solid #7fd97f; border-radius: 8px; padding: 10px 12px; text-align: left; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); }
-  .balloon-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: bold; color: #7fd97f; margin-bottom: 4px; }
-  .balloon-x { background: transparent; border: 1px solid #4a4f5c; color: inherit; border-radius: 6px; cursor: pointer; padding: 0 8px; font-size: 0.85em; }
-  .balloon-x:hover { background: #343945; }
-  .balloon-body { font-size: 0.9em; }
-  #logEl, #logElHome, .js-log { text-align: left; border-top: none; padding-top: 0; font-size: 0.85em; flex: 1; min-height: 120px; overflow-y: auto; }
-  #logEl div, #logElHome div, .js-log div { margin: 0; padding: 5px 6px; opacity: 0.92; border-bottom: 1px solid #262b34; }
-  #logEl div:first-child, #logElHome div:first-child, .js-log div:first-child { background: #22262f; border-radius: 4px; }
-  /* Unlock announcements stand out in pale green. */
-  #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement { color: #D9FFC7; }
-  /* Action completions (fullLog) stand out in orange; start/stop lines stay default. */
-  #logEl div.logFull, #logElHome div.logFull, .js-log div.logFull { color: orange; }
- /* Log + Furniture filter + Select Home modals: fixed overlay + dialog box. */
-  #logFilterModal, #furnFilterModal, #homeModal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
-  .modalBox { background: #1b1f26; border: 1px solid #4a4f5c; border-radius: 8px; padding: 14px 18px; width: 460px; max-width: calc(100vw - 32px); text-align: left; }
-  .modalBox h3 { margin: 0 0 4px; font-size: 1em; text-align: center; }
-  .modalBox label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 0.92em; font-weight: bold; }
-  .filterGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; margin-top: 10px; }
-  .filterItem { min-width: 0; }
-  .filterItem .modalSub { margin-top: 2px; }
-  .modalSub { font-size: 0.8em; opacity: 0.65; margin-left: 22px; }
-  .modalSubHead { margin: 12px 0 2px; font-size: 0.9em; font-weight: bold; opacity: 0.85; }
-  .modalNote { margin: 10px 0 0; }
-  @media (max-width: 520px) { .modalBox { width: 300px; } .filterGrid { grid-template-columns: 1fr; } }
-.modalBtns { margin-top: 14px; text-align: center; }
   html { color-scheme: light dark; }
 </style>
 </head>
@@ -319,38 +421,37 @@
     <h1>Labor Game</h1>
     <p class="sub">Test</p>
   </div>
-  <div id="tabsBar" role="tablist" aria-label="Sections">
+  <nav id="tabsBar" role="tablist" aria-label="Sections">
     <button id="tabWorkBtn" class="tab active" type="button" role="tab" aria-selected="true">Work</button>
     <button id="tabHomeBtn" class="tab" type="button" role="tab" aria-selected="false" hidden>Home</button>
     <button id="tabPlayerBtn" class="tab" type="button" role="tab" aria-selected="false">Player</button>
     <button id="tabSkillsBtn" class="tab" type="button" role="tab" aria-selected="false" hidden>Skills</button>
     <button id="tabOptionsBtn" class="tab" type="button" role="tab" aria-selected="false">Options</button>
+  </nav>
+  <div id="nowCard">
+    <span id="nowDot" aria-hidden="true"></span>
+    <span id="statusEl">Idle</span>
+    <button id="nowCancelBtn" type="button" title="Stop current action" aria-label="Stop current action">Stop</button>
   </div>
-  <div class="topSpacer" aria-hidden="true"></div>
 </header>
 
   <div id="tabWork" role="tabpanel">
     <div id="workGrid">
-      <section class="panel" aria-label="Currencies">
-        <h2 class="hasBtn"><span class="htitle">Currencies</span><span class="hbtns"><button id="currenciesHideBtn" type="button" title="Hide currencies">⛒</button></span></h2>
-        <div id="currenciesCtn" class="js-currencies"></div>
-      </section>
-      <section class="panel" aria-label="Actions">
-        <h2 class="hasBtn"><span class="htitle">Actions</span><span class="hbtns"><button id="actionsHideBtn" type="button" title="Hide actions and upgrades">⛒</button></span></h2>
-        <div id="actionsCtn"></div>
-      </section>
-      <div class="vitalsCol">
-        <div id="nowCard">
-          <span id="nowDot" aria-hidden="true"></span>
-          <span id="statusEl">Idle</span>
-          <button id="nowCancelBtn" type="button" title="Stop current action" aria-label="Stop current action">Stop</button>
-        </div>
+      <div class="sideCol">
+        <section class="panel" aria-label="Currencies">
+          <h2 class="hasBtn"><span class="htitle">Currencies</span><span class="hbtns"><button id="currenciesHideBtn" type="button" title="Hide currencies">⛒</button></span></h2>
+          <div id="currenciesCtn" class="js-currencies"></div>
+        </section>
         <section class="panel" aria-label="Vitals">
           <h2 class="hasBtn"><span class="htitle">Vitals</span><span class="hbtns"><button id="vitalsHideBtn" type="button" title="Hide vitals">⛒</button></span></h2>
           <div id="vitalsCtn" class="js-vitals"></div>
         </section>
       </div>
-      <section class="panel" aria-label="Log">
+      <section class="panel panel-actions" aria-label="Actions">
+        <h2 class="hasBtn"><span class="htitle">Actions</span><span class="hbtns"><button id="actionsHideBtn" type="button" title="Hide actions and upgrades">⛒</button></span></h2>
+        <div id="actionsCtn"></div>
+      </section>
+      <section class="panel panel-log" aria-label="Log">
         <h2 class="hasBtn"><span class="hbtns left"><button id="logFilterBtn" type="button">Filters</button></span><span class="htitle">Log</span><span class="hbtns"><button id="clearLogBtn" type="button">Clear Log</button></span></h2>
         <div id="logEl" class="js-log" aria-live="polite"></div>
       </section>
@@ -359,18 +460,20 @@
 
   <div id="tabHome" role="tabpanel" hidden>
     <div id="homeGrid">
-      <section class="panel" aria-label="Currencies">
-        <h2 class="hasBtn"><span class="htitle">Currencies</span><span class="hbtns"><button id="currenciesHideBtnHome" type="button" title="Hide currencies">⛒</button></span></h2>
-        <div id="currenciesCtnHome" class="js-currencies"></div>
-      </section>
-      <div class="panel">
+      <div class="sideCol">
+        <section class="panel" aria-label="Currencies">
+          <h2 class="hasBtn"><span class="htitle">Currencies</span><span class="hbtns"><button id="currenciesHideBtnHome" type="button" title="Hide currencies">⛒</button></span></h2>
+          <div id="currenciesCtnHome" class="js-currencies"></div>
+        </section>
+      </div>
+      <div class="panel panel-actions">
         <h2 class="hasBtn"><span class="hbtns left"><span class="homeLabel">Home:</span><button id="homeSelectBtn" type="button">Small Tent</button></span><span class="htitle">Furniture</span><span class="hbtns"><button id="furnFilterBtn" type="button">Filters</button></span></h2>
         <div class="homeMetaRow"><span id="floorSpaceEl">Floor Space: 0 / 0</span></div>
         <div id="homeFullNote" class="homeFullNote" hidden>You can't seem to cram anything more in here...</div>
         <div class="furnSortRow"><span>Sort:</span><button id="sortSpaceBtn" type="button">Floor Space ↕</button><button id="sortNameBtn" type="button">Furnishing ↕</button></div>
         <div id="furnitureCtn"></div>
       </div>
-      <section class="panel" aria-label="Log">
+      <section class="panel panel-log" aria-label="Log">
         <h2 class="hasBtn"><span class="hbtns left"><button id="logFilterBtnHome" type="button">Filters</button></span><span class="htitle">Log</span><span class="hbtns"><button id="clearLogBtnHome" type="button">Clear Log</button></span></h2>
         <div id="logElHome" class="js-log" aria-live="polite"></div>
       </section>
@@ -400,7 +503,7 @@
         <div id="skillsCtn"></div>
       </div>
       <section class="panel" aria-label="Milestones">
-        <h2 id="milesSkillEl">Skills</h2>
+        <h2 class="hasBtn"><span class="htitle" id="milesSkillEl">Skills</span><span class="hbtns"><button id="milesHideBtn" type="button" title="Hide skill milestones">⛒</button></span></h2>
         <div id="milesCtn"></div>
       </section>
     </div>
@@ -512,7 +615,7 @@
 // in a local copy), say so visibly instead of showing empty panels.
 if (typeof buildUI !== "function" || typeof RESOURCES === "undefined") {
   document.getElementById("statusEl").textContent = "Game files failed to load.";
-  document.getElementById("logEl").innerHTML = "<div>This page could not find its game files. This file expects a folder named src next to it, containing: config.js, core.js, save.js, log.js, actions.js, tips.js, resources.js, groups.js, upgrades.js, render.js, ui.js, main.js.</div>";
+  document.getElementById("logEl").innerHTML = "<div>This file expects a folder named src next to it, containing: config.js, core.js, save.js, log.js, actions.js, tips.js, resources.js, groups.js, upgrades.js, furniture.js, skills.js, render.js, ui.js, main.js.</div>";
 }
 </script>
 </body>

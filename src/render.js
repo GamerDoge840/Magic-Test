@@ -63,8 +63,9 @@ function render() {
     }
   }
 
-  // Collapse resource groups emptied by hiding (all mirrors stay in sync).
+  // Collapse resource/skill groups emptied by hiding (all mirrors stay in sync).
   for (const h of document.querySelectorAll(".js-currencies, .js-vitals")) hideEmptyGroups(h);
+  if (typeof skillsCtn !== "undefined" && skillsCtn) hideEmptyGroups(skillsCtn);
 
   for (const a of ACTIONS) {
     const ref = uiRefs.get("a:" + a.id);
@@ -80,8 +81,12 @@ function render() {
     // affordability check, cap check, and label below reads the effective
     // costs so the whole frame agrees on the true price.
     const effCost = (typeof effectiveCosts === "function") ? effectiveCosts(a) : { ...(a.costs ?? {}) };
-    const disabled = hidingMode.actions ? false : (isActive ? false : (!canAfford(effCost) || gainsAreFull(effectiveGains(a))));
+    // A stopped action sitting on a paid cycle resumes for free - starting a
+    // NEW cycle is what costs resources. Only the fresh-start price gates
+    // the button, so a half-finished action stays clickable when broke.
     const cyc = state.cycles[a.id];
+    const paidResume = !isActive && !!cyc && cyc.paid === true;
+    const disabled = hidingMode.actions ? false : (isActive ? false : ((!canAfford(effCost) && !paidResume) || gainsAreFull(effectiveGains(a))));
     const prog = cyc ? cyc.progress : 0;
     const tick = getEffectiveTick(a);
     const pkey = isActive ? prog.toFixed(3) : "";
@@ -154,10 +159,19 @@ function render() {
       // so rows only ever appear, and the section follows suit.
       if (ref.xpSec && typeof skillUnlocked === "function") {
         let anyVisible = false;
+        const ex = (typeof effectiveXp === "function") ? effectiveXp(a) : (a.xp ?? {});
         for (const x of ref.xpRows ?? []) {
           const show = skillUnlocked(x.sid);
           if (x.row.hidden === show) x.row.hidden = !show;
-          if (show) anyVisible = true;
+          if (show) {
+            anyVisible = true;
+            // XP rows show the effective grant (base + improvement levels),
+            // so Research Scrolls reads 1.1 once improved.
+            if (x.el) {
+              const t = "+" + formatNum(ex[x.sid] ?? 0);
+              if (x.el.textContent !== t) x.el.textContent = t;
+            }
+          }
         }
         if (ref.xpSec.hidden === anyVisible) ref.xpSec.hidden = !anyVisible;
       }
@@ -176,24 +190,39 @@ function render() {
     if (!ref) continue;
     const btn = ref.root;
     const owned = state.upgrades[u.id] ?? 0;
-    const maxed = owned >= u.maxPurchases;
+    // Skill milestones can raise the purchase cap (e.g. Pouch Organizing
+    // for Pockets), so the cap joins the sig - otherwise the
+    // maxed gate and count would wait for the next purchase to refresh.
+    const capNow = (typeof getEffectiveUpgradeCap === "function") ? getEffectiveUpgradeCap(u) : (u.maxPurchases ?? 1);
+    const maxed = owned >= capNow;
     // unlockMet must run every frame (it logs one-time unlocks), but the
     // DOM writes below are skipped while nothing changed. Hiding mode only
     // reveals user-hidden items; the maxed-out gate (and locks) still apply,
     // so the Show-maxed option is respected inside hiding mode too.
     const maxedGate = maxed && !state.options.showMaxedUpgrades;
     const hidden = !unlockMet(u, "u") || maxedGate || (!hidingMode.actions && itemHidden("u:" + u.id));
-    const disabled = !hidingMode.actions && (maxed || !canAfford(u.cost));
+    // Timed builds mirror action resume rules: a paused paid build stays
+    // clickable when broke (resuming is free); only a fresh unpaid start
+    // needs affording. A running build stays clickable so it can pause.
+    const b = (state.builds && state.builds[u.id]) || null;
+    const building = state.activeBuildId === u.id;
+    const paidBuild = !building && !!b && b.paid === true;
+    const bprog = b ? b.progress : 0;
+    const disabled = !hidingMode.actions && (maxed || (building ? false : (!canAfford(u.cost) && !paidBuild)));
     const overMax = costExceedsMax(u.cost);
-    const sig = (hidden ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + owned + "|" + (overMax ? 1 : 0) + "|" + (itemHidden("u:" + u.id) ? 1 : 0);
+    const sig = (hidden ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + owned + "|" + (overMax ? 1 : 0) + "|" + (itemHidden("u:" + u.id) ? 1 : 0) + "|" + (capNow === Infinity ? "i" : capNow) + "|" + (building ? bprog.toFixed(1) : (paidBuild ? "p" : "-"));
     if (ref._sig === sig) continue;
     ref._sig = sig;
     btn.hidden = hidden;
     btn.classList.toggle("userHidden", itemHidden("u:" + u.id));
     btn.classList.toggle("owned", owned > 0 && !maxed);
     btn.classList.toggle("maxed", maxed);
+    btn.classList.toggle("building", building);
     btn.disabled = disabled;
-    if (ref.tc) ref.tc.textContent = formatNum(owned) + "/" + formatNum(u.maxPurchases);
+    if (u.buildTime && ref.fill) ref.fill.style.width = building ? Math.min(100, (bprog / u.buildTime) * 100) + "%" : "0%";
+    if (u.buildTime && ref.prog) ref.prog.hidden = !building;
+    if (u.buildTime && ref.time) ref.time.textContent = building ? formatDuration(u.buildTime - bprog, (s) => s.toFixed(1) + "s") : "";
+    if (ref.tc) ref.tc.textContent = formatNum(owned) + "/" + (capNow === Infinity ? "no limit" : formatNum(capNow));
     if (ref.label) {
       ref.label.textContent = u.name + (overMax ? "*" : "");
       ref.label.style.color = overMax ? "red" : "";
@@ -300,7 +329,7 @@ function render() {
     let costs = hoverTip.costs;
     if (hoverTip.key.startsWith("a:") && typeof effectiveCosts === "function") {
       const act = getAction(hoverTip.key.slice(2));
-      if (act) costs = effectiveCosts(act);
+      if (act) costs = tipCostsFor(act, effectiveCosts(act));
     }
     tintTip(hoverTip.ref, costs);
   }

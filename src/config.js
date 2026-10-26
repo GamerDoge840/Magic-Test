@@ -68,7 +68,9 @@
         improvements: { every: 20, maxLevel: 5, bonus: { coin: 0.1 },
         improvementLog: "They're warming up to you." }. Every `every`
         completions raises the level (cap `maxLevel`, default Infinity);
-        each level adds `bonus` to every cycle's payout. The tooltip shows
+        each level adds `bonus` to every cycle's payout. `xpBonus` is the
+       same idea for skill XP: { basicKnowledge: 0.1 } = +0.1 more of
+       that skill's XP per cycle per level. The tooltip shows
         "[Lvl. N] <name>" plus progress to the next level, and each
         level-up logs improvementLog (or an auto message) in green.
       - header: (optional) file this group under a titled header
@@ -93,11 +95,11 @@ const RESOURCES = [
 //   - tooltip: (optional) hover text, same tooltip style as everywhere else
 //   - tags: (optional) chips under the tooltip header, e.g. tags: ["Stat"]
 const PLAYER_STATS = [
-  { id: "str", name: "Strength",     abbr: "STR", start: 1, nameColor: "#FFA696", tooltip: "Physical (and magical) strength. It does nothing for now.", tags: ["Stat"] },
-  { id: "dex", name: "Dexterity",    abbr: "DEX", start: 1, nameColor: "#FFFFA6", tooltip: "Nerve control and sleight of hand. It does nothing for now.", tags: ["Stat"] },
-  { id: "con", name: "Constitution", abbr: "CON", start: 1, nameColor: "#D4D4D4", tooltip: "Physical endurance, ability to withstand pain. It does nothing for now.", tags: ["Stat"] },
-  { id: "int", name: "Intelligence", abbr: "INT", start: 1, nameColor: "#C2FFF9", tooltip: "General knowledge, whether of combat and magical spells, or other things. It does nothing for now.", tags: ["Stat"] },
-  { id: "lck", name: "Luck",         abbr: "LCK", start: 1, nameColor: "#DBFFA6", tooltip: "Aptitude for the universe to do nice things to you. It does nothing for now.", tags: ["Stat"] },
+  { id: "str", name: "Strength",     abbr: "STR", start: 1, nameColor: "#FFA696", tooltip: "Physical strength.", tags: ["Stat"] },
+  { id: "dex", name: "Dexterity",    abbr: "DEX", start: 1, nameColor: "#FFFFA6", tooltip: "Nerve control and sleight of hand. ", tags: ["Stat"] },
+  { id: "con", name: "Constitution", abbr: "CON", start: 1, nameColor: "#D4D4D4", tooltip: "Physical endurance, ability to withstand pain.", tags: ["Stat"] },
+  { id: "int", name: "Intelligence", abbr: "INT", start: 1, nameColor: "#C2FFF9", tooltip: "General knowledge, whether of combat and magical spells, or other things.", tags: ["Stat"] },
+  { id: "lck", name: "Luck",         abbr: "LCK", start: 1, nameColor: "#DBFFA6", tooltip: "Aptitude for the universe to do nice things to you.", tags: ["Stat"] },
   { id: "spd", name: "Speed",        abbr: "SPD", start: 1, nameColor: "#A6E6FF", tooltip: "Physical agility.", tags: ["Stat"] },
 ];
 
@@ -121,6 +123,7 @@ const PLAYER_STATS = [
 const HOMES = [
   { id: "tent", name: "Small Tent", space: 3, tooltip: "A small, simplistic tent. Not quite good, but at least better than lying on the dirty ground outside.", tags: ["Home", "Shelter", "Outdoors"], unlockHint: "Buy the Small Tent upgrade in the Shop.", effects: [] },
   { id: "mediumTent", name: "Medium Tent", space: 5, tooltip: "A bigger tent with a bit more room to breathe in. Replaces the Small Tent.", tags: ["Home", "Shelter", "Outdoors"], unlockHint: "Buy the Medium Tent upgrade in the Shop.", replaces: "tent", effects: [] },
+  { id: "survivalistTent", name: "Survivalist's Tent", space: 8, tooltip: "A rugged, quite serious tent. Replaces lesser tents.", tags: ["Home", "Shelter", "Outdoors"], unlockHint: "Buy the Survivalist's Tent upgrade in the Shop.", replaces: ["tent", "mediumTent"], effects: [] },
 ];
 
 // FURNITURE: upgrade-like items bought for the current home, sold back for
@@ -147,7 +150,7 @@ const FURNITURE = [
     space: 1,
     cost: { coin: 5 },
     maxPurchases: 2,
-    requiresHome: ["tent", "mediumTent"],
+    requiresHome: ["tent", "mediumTent", "survivalistTent"],
     tags: ["Storage", "Furniture"],
     description: "Haphazardly store coins by leaving them on the ground.",
     buyLog: "You throw some coins onto the ground.",
@@ -162,7 +165,7 @@ const FURNITURE = [
     space: 1,
     cost: { coin: 10 },
     maxPurchases: 1,
-    requiresHome: ["tent", "mediumTent"],
+    requiresHome: ["tent", "mediumTent", "survivalistTent"],
     tags: ["Recovery", "Furniture"],
     description: "Some simple blankets to keep the cold off.",
     buyLog: "You buy some blankets from the store.",
@@ -177,7 +180,7 @@ const FURNITURE = [
     space: 0.5,
     cost: { coin: 20 },
     maxPurchases: 2,
-    requiresHome: "mediumTent",
+    requiresHome: ["mediumTent", "survivalistTent"],
     tags: ["Recovery", "Furniture"],
     description: "Some slightly overpriced yet comfortable pillows.",
     buyLog: "You buy some pillows from the store.",
@@ -198,14 +201,20 @@ const FURNITURE = [
 //   - resources: { coin: 20 } = hold at least that much right now.
 //   - actions: { oddJobs: 50 } = completed that action that many times.
 //   - id: short code (no spaces); text: the message, shown once.
-//   - category: (optional) log category for filters, default "system"
-//            (always visible). "start"/"stop"/"upgrade"/"unlock"/
-//            "improvement" file it under that filter checkbox instead.
+//   - category: (optional) log category for filters, default "milestone"
+//            (pale yellow, always visible). "start"/"stop"/"upgrade"/
+//            "unlock"/"improvement" file it under that filter checkbox
+//            instead; "system" shows plain with no special color.
 const MILESTONES = [
   {
     id: "makeshiftBed",
     requires: { furniture: { blankets: 1, pillows: 1 } },
     text: "With some blankets and pillows, you now have yourself a makeshift bed. There's no frame, so it's closer to a sleeping mat, but a few moments ago you were shivering out on the streets.",
+  },
+  {
+    id: "heavyBritches",
+    requires: { upgrades: { pockets: 4 } },
+    text: "You can carry so many coins in your britches, they feel like they're slightly weighing you down.",
   },
 ];
 
@@ -238,7 +247,7 @@ const ACTIONS = [
     header: "Tasks",
     group: "Recovery",
     tags: ["Recovery"],
-    tickSeconds: 2,
+    tickSeconds: 1.5,
     costs: {},
     gains: { stamina: 1 },
     xp: { sleeping: 0.1 },
@@ -270,7 +279,7 @@ const ACTIONS = [
     name: "Research Scrolls",
     header: "Tasks",
     group: "Research",
-    tags: ["Knowledge"],
+    tags: ["Knowledge", "Research"],
     tickSeconds: 7.5,
     costs: { stamina: 5, scroll: 1 },
     gains: { research: 1 },
@@ -287,6 +296,7 @@ const ACTIONS = [
       every: 10,
       maxLevel: 10,
       bonus: { research: 0.1 },
+      xpBonus: { basicKnowledge: 0.1 },
       improvementLog: "[Research Scrolls Improved!] You have improved at looking through your scrolls.",
     },
   },
@@ -322,6 +332,9 @@ const ACTIONS = [
                 effects: [{ type: "max", resource: "stamina", amount: 2 }] },
      - id / name: (name defaults to id)
      - cost: (optional, default {}) paid on EVERY purchase, flat.
+       For timed upgrades (buildTime) the cost is paid up front when
+       the build starts; pausing and resuming is free, and the next
+       purchase (if any) pays again on completion.
      - effects: (optional, default []) e.g.
                 { type: "max", resource: "stamina", amount: 1 }
                 = +1 to that maximum per purchase,
@@ -336,6 +349,11 @@ const ACTIONS = [
                 listed under SKILLS, and all types are validated by one
                 registry (EFFECT_DEFS in core.js).
      - maxPurchases: (optional, default 1) Infinity = no limit. Fully-bought upgrades hide automatically; the player can re-show them with Options > Show maxed-out Work upgrades.
+     - buildTime: (optional) seconds to finish the purchase, working
+       exactly like action completion time: costs are paid when the
+       build starts, clicking the upgrade pauses it, and resuming a
+       paid build is free. One build runs at a time; each completion
+       grants one purchase (then stops, even if repeatable).
      - group: (optional, default "Tasks") section name, shared with
        ACTIONS: same name = same section, actions first. "Shop" is not
        special: use any name ("Shop", "Gear", or an action group like
@@ -343,7 +361,8 @@ const ACTIONS = [
      - description: (optional) auto-written from cost/effects.
      - unlock: (optional) hide until earned, e.g. { resource: "coin",
        amount: 5 }. Stays visible forever once reached (saved). Same
-       shape works on actions.
+       shape works on actions. To gate on a home instead, use
+       { home: "tent" } = visible once that home is owned.
       - unlockLog: (optional) Work Log message when this unlock first
         triggers. Defaults to "Unlocked Upgrade: <name>".
      - buyLog / flavor: (optional) buyLog defaults to "Bought: <name>"
@@ -391,6 +410,38 @@ const UPGRADES = [
     ],
   },
   {
+    id: "survivalistTent",
+    name: "Survivalist's Tent",
+    group: "Housing",
+    header: "Shop",
+    tags: ["Shopping", "Housing"],
+    description: "A larger tent made for survival out in the wilderness.",
+    cost: { coin: 40 },
+    maxPurchases: 1,
+    buyLog: "You again tear down your old tent, raise the sturdy new one, and move all of your belongings into it.",
+    unlock: { resource: "coin", amount: 40 },
+    unlockLog: "You've saved up enough money for a real-deal tent.",
+    effects: [
+      { type: "home", home: "survivalistTent" },
+      { type: "furnitureCap", furniture: "pillows", amount: 2 },
+    ],
+  },
+  {
+    id: "exploreTown",
+    name: "Explore Town",
+    group: "Town",
+    header: "Shop",
+    tags: ["Shopping", "Exploration"],
+    cost: { research: 10 },
+    maxPurchases: 1,
+    buildTime: 30,
+    flavor: "Venture out and map the town, street by street.",
+    buyLog: "You've explored the town!",
+    unlock: { home: "survivalistTent" },
+    unlockLog: "With a sturdy tent as your base, you could really go explore the town.",
+    effects: [],
+  },
+  {
     id: "pockets",
     name: "Pockets",
     group: "Storage",
@@ -403,6 +454,22 @@ const UPGRADES = [
     unlock: { resource: "coin", amount: 5 },
     effects: [
       { type: "max", resource: "coin", amount: 5 },
+    ],
+  },
+  {
+    id: "scrollPouches",
+    name: "Scroll Pouches",
+    group: "Storage",
+    header: "Upgrades",
+    tags: ["Shopping", "Storage", "Clothing Augment"],
+    description: "Neat little pouches appropiately shaped for carrying scrolls.",
+    cost: { coin: 10, research: 5 },
+    maxPurchases: 4,
+    buyLog: "You buy a pouch to store more scrolls.",
+    unlock: { resource: "scroll", amount: 4 },
+    unlockLog: "Perhaps you should invest in additional scroll storage.",
+    effects: [
+      { type: "max", resource: "scroll", amount: 1 },
     ],
   },
 
@@ -438,6 +505,11 @@ const UPGRADES = [
 //   - flavor: (optional) italic line at the bottom of the tooltip, exactly
 //     like actions (skills without one show no flavor line).
 //   - tags: (optional) tooltip chips, e.g. tags: ["Skill"].
+//   - group: (optional, default "General") collapsible section name -
+//     works exactly like currency/action groups: same name = same
+//     section, in first-use order. Empty sections auto-collapse.
+//   - header: (optional) file this group under a titled header
+//     section. Same header = same section; groups for groups.
 //   - milestones: (optional, default []) level-gated boosts, each:
 //       { level: <skill level>, name: "<custom name>", text: "<shown in
 //         list + balloon>", effects: [...] }. Only attained milestones plus
@@ -457,6 +529,9 @@ const UPGRADES = [
 //         action can earn 5 more Improvement levels past its base max;
 //         the new levels must be earned with further completions, never
 //         granted retroactively.
+//         { type: "upgradeCap", upgrade: "pockets", amount: 3 } =
+//         that upgrade can be bought 3 more times past its base
+//         maxPurchases.
 //         { type: "skill", skill: "sleeping" } = unlocks that skill:
 //         locked skills earn no XP, hide from tooltips, and stay out of
 //         the Skills tab (below Level 1) until unlocked.
@@ -468,6 +543,7 @@ const SKILLS = [
   {
     id: "basicKnowledge",
     name: "Basic Knowledge",
+    group: "Understanding",
     maxLevel: 10,
     baseXp: 3,
     scaling: 1.5,
@@ -499,14 +575,23 @@ const SKILLS = [
           { type: "skill", skill: "sleeping" },
         ],
       },
+      {
+        level: 4,
+        name: "Grasp the World",
+        text: "Your understanding of the world deepens: Research Scrolls take half the Stamina, and with a rugged Survivalist's Tent you could really start exploring the town.",
+        effects: [
+          { type: "cost", action: "researchScrolls", resource: "stamina", amount: 2.5 },
+        ],
+      },
     ],
   },
   {
     id: "oddJobsMastery",
     name: "Odd Jobs Mastery",
+    group: "Labor Skills",
     maxLevel: 10,
     baseXp: 5,
-    scaling: 1.5,
+    scaling: 1.75,
     tags: ["Skill", "Work"],
     description: "Get better and better at helping random folks.",
     milestones: [
@@ -521,9 +606,25 @@ const SKILLS = [
       {
         level: 2,
         name: "Easier Odd Jobs",
-        text: "Odd Jobs costs 0.15 less Stamina each time.",
+        text: "Performing Odd Jobs costs 0.15 less Stamina.",
         effects: [
           { type: "cost", action: "oddJobs", resource: "stamina", amount: 0.15 },
+        ],
+      },
+      {
+        level: 3,
+        name: "Pocket Organizing",
+        text: "Pockets can be bought 3 more times.",
+        effects: [
+          { type: "upgradeCap", upgrade: "pockets", amount: 3 },
+        ],
+      },
+      {
+        level: 4,
+        name: "Dexterous Odd Jobs",
+        text: "Add +0.1 to DEX per level of Odd Jobs Mastery.",
+        effects: [
+          { type: "stat", stat: "dex", amount: 0.1, perLevel: true },
         ],
       },
     ],
@@ -531,6 +632,7 @@ const SKILLS = [
   {
     id: "sleeping",
     name: "Sleeping",
+    group: "Physical",
     maxLevel: 10,
     baseXp: 2,
     scaling: 2,
@@ -540,7 +642,7 @@ const SKILLS = [
       {
         level: 1,
         name: "Calm Rest",
-        text: "Rest restores +0.05 Stamina per Sleeping level.",
+        text: "Rest restores +0.05 more Stamina per Sleeping level.",
         effects: [
           { type: "gain", action: "rest", resource: "stamina", amount: 0.05, perLevel: true },
         ],

@@ -260,6 +260,7 @@ function syncHideButtons() {
     [hidingMode.currencies, [currenciesHideBtn, currenciesHideBtnHome]],
     [hidingMode.vitals, [vitalsHideBtn]],
     [hidingMode.actions, [actionsHideBtn]],
+    [hidingMode.milestones, [milesHideBtn]],
   ];
   let any = false;
   for (const [on, btns] of pairs) {
@@ -283,6 +284,7 @@ if (currenciesHideBtn) currenciesHideBtn.addEventListener("click", () => toggleH
 if (currenciesHideBtnHome) currenciesHideBtnHome.addEventListener("click", () => toggleHidingMode("currencies"));
 if (vitalsHideBtn) vitalsHideBtn.addEventListener("click", () => toggleHidingMode("vitals"));
 if (actionsHideBtn) actionsHideBtn.addEventListener("click", () => toggleHidingMode("actions"));
+if (milesHideBtn) milesHideBtn.addEventListener("click", () => toggleHidingMode("milestones"));
 // Escape closes any open modal (Filters, Select Home) and drops focus from
 // whatever it held, so keyboard users are never stuck in a dialog.
 document.addEventListener("keydown", (e) => {

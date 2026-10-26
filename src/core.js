@@ -38,10 +38,10 @@ const clipArea = document.getElementById("clipArea");
 const clipLoadBtn = document.getElementById("clipLoadBtn");
 let clipMode = null;
 // Item-hiding mode (purely visual): per panel kind (currencies, vitals,
-// actions). While on, user-hidden items show struck-through so they can be
+// actions, milestones). While on, user-hidden items show struck-through so they can be
 // unhidden; exiting re-applies the hiding. Runtime-only, never saved.
-const hidingMode = { currencies: false, vitals: false, actions: false };
-// User-hidden item ids ("a:<id>", "u:<id>", "r:<id>"), from hiding mode.
+const hidingMode = { currencies: false, vitals: false, actions: false, milestones: false };
+// User-hidden item ids ("a:<id>", "u:<id>", "r:<id>", "m:<skillId>:<level>"), from hiding mode.
 // Display-only: hidden things still work (actions run, unlocks land).
 function itemHidden(key) {
   return !!state.options.hidden[key];
@@ -73,6 +73,7 @@ const currenciesHideBtn = document.getElementById("currenciesHideBtn");
 const currenciesHideBtnHome = document.getElementById("currenciesHideBtnHome");
 const vitalsHideBtn = document.getElementById("vitalsHideBtn");
 const actionsHideBtn = document.getElementById("actionsHideBtn");
+const milesHideBtn = document.getElementById("milesHideBtn");
 const furnFilterBtn = document.getElementById("furnFilterBtn");
 const furnFilterModal = document.getElementById("furnFilterModal");
 const furnFilterCloseBtn = document.getElementById("furnFilterCloseBtn");
@@ -146,7 +147,7 @@ function makeFreshState() {
   const milestones = {};
   const skills = {};
   for (const s of SKILLS) skills[s.id] = { xp: 0, level: 0 };
-  return { amounts, seen, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: LOG_LIMIT_DEFAULT, hidden: {}, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats, homes, currentHome: null, furniture, milestones, skills, stats: { actions: {} }, currentActionId: null, cycles: {}, impBase: {} };
+  return { amounts, seen, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: LOG_LIMIT_DEFAULT, hidden: {}, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats, homes, currentHome: null, furniture, milestones, skills, stats: { actions: {} }, currentActionId: null, cycles: {}, builds: {}, activeBuildId: null, impBase: {} };
 }
 
 // Player name: trimmed, capped at 24 chars, never blank (falls back to
@@ -232,6 +233,20 @@ function getEffectiveFurnCap(f) {
   if (cap !== Infinity) {
     for (const { effect: e, mult } of activeItemEffects()) {
       if (e.type === "furnitureCap" && e.furniture === f.id) cap += e.amount * mult;
+    }
+  }
+  return cap;
+}
+
+// Effective upgrade purchase cap: base maxPurchases plus every attained
+// skill-milestone "upgradeCap" effect for it (e.g. Pouch Organizing lets
+// you buy more Pockets). Read everywhere the cap matters so the
+// maxed gate, buy log, tooltip count, and save clamp all agree.
+function getEffectiveUpgradeCap(u) {
+  let cap = u.maxPurchases ?? 1;
+  if (cap !== Infinity) {
+    for (const x of attainedSkillMilestoneEffects()) {
+      if (x.effect.type === "upgradeCap" && x.effect.upgrade === u.id) cap += x.effect.amount;
     }
   }
   return cap;
@@ -383,20 +398,24 @@ function buildTipTags(item) {
 
 // Sticky unlocks: hidden until the condition is first met, then visible
 // forever (persisted in the save) with a one-time Work Log message.
-// Same shape everywhere: { resource: "coin", amount: 5 }. Add `unlock`
-// to any action or upgrade to gate it; groups with nothing visible
-// collapse on their own. Set `unlockLog` to customize the message;
-// it defaults to "Unlocked Action: <name>" / "Unlocked Upgrade: <name>".
+// Same shape everywhere: { resource: "coin", amount: 5 } - or gate on a
+// home instead: { home: "tent" } = visible once that home is owned.
+// Add `unlock` to any action or upgrade to gate it; groups with nothing
+// visible collapse on their own. Set `unlockLog` to customize the
+// message; it defaults to "Unlocked Action: <name>" / "Unlocked Upgrade:
+// <name>".
 function unlockMet(item, prefix) {
   if (!item.unlock) return true;
   const key = prefix + ":" + item.id;
   if (state.unlocked[key]) return true;
-  if ((state.amounts[item.unlock.resource] ?? 0) >= item.unlock.amount) {
-    state.unlocked[key] = true;
-    log(item.unlockLog ?? ("Unlocked " + (prefix === "u" ? "Upgrade" : "Action") + ": " + item.name), "unlock");
-    return true;
+  if (item.unlock.home) {
+    if (!state.homes[item.unlock.home]) return false;
+  } else if ((state.amounts[item.unlock.resource] ?? 0) < item.unlock.amount) {
+    return false;
   }
-  return false;
+  state.unlocked[key] = true;
+  log(item.unlockLog ?? ("Unlocked " + (prefix === "u" ? "Upgrade" : "Action") + ": " + item.name), "unlock");
+  return true;
 }
 
 // Milestones: one-time circumstantial messages (see MILESTONES in the
@@ -419,7 +438,7 @@ function checkMilestones() {
     if (state.milestones[m.id]) continue;
     if (milestoneMet(m)) {
       state.milestones[m.id] = true;
-      log(m.text, m.category ?? "system");
+      log(m.text, m.category ?? "milestone");
     }
   }
 }
@@ -456,6 +475,61 @@ function describeCost(cost) {
     parts.push(formatNum(n) + " " + (def ? def.name : id));
   }
   return parts.join(", ");
+}
+
+// Human-readable effect lines for tooltips and auto descriptions (moved
+// here from tips.js: config normalization auto-writes missing upgrade /
+// action descriptions at load time, before tips.js runs).
+function describeEffect(e) {
+  if (e.type === "max") {
+    const def = getResource(e.resource);
+    return "+" + formatNum(e.amount) + " " + (def ? def.name : e.resource) + " max";
+  }
+  if (e.type === "gain") {
+    const def = getResource(e.resource);
+    const act = e.action ? getAction(e.action) : null;
+    return "+" + formatNum(e.amount) + " " + (def ? def.name : e.resource) + " to " + (act ? act.name : e.action);
+  }
+  if (e.type === "home") {
+    const h = e.home ? getHome(e.home) : null;
+    return "Home: " + (h ? h.name : e.home);
+  }
+  if (e.type === "furnitureCap") {
+    const f = e.furniture ? getFurniture(e.furniture) : null;
+    return "+" + formatNum(e.amount) + " " + (f ? f.name : e.furniture) + " purchase cap";
+  }
+  if (e.type === "upgradeCap") {
+    const u = e.upgrade ? getUpgrade(e.upgrade) : null;
+    return "+" + formatNum(e.amount) + " " + (u ? u.name : e.upgrade) + " purchase cap";
+  }
+  if (e.type === "time") {
+    const act = e.action ? getAction(e.action) : null;
+    return "-" + formatNum(e.amount) + "s " + (act ? act.name : e.action) + " time";
+  }
+  return e.type + (e.resource ? " " + e.resource : "");
+}
+
+function autoActionDescription(a) {
+  const tick = formatDuration(a.tickSeconds, (s) => formatNum(s) + "s");
+  const hasCosts = a.costs && Object.keys(a.costs).length > 0;
+  const hasGains = a.gains && Object.keys(a.gains).length > 0;
+  if (hasCosts && hasGains) return "Spend " + describeCost(a.costs) + " \u2192 +" + describeCost(a.gains) + " (" + tick + ").";
+  if (hasGains) return "+" + describeCost(a.gains) + " (" + tick + ").";
+  if (hasCosts) return "Spend " + describeCost(a.costs) + " (" + tick + ").";
+  return "Takes " + tick + ".";
+}
+
+function autoUpgradeDescription(u) {
+  const hasCost = u.cost && Object.keys(u.cost).length > 0;
+  const hasFx = u.effects && u.effects.length > 0;
+  let base;
+  if (hasCost && hasFx) base = describeCost(u.cost) + " \u2192 " + u.effects.map(describeEffect).join(", ") + ".";
+  else if (hasFx) base = u.effects.map(describeEffect).join(", ") + ".";
+  else if (hasCost) base = "Costs " + describeCost(u.cost) + ".";
+  else base = "No effect.";
+  // Timed purchases state their build time up front, like actions do.
+  if (u.buildTime) base += " Takes " + formatDuration(u.buildTime, (s) => formatNum(s) + "s") + " to finish.";
+  return base;
 }
 
 function canAfford(costs) {
@@ -547,6 +621,20 @@ function effectiveGains(a) {
   return out;
 }
 
+// One cycle's skill XP: base `xp` plus the improvement xpBonus per level
+// (same level timing as the payout bonus - the level just earned counts
+// next cycle, since counts increment after the grant). Read everywhere XP
+// is granted or displayed so tooltips stay truthful as levels land.
+function effectiveXp(a) {
+  const out = { ...(a.xp ?? {}) };
+  const imp = a.improvements;
+  if (imp && imp.xpBonus) {
+    const lvl = actionLevel(a);
+    if (lvl > 0) for (const [sid, n] of Object.entries(imp.xpBonus)) out[sid] = (out[sid] ?? 0) + n * lvl;
+  }
+  return out;
+}
+
 // Bottom line of an improved action's tooltip: progress to the next level.
 function improvementFooter(a) {
   const imp = a.improvements;
@@ -630,7 +718,22 @@ function normalizeConfig() {
   const cleanUnlock = (item, ownerLabel) => {
     if (item.unlock === undefined) return;
     const k = item.unlock;
-    if (!k || typeof k !== "object" || typeof k.resource !== "string" || typeof k.amount !== "number" || !Number.isFinite(k.amount) || k.amount < 0) {
+    if (!k || typeof k !== "object") {
+      warn(ownerLabel + ": bad unlock, always visible.");
+      delete item.unlock;
+      return;
+    }
+    // Home gate: { home: "tent" } = visible once that home is owned.
+    if (k.home !== undefined) {
+      if (typeof k.home !== "string" || !getHome(k.home)) {
+        warn(ownerLabel + ": bad unlock home, always visible.");
+        delete item.unlock;
+        return;
+      }
+      item.unlock = { home: k.home };
+      return;
+    }
+    if (typeof k.resource !== "string" || typeof k.amount !== "number" || !Number.isFinite(k.amount) || k.amount < 0) {
       warn(ownerLabel + ": bad unlock, always visible.");
       delete item.unlock;
       return;
@@ -734,6 +837,16 @@ function normalizeConfig() {
           return null;
         }
         return { type: "furnitureCap", furniture: e.furniture, amount: e.amount };
+      },
+    },
+    upgradeCap: {
+      contexts: ["skill"],
+      clean(e, ownerLabel) {
+        if (typeof e.upgrade !== "string" || !getUpgrade(e.upgrade) || !Number.isInteger(e.amount) || e.amount < 1) {
+          warn(ownerLabel + ': skipped an invalid effect (use { type: "upgradeCap", upgrade, amount }).');
+          return null;
+        }
+        return { type: "upgradeCap", upgrade: e.upgrade, amount: e.amount };
       },
     },
     time: {
@@ -868,6 +981,25 @@ function normalizeConfig() {
           imp.maxLevel = Infinity;
         }
         imp.bonus = cleanMap(imp.bonus, impLabel, "bonus");
+        // Improvement XP bonus: { skillId: amount } = that much more of
+        // the skill's XP granted per cycle per improvement level (e.g.
+        // Research Scrolls quickening Basic Knowledge). Unknown skills
+        // and non-positive amounts are skipped with a warning.
+        if (imp.xpBonus !== undefined) {
+          if (!imp.xpBonus || typeof imp.xpBonus !== "object" || Array.isArray(imp.xpBonus)) {
+            warn(impLabel + ": bad xpBonus, ignored.");
+            delete imp.xpBonus;
+          } else {
+            const kept = {};
+            for (const [sid, n] of Object.entries(imp.xpBonus)) {
+              if (!getSkill(sid)) { warn(impLabel + ': xpBonus targets unknown skill "' + sid + '", skipped.'); continue; }
+              if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) { warn(impLabel + ': bad xpBonus amount for "' + sid + '", skipped.'); continue; }
+              kept[sid] = n;
+            }
+            if (!Object.keys(kept).length) delete imp.xpBonus;
+            else imp.xpBonus = kept;
+          }
+        }
         cleanLogField(imp, "improvementLog", impLabel);
       }
     }
@@ -895,6 +1027,14 @@ function normalizeConfig() {
     cleanTags(u, 'Upgrade "' + u.id + '"');
     cleanHeader(u, 'Upgrade "' + u.id + '"');
     cleanMaxPurchases(u, 'Upgrade "' + u.id + '"');
+    // Timed purchase: seconds to finish, working like action completion
+    // time (paid at start, pausable, free resume). Must be positive.
+    if (u.buildTime !== undefined) {
+      if (typeof u.buildTime !== "number" || !Number.isFinite(u.buildTime) || u.buildTime <= 0) {
+        warn('Upgrade "' + u.id + '": bad buildTime, instant purchase.');
+        delete u.buildTime;
+      }
+    }
     if (u.effects === undefined) u.effects = [];
     if (!Array.isArray(u.effects)) {
       warn('Upgrade "' + u.id + '": bad effects, ignored.');
@@ -1081,6 +1221,7 @@ function normalizeConfig() {
       delete s.flavor;
     }
     cleanTags(s, sLabel);
+    cleanHeader(s, sLabel);
     if (s.milestones === undefined) s.milestones = [];
     if (!Array.isArray(s.milestones)) {
       warn(sLabel + ": bad milestones, ignored.");
