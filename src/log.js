@@ -11,7 +11,7 @@ function allLogEls() {
 function log(msg, category = "system") {
   // Work Log filters: "start" (action begin text) and "stop"/"full"
   // (action stop and fullLog/completion text) each have their own Filters
-  // checkbox; "upgrade" (buyLog) and "unlock" announcements too.
+  // checkbox; "upgrade" (buyLog), "unlock" and "skillup" announcements too.
   // Anything else is a system message (saves, resets, warnings) that always shows.
   // "full" is an action completing because it ran out (gains full or next
   // cycle unaffordable) - it shares the Stop toggle but renders orange, so
@@ -20,6 +20,7 @@ function log(msg, category = "system") {
   if ((category === "stop" || category === "full") && state.options.logActionStop === false) return;
   if (category === "upgrade" && state.options.logUpgrades === false) return;
   if (category === "unlock" && state.options.logUnlocks === false) return;
+  if (category === "skillup" && state.options.logSkillUps === false) return;
   if (category === "improvement" && state.options.logImprovements === false) return;
   // Back-to-back repeats merge: "You feel rested.", "You feel rested."
   // shows once as "You feel rested. (x2)" - in every visible copy.
@@ -42,6 +43,7 @@ function log(msg, category = "system") {
     : category === "full" ? "logFull"
     : category === "upgrade" ? "logUpgrade"
     : category === "unlock" ? "logUnlock"
+    : category === "skillup" ? "logSkillup"
     : category === "milestone" ? "logMilestone"
     : category === "improvement" ? "logImprovement" : "";
   for (const el of allLogEls()) {
@@ -57,7 +59,7 @@ function getLogLimit() {
   if (typeof normalizeLogLimit === "function") return normalizeLogLimit(state && state.options && state.options.logLimit);
   const n = Math.floor(Number(state && state.options && state.options.logLimit));
   if (!Number.isFinite(n)) return 200;
-  return Math.min(1000, Math.max(20, n));
+  return Math.min(1000, Math.max(10, n));
 }
 
 // Drop oldest entries (at the bottom) once we're over the limit - every copy.
@@ -85,6 +87,7 @@ function applyLogFilters() {
       || ((c.contains("logStop") || c.contains("logFull")) && state.options.logActionStop === false)
       || (c.contains("logUpgrade") && state.options.logUpgrades === false)
       || (c.contains("logUnlock") && state.options.logUnlocks === false)
+      || (c.contains("logSkillup") && state.options.logSkillUps === false)
       || (c.contains("logImprovement") && state.options.logImprovements === false);
   }
 }

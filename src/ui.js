@@ -61,6 +61,7 @@ function buildUI() {
   restoreDetailsOpen(actionsCtn, actOpen);
   for (const [h, arr] of hostOpen) restoreDetailsOpen(h, arr);
   showMaxedChk.checked = !!state.options.showMaxedUpgrades;
+  stopIfFullChk.checked = state.options.stopIfFull !== false;
   if (logLimitInput) logLimitInput.value = getLogLimit();
   buildPlayerTab();
   if (typeof buildSkillsTab === "function") buildSkillsTab();
@@ -160,7 +161,7 @@ function buildPlayerStatEl(s) {
   // Automatic placement: tall stat tips flip/cap instead of clipping.
   const statTip = line.querySelector(".tip");
   if (statTip) {
-    const fit = () => { if (typeof fitTip === "function") fitTip(statTip, line, "down"); };
+    const fit = () => { if (typeof fitTip === "function") fitTip(statTip, line, "down"); if (typeof syncTipPointer === "function") syncTipPointer(line, true); };
     line.addEventListener("mouseenter", fit);
     line.addEventListener("focus", fit);
   }
@@ -203,6 +204,7 @@ logFilterBtn.addEventListener("click", () => {
   logStopChk.checked = state.options.logActionStop !== false;
   logUpgradesChk.checked = state.options.logUpgrades !== false;
   logUnlocksChk.checked = state.options.logUnlocks !== false;
+  logSkillUpsChk.checked = state.options.logSkillUps !== false;
   logImprovementsChk.checked = state.options.logImprovements !== false;
   logFilterModal.hidden = false;
 });
@@ -212,6 +214,7 @@ if (logFilterBtnHome) logFilterBtnHome.addEventListener("click", () => {
   logStopChk.checked = state.options.logActionStop !== false;
   logUpgradesChk.checked = state.options.logUpgrades !== false;
   logUnlocksChk.checked = state.options.logUnlocks !== false;
+  logSkillUpsChk.checked = state.options.logSkillUps !== false;
   logImprovementsChk.checked = state.options.logImprovements !== false;
   logFilterModal.hidden = false;
 });
@@ -221,6 +224,7 @@ logBeginChk.addEventListener("change", () => { state.options.logActionBegin = lo
 logStopChk.addEventListener("change", () => { state.options.logActionStop = logStopChk.checked; applyLogFilters(); });
 logUpgradesChk.addEventListener("change", () => { state.options.logUpgrades = logUpgradesChk.checked; applyLogFilters(); });
 logUnlocksChk.addEventListener("change", () => { state.options.logUnlocks = logUnlocksChk.checked; applyLogFilters(); });
+logSkillUpsChk.addEventListener("change", () => { state.options.logSkillUps = logSkillUpsChk.checked; applyLogFilters(); });
 logImprovementsChk.addEventListener("change", () => { state.options.logImprovements = logImprovementsChk.checked; applyLogFilters(); });
 sortSpaceBtn.addEventListener("click", () => setFurnSort("space"));
 sortNameBtn.addEventListener("click", () => setFurnSort("name"));

@@ -537,7 +537,7 @@ const UPGRADES = [
 //         the Skills tab (below Level 1) until unlocked.
 //         All effect types are validated by one registry (EFFECT_DEFS in
 //         core.js) - see its header to add a type.
-// Reaching a level logs "[Level Up] Attained Level N in <name>." (green);
+// Reaching a level logs "[Skill Level Up] Attained Level N in <name>." (green);
 // attaining a milestone fires a balloon notification with its text.
 const SKILLS = [
   {
@@ -578,7 +578,7 @@ const SKILLS = [
       {
         level: 4,
         name: "Grasp the World",
-        text: "Your understanding of the world deepens: Research Scrolls take half the Stamina, and with a rugged Survivalist's Tent you could really start exploring the town.",
+        text: "Your understanding of the world begins to deepen. Research Scrolls now only takes 2.5 Stamina, and unlock a new house.",
         effects: [
           { type: "cost", action: "researchScrolls", resource: "stamina", amount: 2.5 },
         ],
@@ -598,7 +598,7 @@ const SKILLS = [
       {
         level: 1,
         name: "Seasoned Helper",
-        text: "Odd Jobs' Improvement cap increased by 5. (Doesn't apply retroactively.).",
+        text: "Odd Jobs' Improvement cap increased by 5. (Doesn't apply retroactively.)",
         effects: [
           { type: "improvementCap", action: "oddJobs", amount: 5 },
         ],

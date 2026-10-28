@@ -86,7 +86,18 @@ function render() {
     // the button, so a half-finished action stays clickable when broke.
     const cyc = state.cycles[a.id];
     const paidResume = !isActive && !!cyc && cyc.paid === true;
-    const disabled = hidingMode.actions ? false : (isActive ? false : ((!canAfford(effCost) && !paidResume) || gainsAreFull(effectiveGains(a))));
+    // Currency-full never disables (only affordability does, besides
+    // hiding mode): with "Stop if Full" on, a full action stays clickable
+    // and shows the orange border so it can be force-started past the
+    // cap. Vitals-full keeps the plain disabled look (nothing to gain).
+    const vitalsFull = gainsAreFull(effectiveGains(a));
+    const optFull = state.options.stopIfFull !== false;
+    const curFull = optFull && currencyGainsAreFull(effectiveGains(a));
+    // The override lapses the moment outputs drop back under cap: the
+    // border goes away and auto-stop re-arms for the next fill-up.
+    if (state.fullOverride && state.fullOverride[a.id] && !currencyGainsAreFull(effectiveGains(a))) delete state.fullOverride[a.id];
+    const ovr = !!(state.fullOverride && state.fullOverride[a.id]);
+    const disabled = hidingMode.actions ? false : (isActive ? false : ((!canAfford(effCost) && !paidResume) || vitalsFull));
     const prog = cyc ? cyc.progress : 0;
     const tick = getEffectiveTick(a);
     const pkey = isActive ? prog.toFixed(3) : "";
@@ -104,14 +115,19 @@ function render() {
     // so the effective costs join the sig too - otherwise the tooltip's
     // Cost row would wait for the next run to refresh.
     const costSig = Object.keys(effCost).sort().map(id => id + ":" + effCost[id]).join(",");
-    const sig = (hidden ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + (isActive ? 1 : 0) + "|" + pkey + "|" + count + "|" + (overMax ? 1 : 0) + "|" + (itemHidden("a:" + a.id) ? 1 : 0) + "|" + impCap + "|" + xpSig + "|" + costSig;
+    const sig = (hidden ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + (isActive ? 1 : 0) + "|" + pkey + "|" + count + "|" + (overMax ? 1 : 0) + "|" + (itemHidden("a:" + a.id) ? 1 : 0) + "|" + impCap + "|" + xpSig + "|" + costSig + "|" + (curFull ? 1 : 0) + "|" + (ovr ? 1 : 0);
     if (ref._sig === sig) continue;
     ref._sig = sig;
     btn.hidden = hidden;
     btn.classList.toggle("userHidden", itemHidden("a:" + a.id));
     btn.classList.toggle("active", isActive);
+    // Orange while Stop-if-Full holds this action at its cap (stopped or
+    // force-running past it). Vitals-full keeps the plain disabled look.
+    btn.classList.toggle("fullstop", curFull && !vitalsFull);
     btn.setAttribute("aria-pressed", isActive ? "true" : "false");
-    // Unusable when unaffordable, or when there is nothing left to gain (e.g. Rest at full Stamina).
+    // Unusable when unaffordable, or when vitals are full (e.g. Rest at
+    // full Stamina). Currency-full stays clickable so it can be
+    // force-started past the cap (orange border).
     btn.disabled = disabled;
     if (ref.fill) ref.fill.style.width = isActive ? Math.min(100, (prog / tick) * 100) + "%" : "0%";
     if (ref.prog) ref.prog.hidden = !isActive;
@@ -268,7 +284,9 @@ function render() {
             }
           }
         }
-        if (over.length) overflow = "Selling now would destroy " + over.join(", ") + " over the cap.";
+        if (over.length === 1) overflow = "Selling now would destroy " + over[0] + " over the cap.";
+        else if (over.length === 2) overflow = "Selling now would destroy " + over[0] + " and " + over[1] + " over the cap.";
+        else if (over.length) overflow = "Selling now would destroy " + over.slice(0, -1).join(", ") + ", and " + over[over.length - 1] + " over the cap.";
       }
       const sig = (hidden ? 1 : 0) + "|" + owned + "|" + (cap === Infinity ? "i" : cap) + "|" + (disBuy ? 1 : 0) + "|" + (disSell ? 1 : 0) + "|" + overflow;
       if (ref._sig === sig) continue;
@@ -332,6 +350,7 @@ function render() {
       if (act) costs = tipCostsFor(act, effectiveCosts(act));
     }
     tintTip(hoverTip.ref, costs);
+    if (typeof syncTipPointer === "function") syncTipPointer(hoverTip.ref.root);
   }
   else hoverTip = null;
 }
@@ -367,6 +386,10 @@ tabSkillsBtn.addEventListener("click", () => showTab("skills"));
 tabOptionsBtn.addEventListener("click", () => showTab("options"));
 showMaxedChk.addEventListener("change", () => {
   state.options.showMaxedUpgrades = showMaxedChk.checked;
+  render();
+});
+stopIfFullChk.addEventListener("change", () => {
+  state.options.stopIfFull = stopIfFullChk.checked;
   render();
 });
 if (logLimitInput) logLimitInput.addEventListener("change", () => {

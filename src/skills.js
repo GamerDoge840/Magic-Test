@@ -67,7 +67,7 @@ function gainSkillXp(sid, amount) {
   while (st.level < skill.maxLevel && st.xp >= xpForSkillLevel(skill, st.level)) {
     st.xp -= xpForSkillLevel(skill, st.level);
     st.level++;
-    log("[Level Up] Attained Level " + st.level + " in " + skill.name + ".", "unlock");
+    log("[Skill Level Up] Attained Level " + st.level + " in " + skill.name + ".", "skillup");
     for (const m of skill.milestones ?? []) {
       if (m.level === st.level) {
         balloon("New " + skill.name + " Milestone!", m.text);
@@ -228,7 +228,7 @@ function buildSkillRow(s) {
   // Automatic placement: long skill tips flip below the row and cap their
   // height instead of clipping through the top of the screen.
   const skillTip = tipBuilt.tip;
-  const fitSkill = () => { if (typeof fitTip === "function") fitTip(skillTip, btn, "up"); };
+  const fitSkill = () => { if (typeof fitTip === "function") fitTip(skillTip, btn, "up"); if (typeof syncTipPointer === "function") syncTipPointer(btn, true); };
   btn.addEventListener("mouseenter", fitSkill);
   btn.addEventListener("focus", fitSkill);
   return btn;

@@ -14,8 +14,8 @@ function doTick(action) {
   state.stats.actions[action.id] = count;
   const imp = action.improvements;
   if (imp) {
-    const lvl = Math.min(imp.maxLevel, Math.floor(count / imp.every));
-    if (lvl > Math.min(imp.maxLevel, Math.floor((count - 1) / imp.every))) {
+    const lvl = actionLevel(action, count);
+    if (lvl > actionLevel(action, count - 1)) {
       const bonus = describeCost(imp.bonus);
       log(pickLog(imp.improvementLog, action.name + " reached Improvement Level " + lvl + (bonus ? " (+" + bonus + " per cycle)." : ".")), "improvement");
     }
@@ -41,6 +41,12 @@ function setAction(id, stopMsg, stopCategory = "stop") {  const prev = state.cur
       payCosts(startCost);
       cyc.paid = true;
     }
+    // "Stop if Full" override: starting an action whose currency outputs
+    // are full forces it to run anyway (orange border) until they drop
+    // back under cap, which clears the override and re-arms auto-stop.
+    if (!state.fullOverride) state.fullOverride = {};
+    if (state.options.stopIfFull !== false && currencyGainsAreFull(effectiveGains(action))) state.fullOverride[action.id] = true;
+    else delete state.fullOverride[action.id];
     state.currentActionId = id;
     lastTime = performance.now();
     log(pickLog(action.startLog, "Started: " + action.name), "start");

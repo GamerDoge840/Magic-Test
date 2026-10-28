@@ -66,13 +66,25 @@ function fitTip(tip, anchor, prefer) {
   // and the tip balloons past the window with no further run to fix it;
   // a leftover margin clamp shifts the measured rect, so the new clamp
   // compounds sideways instead of centering. Display itself is CSS-driven
-  // (:hover) and untouched - only fitTip's own four props reset.
+  // (:hover) and untouched - only fitTip's own four props reset. The reset
+  // values are saved first: a hidden tip (display:none from :hover rules,
+  // e.g. furnInfo while the sell tip shows)
+  // measures 0, and bailing with the reset in place would wipe its
+  // last-good placement - revealed later in the wrong spot.
+  const keepTop = tip.style.top, keepBottom = tip.style.bottom,
+    keepMaxH = tip.style.maxHeight, keepML = tip.style.marginLeft;
   tip.style.top = "";
   tip.style.bottom = "";
   tip.style.maxHeight = "";
   tip.style.marginLeft = "";
   const h = tip.offsetHeight;
-  if (!h) return;
+  if (!h) {
+    tip.style.top = keepTop;
+    tip.style.bottom = keepBottom;
+    tip.style.maxHeight = keepMaxH;
+    tip.style.marginLeft = keepML;
+    return;
+  }
   const b = anchor.getBoundingClientRect();
   // Room is measured against the visible bounds (viewport shrunk by every
   // clipping ancestor), so a tip inside the Actions window can never be
@@ -192,6 +204,7 @@ function placeActionTip(btn) {
   const roomDown = ctn.scrollHeight > ctn.clientHeight + 1 ? c.bottom - b.bottom : Infinity;
   const prefer = (roomUp >= h + 8 || roomUp >= roomDown) ? "up" : "down";
   fitTip(tip, btn, prefer);
+  if (typeof syncTipPointer === "function") syncTipPointer(btn, true);
 }
 
 // Fill defaults, auto-write missing descriptions, and turn config
@@ -228,22 +241,9 @@ function tipCostsFor(action, costs) {
 
 let hoverTip = null; // { key, ref, costs } of the action/upgrade whose tip is open
 
-// Tooltip presses never activate their parent: grabbing a long tip's
-// scrollbar, selecting tip text, or clicking inside a tip must not
-// start/stop the action, buy the upgrade, or strike the row - otherwise
-// touching a tooltip while its action runs toggles the run off. One
-// capture-phase guard covers every present and future tip (tips hold no
-// buttons of their own, so nothing inside them needs to click through).
-// Keyboard activation still works: it targets the button itself, not the tip.
-let tipPress = false;
-document.addEventListener("pointerdown", (e) => {
-  tipPress = !!(e.target && e.target.closest && e.target.closest(".tip"));
-}, true);
-document.addEventListener("click", (e) => {
-  const inTip = !!(e.target && e.target.closest && e.target.closest(".tip"));
-  if (inTip || tipPress) { tipPress = false; e.stopPropagation(); }
-  else tipPress = false;
-}, true);
+// Tips are pointer-transparent (CSS pointer-events:none), so presses can
+// never land inside one: no swallow guard needed. Tips show purely via
+// CSS :hover on the anchor and close the instant the pointer leaves it.
 
 // Tooltip row tints, refreshed while a tip is open: unaffordable cost rows
 // glow red, and gain rows whose resource sits at its storage cap glow orange.
@@ -270,4 +270,47 @@ function closeTip(key, hi) {
   hi(false);
   if (hoverTip && hoverTip.key === key) hoverTip = null;
 }
+
+// Pointer policy: only scrollbar tips take the pointer. A tip whose content
+// is taller than its fitted box gets pointer-events:auto so the cursor can
+// rest on it and use its scrollbar; every other tip stays
+// pointer-transparent (CSS) and closes the instant the pointer moves onto
+// it. Open paths pass force=true (tip is measurable on hover/focus); the
+// per-frame backstop in render.js uses the throttle, so mid-hover changes
+// (unlock rows unhiding, live values re-wrapping) still follow without a
+// layout read every frame.
+let lastPointerSync = 0;
+function syncTipPointer(anchor, force) {
+  if (!anchor || !anchor.querySelectorAll) return;
+  const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
+  if (!force && now - lastPointerSync < 200) return;
+  lastPointerSync = now;
+  const tips = anchor.querySelectorAll(".tip");
+  for (const t of tips) {
+    const scrollable = t.scrollHeight > t.clientHeight + 1;
+    if ((t.style.pointerEvents === "auto") !== scrollable) {
+      t.style.pointerEvents = scrollable ? "auto" : "";
+    }
+  }
+}
+
+// Presses landing inside a tip must not activate its parent: grabbing a
+// scrollbar tip's scrollbar, selecting tip text, or clicking inside it must
+// not start/stop the action or buy the upgrade. Only scrollbar tips can be
+// hit (the rest are pointer-transparent), so this only ever fires for those.
+let tipPress = false;
+document.addEventListener("pointerdown", (e) => {
+  tipPress = !!(e && e.target && e.target.closest && e.target.closest(".tip"));
+}, true);
+document.addEventListener("click", (e) => {
+  const onTip = !!(e && e.target && e.target.closest && e.target.closest(".tip"));
+  // Swallow presses that started inside a tip (including scrollbar drags
+  // that end outside it), so the parent button never activates.
+  if (tipPress || onTip) {
+    tipPress = false;
+    e.stopPropagation();
+  } else {
+    tipPress = false;
+  }
+}, true);
 

@@ -79,6 +79,8 @@ function serializeSave() {
     // Non-retroactive improvement-cap baselines ({ actionId: run count
     // when the cap-raising milestone fired }). Missing on old saves.
     impBase: { ...(state.impBase ?? {}) },
+    // "Run past the cap" overrides ({ actionId: true }). Not on old saves.
+    fullOverride: { ...(state.fullOverride ?? {}) },
   };
 }
 
@@ -211,6 +213,7 @@ function applySaveData(data) {
     // The old single "logActions" toggle maps onto both halves.
     logActionBegin: !data.options || (data.options.logActionBegin ?? data.options.logActions) !== false,
     logActionStop: !data.options || (data.options.logActionStop ?? data.options.logActions) !== false,
+    stopIfFull: !data.options || data.options.stopIfFull !== false,
     showMaxedSkills: !!(data.options && data.options.showMaxedSkills),
     // User-hidden item ids (display only). Keep truthy string keys.
     hidden: (() => {
@@ -221,6 +224,7 @@ function applySaveData(data) {
     })(),
     logUpgrades: !data.options || data.options.logUpgrades !== false,
     logUnlocks: !data.options || data.options.logUnlocks !== false,
+    logSkillUps: !data.options || data.options.logSkillUps !== false,
     logImprovements: !data.options || data.options.logImprovements !== false,
     logLimit: normalizeLogLimit(data.options && data.options.logLimit),
     furnFilters: {
@@ -250,6 +254,13 @@ function applySaveData(data) {
     }
   }
   state.cycles = cycles;
+  // "Run past the cap" overrides ({ actionId: true }). Missing on old
+  // saves (none set); only true flags on known actions load. Stale flags
+  // (outputs since dropped under cap) clear on first render.
+  state.fullOverride = {};
+  if (data.fullOverride && typeof data.fullOverride === "object") {
+    for (const a of ACTIONS) if (data.fullOverride[a.id] === true) state.fullOverride[a.id] = true;
+  }
   state.currentActionId = data.currentActionId && getAction(data.currentActionId) ? data.currentActionId : null;
   // Timed upgrade builds ({ id: { progress, paid } }) + the running one.
   // Old saves have none - start fresh. The active build only resumes when

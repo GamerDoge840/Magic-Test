@@ -103,6 +103,7 @@
   .actionBtn .action-label, .shopBtn .action-label { position: relative; z-index: 1; font-weight: bold; }
   .actionBtn { transition: padding-bottom 0.15s ease; }
   .actionBtn.active { padding-bottom: 26px; border-color: #7fd97f; box-shadow: 0 0 0 1px #7fd97f, 0 2px 10px rgba(127,217,127,0.25); font-weight: bold; }
+  .actionBtn.fullstop { border-color: #ffa500; }
   .shopBtn.building { padding-bottom: 26px; border-color: #7fd97f; }
   .actionBtn .action-progress, .shopBtn .action-progress { position: absolute; left: 6px; right: 6px; bottom: 4px; height: 16px; background: rgba(0, 0, 0, 0.15); border-radius: 999px; overflow: hidden; z-index: 2; pointer-events: none; }
   .actionBtn .action-fill, .shopBtn .action-fill { height: 100%; width: 0%; background: #333; }
@@ -142,7 +143,14 @@
     padding: 10px 12px;
     white-space: normal;
     z-index: 10;
-    pointer-events: auto;
+    /* Hover-transparent by design: a tip takes no pointer, so it only
+       shows while the cursor is directly over its anchor - moving onto the
+       tip itself closes it (the anchor loses :hover) and clicks pass
+       through to whatever is underneath. Exception: tips that actually
+       need their scrollbar get pointer-events:auto from syncTipPointer
+       (tips.js) - only those take the cursor, so only those can be
+       scrolled. */
+    pointer-events: none;
     border-radius: 6px;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
   }
@@ -337,7 +345,7 @@
   #logEl div, #logElHome div, .js-log div { margin: 0; padding: 5px 6px; opacity: 0.92; border-bottom: 1px solid #262b34; }
   #logEl div:first-child, #logElHome div:first-child, .js-log div:first-child { background: #22262f; border-radius: 4px; }
   /* Unlock announcements stand out in pale green. */
-  #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement { color: #D9FFC7; }
+  #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement, #logEl div.logSkillup, #logElHome div.logSkillup, .js-log div.logSkillup { color: #D9FFC7; }
   /* Action completions (fullLog) stand out in orange; start/stop lines stay default. */
   #logEl div.logFull, #logElHome div.logFull, .js-log div.logFull { color: orange; }
   /* One-time milestones stand out in pale yellow. */
@@ -408,7 +416,7 @@
     .currency .cur-val, .res .res-val { filter: brightness(0.75); }
     #logEl div:first-child, #logElHome div:first-child, .js-log div:first-child { background: #e2e2e2; }
     #logEl div, #logElHome div, .js-log div { border-bottom-color: #ddd; }
-    #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement { color: #1c7a1c; }
+    #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement, #logEl div.logSkillup, #logElHome div.logSkillup, .js-log div.logSkillup { color: #1c7a1c; }
     #logEl div.logFull, #logElHome div.logFull, .js-log div.logFull { color: #c96a00; }
     #logEl div.logMilestone, #logElHome div.logMilestone, .js-log div.logMilestone { color: #8a6d00; }
   }
@@ -530,6 +538,10 @@
         <div class="modalSub">Log text for numerous new unlocks.</div>
       </div>
       <div class="filterItem">
+        <label><input id="logSkillUpsChk" type="checkbox"> Skill level ups</label>
+        <div class="modalSub">Log text for skill level ups.</div>
+      </div>
+      <div class="filterItem">
         <label><input id="logImprovementsChk" type="checkbox"> Action improvements</label>
         <div class="modalSub">Logs notifying of action improvements..</div>
       </div>
@@ -580,19 +592,30 @@
 <div id="tabOptions" role="tabpanel" hidden>
   <div class="panel">
     <h2>Options</h2>
+    <details class="taskGroup" open style="margin-bottom: 10px;">
+      <summary>Saving</summary>
+      <div style="padding: 6px 10px 10px;">
     <div class="optionRow"><button id="manualSaveBtn" type="button">Save Game</button><span>Save progress in this browser.</span></div>
     <div class="optionRow"><button id="manualLoadBtn" type="button">Load Saved Game</button><span>Load the browser save (also loads on start).</span></div>
-    <div class="optionRow"><label><input id="showMaxedChk" type="checkbox"> Show maxed-out Work upgrades</label></div>
-    <div class="optionRow"><label>Log Entry Cap <input id="logLimitInput" type="number" min="20" max="1000" step="1" style="width: 80px;"></label><span>Older entries beyond this number are removed (20–1000, default 200).</span></div>
     <div class="optionRow"><button id="exportBtn" type="button">Export Save (File)</button><span>Download progress as a file.</span></div>
     <div class="optionRow"><button id="importBtn" type="button">Import Save (File)</button><span>Load progress from a file.</span></div>
     <div class="optionRow"><button id="exportClipBtn" type="button">Export Save (Clipboard)</button><span>Copy progress as text.</span></div>
     <div class="optionRow"><button id="importClipBtn" type="button">Import Save (Clipboard)</button><span>Paste progress as text.</span></div>
-    <div class="optionRow"><button id="resetBtn" type="button">Hard Reset</button><span>Erase all progress and start over.</span></div>
     <div id="clipBox" hidden>
       <textarea id="clipArea" rows="6" spellcheck="false"></textarea>
       <div class="optionRow"><button id="clipLoadBtn" type="button">Load Pasted Save</button></div>
     </div>
+    <div class="optionRow"><button id="resetBtn" type="button">Hard Reset</button><span>Erase all progress and start over.</span></div>
+      </div>
+    </details>
+    <details class="taskGroup" open>
+      <summary>Actions</summary>
+      <div style="padding: 6px 10px 10px;">
+    <div class="optionRow"><label><input id="showMaxedChk" type="checkbox"> Show maxed-out Work upgrades</label></div>
+    <div class="optionRow"><label style="white-space:nowrap"><input id="stopIfFullChk" type="checkbox"> Stop if Full</label><span>Actions automatically stop when one of their currency outputs reaches its cap. A stopped-full action shows an orange border — click it to run anyway.</span></div>
+    <div class="optionRow"><label>Log Entry Cap <input id="logLimitInput" type="number" min="10" max="1000" step="1" style="width: 80px;"></label><span>Older entries beyond this number are removed (10–1000, default 200).</span></div>
+      </div>
+    </details>
     <input id="importInput" type="file" accept=".txt,text/plain,.json,application/json" hidden>
   </div>
 </div>

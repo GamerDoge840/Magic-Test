@@ -66,7 +66,7 @@ function buildResourceEl(r) {
     // of running off the bottom of the panel.
     const curTip = line.querySelector(".tip");
     if (curTip) {
-      const fit = () => { if (typeof fitTip === "function") fitTip(curTip, line, "down"); };
+      const fit = () => { if (typeof fitTip === "function") fitTip(curTip, line, "down"); if (typeof syncTipPointer === "function") syncTipPointer(line, true); };
       line.addEventListener("mouseenter", fit);
       line.addEventListener("focus", fit);
     }
@@ -90,7 +90,7 @@ function buildResourceEl(r) {
   // running off the bottom of the panel.
   const boxTip = box.querySelector(".tip");
   if (boxTip) {
-    const fit = () => { if (typeof fitTip === "function") fitTip(boxTip, box, "down"); };
+    const fit = () => { if (typeof fitTip === "function") fitTip(boxTip, box, "down"); if (typeof syncTipPointer === "function") syncTipPointer(box, true); };
     box.addEventListener("mouseenter", fit);
     box.addEventListener("focus", fit);
   }

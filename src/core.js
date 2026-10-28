@@ -27,6 +27,7 @@ const logBeginChk = document.getElementById("logBeginChk");
 const logStopChk = document.getElementById("logStopChk");
 const logUpgradesChk = document.getElementById("logUpgradesChk");
 const logUnlocksChk = document.getElementById("logUnlocksChk");
+const logSkillUpsChk = document.getElementById("logSkillUpsChk");
 const logImprovementsChk = document.getElementById("logImprovementsChk");
 const exportBtn = document.getElementById("exportBtn");
 const importBtn = document.getElementById("importBtn");
@@ -82,6 +83,7 @@ const furnOwnedChk = document.getElementById("furnOwnedChk");
 const furnUnownedChk = document.getElementById("furnUnownedChk");
 const furnBlockedChk = document.getElementById("furnBlockedChk");
 const showMaxedChk = document.getElementById("showMaxedChk");
+const stopIfFullChk = document.getElementById("stopIfFullChk");
 const logLimitInput = document.getElementById("logLimitInput");
 const manualSaveBtn = document.getElementById("manualSaveBtn");
 const manualLoadBtn = document.getElementById("manualLoadBtn");
@@ -109,9 +111,9 @@ function showTab(which) {
 }
 
 // Work Log cap: keeps the DOM small for performance. Default 200 entries,
-// customizable in Options, clamped to 20-1000.
+// customizable in Options, clamped to 10-1000.
 const LOG_LIMIT_DEFAULT = 200;
-const LOG_LIMIT_MIN = 20;
+const LOG_LIMIT_MIN = 10;
 const LOG_LIMIT_MAX = 1000;
 function normalizeLogLimit(v) {
   const n = Math.floor(Number(v));
@@ -147,7 +149,7 @@ function makeFreshState() {
   const milestones = {};
   const skills = {};
   for (const s of SKILLS) skills[s.id] = { xp: 0, level: 0 };
-  return { amounts, seen, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: LOG_LIMIT_DEFAULT, hidden: {}, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats, homes, currentHome: null, furniture, milestones, skills, stats: { actions: {} }, currentActionId: null, cycles: {}, builds: {}, activeBuildId: null, impBase: {} };
+  return { amounts, seen, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, stopIfFull: true, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logSkillUps: true, logImprovements: true, logLimit: LOG_LIMIT_DEFAULT, hidden: {}, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats, homes, currentHome: null, furniture, milestones, skills, stats: { actions: {} }, currentActionId: null, cycles: {}, builds: {}, activeBuildId: null, fullOverride: {}, impBase: {} };
 }
 
 // Player name: trimmed, capped at 24 chars, never blank (falls back to
@@ -551,6 +553,33 @@ function costExceedsMax(costs) {
   return false;
 }
 
+function currencyGainsAreFull(gains) {
+  // True when any currency payout is already at its finite cap (e.g. Buy
+  // Scrolls with full Scroll storage). Vitals keep their own all-full rule
+  // in gainsAreFull; uncapped currencies can never be full. Drives the
+  // "Stop if Full" option (on by default): without it, capped currency
+  // payouts are silently destroyed each cycle and the action runs forever.
+  for (const id of Object.keys(gains ?? {})) {
+    const def = getResource(id);
+    if (!def || !isCurrency(def)) continue;
+    const max = getEffectiveMax(id);
+    if (max === Infinity) continue;
+    if ((state.amounts[id] ?? 0) >= max) return true;
+  }
+  return false;
+}
+
+function outputsAreFull(gains, actionId) {
+  // One stop check for the loop: vitals-full always stops; currency-full
+  // stops only while "Stop if Full" is on and the action hasn't been
+  // force-started past the cap (clicking an orange-bordered action sets
+  // fullOverride, cleared when the outputs drop back under cap).
+  if (gainsAreFull(gains)) return true;
+  if (state.options.stopIfFull === false) return false;
+  if (actionId && state.fullOverride && state.fullOverride[actionId]) return false;
+  return currencyGainsAreFull(gains);
+}
+
 function gainsAreFull(gains) {
   // True if every gain is already at max (e.g. Rest at full Stamina).
   // Capped currencies never count: producing past the cap just destroys
@@ -587,10 +616,13 @@ function getEffectiveImpMax(a) {
 // the base cap, extra levels must be re-earned with completions past both
 // the base cap and the milestone that raised it (tracked per action in
 // state.impBase), so unlocking headroom never grants levels instantly.
-function actionLevel(a) {
+// Takes an optional count override so doTick can compare the new level
+// against the previous cycle's (same math both sides - the base-max clamp
+// in the old doTick check silently ate every post-cap level-up).
+function actionLevel(a, countOverride) {
   const imp = a.improvements;
   if (!imp) return 0;
-  const count = state.stats.actions[a.id] ?? 0;
+  const count = countOverride ?? state.stats.actions[a.id] ?? 0;
   const earned = Math.floor(count / imp.every);
   if (imp.maxLevel === Infinity) return earned;
   const bonus = typeof improvementCapBonus === "function" ? improvementCapBonus(a.id) : 0;
@@ -636,10 +668,24 @@ function effectiveXp(a) {
 }
 
 // Bottom line of an improved action's tooltip: progress to the next level.
+// Past the base cap this measures from the non-retroactive baseline, not
+// from zero: progress toward a bonus level is (count - since), where since
+// is the same max(impBase, baseMax * every) actionLevel uses. The old
+// count % every reset to ~0% every `every` runs without leveling (off by
+// impBase % every), making the header look stuck while the % looped.
 function improvementFooter(a) {
   const imp = a.improvements;
   if (actionLevel(a) >= getEffectiveImpMax(a)) return "Max level";
-  const pct = Math.floor(((state.stats.actions[a.id] ?? 0) % imp.every) / imp.every * 100);
+  const count = state.stats.actions[a.id] ?? 0;
+  let done = count % imp.every;
+  const bonus = typeof improvementCapBonus === "function" ? improvementCapBonus(a.id) : 0;
+  if (imp.maxLevel !== Infinity && bonus > 0 && Math.floor(count / imp.every) >= imp.maxLevel) {
+    const base = state.impBase ?? {};
+    const since = Math.max(Number.isFinite(base[a.id]) ? base[a.id] : 0, imp.maxLevel * imp.every);
+    done = (count - since) % imp.every;
+    if (done < 0) done = 0; // count can never trail since naturally; clamp save-edited states
+  }
+  const pct = Math.floor(done / imp.every * 100);
   return pct + "% to next Improvement";
 }
 

@@ -23,8 +23,9 @@ setInterval(() => {
   if (!current) { render(); return; }
   const eff = effectiveGains(current);
 
-  // If gains are already full (e.g. Rest at max Stamina), stop cleanly.
-  if (gainsAreFull(eff)) {
+  // If outputs are already full (e.g. Rest at max Stamina, or Buy
+  // Scrolls with full storage while "Stop if Full" is on), stop cleanly.
+  if (outputsAreFull(eff, current.id)) {
     setAction(null, current.fullLog ?? (current.name + " finished: vitals full."), "full");
     return;
   }
@@ -52,7 +53,7 @@ setInterval(() => {
     cyc.progress -= tick;
     doTick(current);
     const effNow = effectiveGains(current);
-    if (gainsAreFull(effNow)) {
+    if (outputsAreFull(effNow, current.id)) {
       cyc.progress = 0;
       cyc.paid = false;
       setAction(null, current.fullLog ?? (current.name + " finished: vitals full."), "full");

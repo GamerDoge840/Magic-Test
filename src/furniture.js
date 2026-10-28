@@ -149,6 +149,7 @@ function furnitureBuyGains(f) {
 // the winning side via fitTip, so they scroll internally.
 function placeFurnTip(tip, anchor) {
   if (typeof fitTip === "function") fitTip(tip, anchor, "up");
+  if (typeof syncTipPointer === "function") syncTipPointer(anchor, true);
 }
 
 function buildFurnitureCard(f) {
@@ -400,7 +401,7 @@ function buildHomeList() {
     // Automatic placement: long home tips flip/cap instead of clipping.
     if (typeof fitTip === "function") {
       const homeTip = tip;
-      const fit = () => fitTip(homeTip, btn, "up");
+      const fit = () => { fitTip(homeTip, btn, "up"); if (typeof syncTipPointer === "function") syncTipPointer(btn, true); };
       btn.addEventListener("mouseenter", fit);
       btn.addEventListener("focus", fit);
     }
