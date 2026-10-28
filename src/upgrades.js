@@ -22,7 +22,7 @@ function grantUpgrade(u) {
       }
     }
   }
-  log((u.buyLog ?? "Bought: " + u.name) + " (" + state.upgrades[u.id] + "/" + (cap === Infinity ? "no limit" : formatNum(cap)) + ").", "upgrade");
+  log((u.buyLog ?? "Bought: " + u.name) + " (" + state.upgrades[u.id] + "/" + (cap === Infinity ? "no limit" : formatNum(cap)) + ").", "upgrade", "buy:" + u.id);
 }
 
 function buyUpgrade(id) {
@@ -75,6 +75,11 @@ function buildUpgrade(u) {
   }
   state.activeBuildId = u.id;
   lastTime = performance.now();
+  // Build start text (buildTime only, validated above), like action
+  // starts: fires on fresh starts and free resumes alike. Silent when
+  // absent so existing builds log exactly as before.
+  const startMsg = (typeof pickLog === "function") ? pickLog(u.startLog, null) : null;
+  if (startMsg) log(startMsg, "start");
   render();
 }
 

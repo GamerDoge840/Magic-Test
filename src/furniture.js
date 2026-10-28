@@ -143,13 +143,104 @@ function furnitureBuyGains(f) {
   return out;
 }
 
-// Tip placement: tips open upward, but flip below their anchor when there
-// is no room above the viewport top (the page scrolls, so a tall upward tip
-// would be cut by the top of the screen instead). Long tips also cap to
-// the winning side via fitTip, so they scroll internally.
+// Tip placement: tips escape the furniture list box via position:fixed
+// (viewport-relative), so they never shrink into unusable nubs or clip at
+// the list's top edge. The list box is short (about one screen of cards),
+// so confining tips to it capped top-row tips at ~50px once the list
+// learned to scroll internally. Fixed tips are clipped by nothing but the
+// viewport (no transformed ancestors between the tip and the window), and
+// painting over neighboring cards while open matches every other tip type.
+// The node itself stays in place (only its positioning detaches), so the
+// :hover/:focus-within show rules and the press-swallow guard keep working;
+// closeInfo clears the inline positioning again. Scroll/resize while open
+// re-places (see the trackers below), so the tip follows its anchor.
 function placeFurnTip(tip, anchor) {
-  if (typeof fitTip === "function") fitTip(tip, anchor, "up");
+  if (!tip || !anchor) return;
+  // Measure the tip's TRUE geometry first (same reset discipline as
+  // fitTip): stale inline writes from a previous fit would shrink the
+  // measured height and the cap would compound on every hover.
+  const keep = { position: tip.style.position, top: tip.style.top, bottom: tip.style.bottom, left: tip.style.left, transform: tip.style.transform, maxHeight: tip.style.maxHeight, marginLeft: tip.style.marginLeft };
+  tip.style.position = "";
+  tip.style.top = "";
+  tip.style.bottom = "";
+  tip.style.left = "";
+  tip.style.transform = "";
+  tip.style.maxHeight = "";
+  tip.style.marginLeft = "";
+  const h = tip.offsetHeight;
+  if (!h) {
+    tip.style.position = keep.position;
+    tip.style.top = keep.top;
+    tip.style.bottom = keep.bottom;
+    tip.style.left = keep.left;
+    tip.style.transform = keep.transform;
+    tip.style.maxHeight = keep.maxHeight;
+    tip.style.marginLeft = keep.marginLeft;
+    return;
+  }
+  const VH = window.innerHeight, VW = window.innerWidth;
+  const b = anchor.getBoundingClientRect();
+  const roomUp = b.top - 8;
+  const roomDown = VH - 8 - b.bottom;
+  let dir = "up";
+  if (roomUp < h + 8 && roomDown > roomUp) dir = "down";
+  const room = dir === "up" ? roomUp : roomDown;
+  const cs = getComputedStyle(tip);
+  // NOTE: cs is a LIVE declaration - read everything off it before writing
+  // any inline style below (writing first would echo back here).
+  const centered = cs.transform !== "none";
+  const chrome = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) +
+    (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+  const avail = Math.floor(room - chrome);
+  const cssCap = Math.min(360, VH * 0.7);
+  const cap = avail <= 0 ? 80 : avail < 80 ? avail : Math.min(avail, cssCap);
+  if (room < h + 8) tip.style.maxHeight = cap + "px";
+  // Detach: explicit viewport pixels from here on (percentages would resolve
+  // against the viewport under fixed positioning). Width is measured after
+  // the cap lands, since wrapping depends on it.
+  tip.style.position = "fixed";
+  tip.style.bottom = "auto";
+  tip.style.marginLeft = "";
+  tip.style.transform = "none";
+  const w = tip.offsetWidth;
+  const wantLeft = centered ? b.left + b.width / 2 - w / 2 : b.left;
+  tip.style.left = Math.max(8, Math.min(Math.round(wantLeft), VW - 8 - w)) + "px";
+  tip.style.top = dir === "down" ? Math.round(b.bottom - 2) + "px" : Math.round(b.top + 2 - tip.offsetHeight) + "px";
   if (typeof syncTipPointer === "function") syncTipPointer(anchor, true);
+}
+
+// Undo placeFurnTip: the next open re-fits from scratch, so no stale fixed
+// position may survive a close (a CSS reshown tip would otherwise sit at
+// old viewport pixels without any placer running).
+function clearFurnTip(tip) {
+  if (!tip) return;
+  tip.style.position = "";
+  tip.style.top = "";
+  tip.style.bottom = "";
+  tip.style.left = "";
+  tip.style.transform = "";
+  tip.style.maxHeight = "";
+  tip.style.marginLeft = "";
+}
+
+// While a furniture tip is open, scrolling or resizing would strand its
+// fixed pixels away from the anchor: re-place instead (both tips - the
+// hidden one bails on its zero height). Scroll events don't bubble, so the
+// window listener uses capture to catch list/panel/page scrolls alike.
+if (typeof window !== "undefined" && !window.__furnTipTrack) {
+  window.__furnTipTrack = true;
+  const retrackFurnTip = () => {
+    if (hoverTip && typeof hoverTip.key === "string" && hoverTip.key.startsWith("f:") && hoverTip.ref && hoverTip.ref.root && hoverTip.ref.root.isConnected) {
+      const card = hoverTip.ref.root;
+      const info = card.querySelector(":scope > .tip.furnInfo");
+      if (info && getComputedStyle(info).display !== "none") placeFurnTip(info, card);
+      const sellBtn = hoverTip.ref.sell;
+      const stip = sellBtn && sellBtn.querySelector(":scope > .tip");
+      if (stip && sellBtn && getComputedStyle(stip).display !== "none") placeFurnTip(stip, sellBtn);
+    }
+  };
+  window.addEventListener("scroll", retrackFurnTip, true);
+  window.addEventListener("resize", retrackFurnTip);
 }
 
 function buildFurnitureCard(f) {
@@ -289,6 +380,8 @@ function buildFurnitureCard(f) {
   }
   function closeInfo() {
     if (hoverTip && hoverTip.key === "f:" + f.id) hoverTip = null;
+    clearFurnTip(tip);
+    if (typeof stip !== "undefined") clearFurnTip(stip);
   }
   card.addEventListener("mouseenter", () => { openInfo(); setHi("buy"); });
   buy.addEventListener("mouseenter", () => { openInfo(); setHi("buy"); });

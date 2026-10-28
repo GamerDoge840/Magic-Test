@@ -1,6 +1,6 @@
 // Labor Game saves: file/clipboard import-export plus the browser Manual Save.
 // Save files look like:
-// { game: "labor-game", version: 10, savedAt: "2026-...", amounts: { stamina: 7, coin: 3 }, seen: { coin: true }, upgrades: { pockets: 1 }, unlocked: { "u:pockets": true }, options: { showMaxedUpgrades: false, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: 200, hidden: { "u:pockets": true }, showMaxedSkills: false, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats: { str: 1 }, homes: { tent: true }, currentHome: "tent", furniture: { coinPiles: 1 }, milestones: { makeshiftBed: true }, skills: { basicKnowledge: { xp: 0, level: 1 } }, stats: { actions: { oddJobs: 12 } }, currentActionId: null, cycles: {}, impBase: { oddJobs: 100 } }
+// { game: "labor-game", version: 10, savedAt: "2026-...", amounts: { stamina: 7, coin: 3 }, seen: { coin: true }, upgrades: { pockets: 1 }, unlocked: { "u:pockets": true }, options: { showMaxedUpgrades: false, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: 200, hidden: { "u:pockets": true }, showMaxedSkills: false, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats: { str: 1 }, homes: { tent: true }, currentHome: "tent", furniture: { coinPiles: 1 }, specialMessages: { makeshiftBed: true }, skills: { basicKnowledge: { xp: 0, level: 1 } }, stats: { actions: { oddJobs: 12 } }, currentActionId: null, cycles: {}, impBase: { oddJobs: 100 } }
 // Only ids listed in RESOURCES/ACTIONS/UPGRADES are loaded; missing ones use defaults.
 // Exports use an opaque wrapper (like Antimatter Dimensions saves):
 // LaborGameSavefileFormat4$<base64-zlib-json>EndOfSavefile
@@ -67,7 +67,7 @@ function serializeSave() {
     homes: { ...state.homes },
     currentHome: state.currentHome,
     furniture: { ...state.furniture },
-    milestones: { ...state.milestones },
+    specialMessages: { ...state.specialMessages },
     skills: Object.fromEntries(Object.entries(state.skills).map(([k, v]) => [k, { xp: v.xp, level: v.level }])),
     stats: { actions: { ...state.stats.actions } },
     currentActionId: state.currentActionId,
@@ -90,16 +90,36 @@ function applySaveData(data) {
   if (data.version !== undefined && data.version > SAVE_VERSION) throw new Error("save is from a newer version");
   if (typeof data.amounts !== "object" || data.amounts === null) throw new Error("bad file");
 
-  // Upgrades first (furniture caps read them), then homes + current home,
+  // Skills first: upgrade caps can come from skill milestones (e.g.
+  // Pocket Organizing raises Pockets 1->4), so skill levels must be
+  // known before upgrades are clamped. Unknown ids dropped; counts
+  // clamp to 0..maxLevel and XP stays a finite non-negative number.
+  const savedSkills = (data.skills && typeof data.skills === "object") ? data.skills : {};
+  const skills = {};
+  for (const s of SKILLS) {
+    const raw = savedSkills[s.id];
+    let xp = 0, level = 0;
+    if (raw && typeof raw === "object") {
+      const rx = Number(raw.xp), rl = Math.floor(Number(raw.level));
+      if (Number.isFinite(rx) && rx > 0) xp = rx;
+      if (Number.isFinite(rl) && rl > 0) level = Math.min(s.maxLevel, rl);
+    }
+    skills[s.id] = { xp, level };
+  }
+  state.skills = skills;
+  // Upgrades next (furniture caps read them), then homes + current home,
   // then furniture (its cap reads upgrades + home), and only then amounts:
   // clamping to the *effective* cap needs all three already loaded, or a
   // save whose cap comes from furniture/a home (e.g. 15 Coin with Coin
   // Piles) would be wrongly clamped to the smaller pre-load cap on import.
+  // The effective cap includes skill-milestone raises, so over-base
+  // purchases (Pockets 3/1 via Pocket Organizing) survive the round trip.
   const upgrades = {};
   const savedUpgrades = (data.upgrades && typeof data.upgrades === "object") ? data.upgrades : {};
   for (const u of UPGRADES) {
     const n = Math.floor(Number(savedUpgrades[u.id]));
-    upgrades[u.id] = !Number.isFinite(n) || n < 0 ? 0 : Math.min(u.maxPurchases ?? 1, n);
+    const cap = (typeof getEffectiveUpgradeCap === "function") ? getEffectiveUpgradeCap(u) : (u.maxPurchases ?? 1);
+    upgrades[u.id] = !Number.isFinite(n) || n < 0 ? 0 : Math.min(cap, n);
   }
   state.upgrades = upgrades;
   // Homes owned (permanent flags) + current home. Unknown ids are dropped.
@@ -116,36 +136,14 @@ function applySaveData(data) {
     furniture[f.id] = !Number.isFinite(n) || n < 0 ? 0 : Math.min(getEffectiveFurnCap(f), n);
   }
   state.furniture = furniture;
-  // Fired one-time milestone flags. Unknown ids are dropped; old saves
-  // (and fresh states) simply haven't fired them yet.
-  const savedMilestones = (data.milestones && typeof data.milestones === "object") ? data.milestones : {};
-  const milestones = {};
-  for (const m of MILESTONES) if (savedMilestones[m.id]) milestones[m.id] = true;
-  state.milestones = milestones;
-  // Skill XP/levels. Unknown ids dropped; counts clamp to 0..maxLevel and
-  // XP stays a finite non-negative number.
-  const savedSkills = (data.skills && typeof data.skills === "object") ? data.skills : {};
-  const skills = {};
-  for (const s of SKILLS) {
-    const raw = savedSkills[s.id];
-    let xp = 0, level = 0;
-    if (raw && typeof raw === "object") {
-      const rx = Number(raw.xp), rl = Math.floor(Number(raw.level));
-      if (Number.isFinite(rx) && rx > 0) xp = rx;
-      if (Number.isFinite(rl) && rl > 0) level = Math.min(s.maxLevel, rl);
-    }
-    skills[s.id] = { xp, level };
-  }
-  state.skills = skills;
-  // Upgrade caps can come from skill milestones (e.g. Pouch Organizing
-  // raises Pockets), which only just loaded - so re-clamp now that
-  // skill levels are known. Effective caps only ever grow past the base.
-  if (typeof getEffectiveUpgradeCap === "function") {
-    for (const u of UPGRADES) {
-      const cap = getEffectiveUpgradeCap(u);
-      if ((state.upgrades[u.id] ?? 0) > cap) state.upgrades[u.id] = cap;
-    }
-  }
+  // Fired one-time special-message flags. Unknown ids are dropped; old
+  // saves (and fresh states) simply haven't fired them yet. Pre-rename
+  // saves stored these under "milestones" - still honored.
+  const savedSpecial = (data.specialMessages && typeof data.specialMessages === "object") ? data.specialMessages
+    : (data.milestones && typeof data.milestones === "object") ? data.milestones : {};
+  const specialMessages = {};
+  for (const m of SPECIAL_MESSAGES) if (savedSpecial[m.id]) specialMessages[m.id] = true;
+  state.specialMessages = specialMessages;
   const amounts = {};
   for (const r of RESOURCES) {
     const n = Number(data.amounts[r.id]);
@@ -226,6 +224,7 @@ function applySaveData(data) {
     logUnlocks: !data.options || data.options.logUnlocks !== false,
     logSkillUps: !data.options || data.options.logSkillUps !== false,
     logImprovements: !data.options || data.options.logImprovements !== false,
+    balloonSkillMilestones: !data.options || data.options.balloonSkillMilestones !== false,
     logLimit: normalizeLogLimit(data.options && data.options.logLimit),
     furnFilters: {
       maxed: !data.options || !data.options.furnFilters || data.options.furnFilters.maxed !== false,

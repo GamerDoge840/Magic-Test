@@ -49,21 +49,34 @@ function setAction(id, stopMsg, stopCategory = "stop") {  const prev = state.cur
     else delete state.fullOverride[action.id];
     state.currentActionId = id;
     lastTime = performance.now();
-    log(pickLog(action.startLog, "Started: " + action.name), "start");
+    log(pickActionLog(action, "startLog", "start") ?? "Started: " + action.name, "start");
   } else {
     state.currentActionId = null;
     lastTime = performance.now();
-    if (prev) log(pickLog(stopMsg, null) ?? pickLog(prev.stopLog, "Stopped."), stopCategory);
+    if (prev) log(pickLog(stopMsg, null) ?? pickActionLog(prev, "stopLog", "stop") ?? "Stopped.", stopCategory);
     else log("Stopped.", stopCategory);
   }
   render();
+}
+
+// Full-stop message: a stop caused by the "Stop if Full" currency check
+// gets the action's stopFullLog when it has one (falling back to fullLog),
+// while vitals-full stops always use fullLog. Caller passes the same gains
+// map it used for outputsAreFull: vitals-full (gainsAreFull) takes the
+// classic path, anything else that stopped must be the currency branch.
+function fullStopMsg(action, eff) {
+  if (!gainsAreFull(eff)) {
+    const s = pickActionLog(action, "stopFullLog", "stopFull");
+    if (s != null) return s;
+  }
+  return pickActionLog(action, "fullLog", "full") ?? (action.name + " finished: vitals full.");
 }
 
 // Stopping because the next cycle is unaffordable: show the action's
 // fullLog text in orange when it has one, else the plain stop message.
 // (Resolves the text first so a missing fullLog never paints stopLog orange.)
 function stopForFunds(action) {
-  const msg = pickLog(action.fullLog, null);
+  const msg = pickActionLog(action, "fullLog", "full");
   if (msg) setAction(null, msg, "full");
   else setAction(null, undefined);
 }

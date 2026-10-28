@@ -244,7 +244,7 @@
   .furnSortRow button { padding: 2px 10px; font-size: 0.85em; white-space: nowrap; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
   .furnSortRow button:hover { background: #343945; }
   .furnSortRow button.active { font-weight: bold; background: #313743; color: #fff; border-color: #565e70; }
-  #furnitureCtn { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; overflow: visible; }
+  #furnitureCtn { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; align-content: start; flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
   .furnCard { position: relative; background: #22262f; border: 1px solid #3a3f4b; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; transition: border-color 0.08s ease, transform 0.08s ease; }
   .furnCard:hover { border-color: #6b7484; }
   /* Hovered card rises above its grid neighbors so its downward-opening
@@ -334,13 +334,16 @@
   .mileRow { background: #2a2e37; border: 1px solid #4a4f5c; border-radius: 8px; padding: 9px 12px; margin-bottom: 8px; }
   .mileRow.attained { background: #C2FF5E; border-color: #C2FF5E; color: #111; }
   .mileHead { font-weight: bold; margin-bottom: 2px; }
-  /* Balloon notifications: fixed top-right cards, X dismisses, auto-gone in 15s. */
+  /* Balloon notifications: fixed top-right cards, X dismisses, auto-gone in 15s.
+     New balloons slide down into place (off under reduced-motion). */
   #balloons { position: fixed; top: 12px; right: 12px; z-index: 100; display: flex; flex-direction: column; gap: 8px; max-width: min(340px, calc(100vw - 24px)); }
-  .balloon { background: #22262f; border: 1px solid #7fd97f; border-radius: 8px; padding: 10px 12px; text-align: left; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); }
+  @keyframes balloonIn { from { transform: translateY(-18px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .balloon { background: #22262f; border: 1px solid #7fd97f; border-radius: 8px; padding: 10px 12px; text-align: left; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); animation: balloonIn 0.28s ease-out; }
   .balloon-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: bold; color: #7fd97f; margin-bottom: 4px; }
   .balloon-x { background: transparent; border: 1px solid #4a4f5c; color: inherit; border-radius: 6px; cursor: pointer; padding: 0 8px; font-size: 0.85em; }
   .balloon-x:hover { background: #343945; }
   .balloon-body { font-size: 0.9em; }
+  @media (prefers-reduced-motion: reduce) { .balloon { animation: none; } }
   #logEl, #logElHome, .js-log { text-align: left; border-top: none; padding-top: 0; font-size: 0.85em; flex: 1; min-height: 120px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
   #logEl div, #logElHome div, .js-log div { margin: 0; padding: 5px 6px; opacity: 0.92; border-bottom: 1px solid #262b34; }
   #logEl div:first-child, #logElHome div:first-child, .js-log div:first-child { background: #22262f; border-radius: 4px; }
@@ -348,10 +351,10 @@
   #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement, #logEl div.logSkillup, #logElHome div.logSkillup, .js-log div.logSkillup { color: #D9FFC7; }
   /* Action completions (fullLog) stand out in orange; start/stop lines stay default. */
   #logEl div.logFull, #logElHome div.logFull, .js-log div.logFull { color: orange; }
-  /* One-time milestones stand out in pale yellow. */
-  #logEl div.logMilestone, #logElHome div.logMilestone, .js-log div.logMilestone { color: #FFFFA1; }
- /* Log + Furniture filter + Select Home modals: fixed overlay + dialog box. */
-  #logFilterModal, #furnFilterModal, #homeModal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  /* One-time special messages stand out in pale yellow. */
+  #logEl div.logSpecialMessage, #logElHome div.logSpecialMessage, .js-log div.logSpecialMessage { color: #FFFFA1; }
+ /* Log + Furniture + Balloon filter + Select Home modals: fixed overlay + dialog box. */
+  #logFilterModal, #furnFilterModal, #homeModal, #balloonFilterModal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
   .modalBox { background: #1b1f26; border: 1px solid #4a4f5c; border-radius: 10px; padding: 14px 18px; width: 460px; max-width: calc(100vw - 32px); text-align: left; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6); }
   .modalBox h3 { margin: 0 0 4px; font-size: 1em; text-align: center; }
   .modalBox label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 0.92em; font-weight: bold; }
@@ -364,9 +367,9 @@
   @media (max-width: 520px) { .modalBox { width: 300px; } .filterGrid { grid-template-columns: 1fr; } }
 .modalBtns { margin-top: 14px; text-align: center; }
   /* Thin scrollbars on dark scroll areas. */
-  #currenciesCtn::-webkit-scrollbar, #vitalsCtn::-webkit-scrollbar, #actionsCtn::-webkit-scrollbar,
+  #currenciesCtn::-webkit-scrollbar, #vitalsCtn::-webkit-scrollbar, #actionsCtn::-webkit-scrollbar, #furnitureCtn::-webkit-scrollbar,
   #logEl::-webkit-scrollbar, #logElHome::-webkit-scrollbar, .js-log::-webkit-scrollbar { width: 8px; }
-  #currenciesCtn::-webkit-scrollbar-thumb, #vitalsCtn::-webkit-scrollbar-thumb, #actionsCtn::-webkit-scrollbar-thumb,
+  #currenciesCtn::-webkit-scrollbar-thumb, #vitalsCtn::-webkit-scrollbar-thumb, #actionsCtn::-webkit-scrollbar-thumb, #furnitureCtn::-webkit-scrollbar-thumb,
   #logEl::-webkit-scrollbar-thumb, #logElHome::-webkit-scrollbar-thumb, .js-log::-webkit-scrollbar-thumb { background: #4a4f5c; border-radius: 4px; }
   @media (prefers-color-scheme: light) {
     body { background: #f2f2f2; color: #111; }
@@ -418,7 +421,7 @@
     #logEl div, #logElHome div, .js-log div { border-bottom-color: #ddd; }
     #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement, #logEl div.logSkillup, #logElHome div.logSkillup, .js-log div.logSkillup { color: #1c7a1c; }
     #logEl div.logFull, #logElHome div.logFull, .js-log div.logFull { color: #c96a00; }
-    #logEl div.logMilestone, #logElHome div.logMilestone, .js-log div.logMilestone { color: #8a6d00; }
+    #logEl div.logSpecialMessage, #logElHome div.logSpecialMessage, .js-log div.logSpecialMessage { color: #8a6d00; }
   }
   html { color-scheme: light dark; }
 </style>
@@ -543,11 +546,24 @@
       </div>
       <div class="filterItem">
         <label><input id="logImprovementsChk" type="checkbox"> Action improvements</label>
-        <div class="modalSub">Logs notifying of action improvements..</div>
+        <div class="modalSub">Logs notifying of action improvements.</div>
       </div>
     </div>
     <div class="modalSub modalNote">(Note: Some system messages are always visible in the log regardless of filters.)</div>
     <div class="modalBtns"><button id="logFilterCloseBtn" type="button">Close</button></div>
+  </div>
+</div>
+
+<div id="balloonFilterModal" hidden>
+  <div class="modalBox" role="dialog" aria-modal="true" aria-labelledby="balloonFilterTitle">
+    <h3 id="balloonFilterTitle">Notification Balloons</h3>
+    <div class="filterGrid">
+      <div class="filterItem">
+        <label><input id="balloonSkillChk" type="checkbox"> Skill milestones</label>
+        <div class="modalSub">Balloons for new skill milestones.</div>
+      </div>
+    </div>
+    <div class="modalBtns"><button id="balloonFilterCloseBtn" type="button">Close</button></div>
   </div>
 </div>
 
@@ -614,6 +630,7 @@
     <div class="optionRow"><label><input id="showMaxedChk" type="checkbox"> Show maxed-out Work upgrades</label></div>
     <div class="optionRow"><label style="white-space:nowrap"><input id="stopIfFullChk" type="checkbox"> Stop if Full</label><span>Actions automatically stop when one of their currency outputs reaches its cap. A stopped-full action shows an orange border — click it to run anyway.</span></div>
     <div class="optionRow"><label>Log Entry Cap <input id="logLimitInput" type="number" min="10" max="1000" step="1" style="width: 80px;"></label><span>Older entries beyond this number are removed (10–1000, default 200).</span></div>
+    <div class="optionRow"><button id="balloonFilterBtn" type="button">Notification Balloons</button><span>Choose which balloon notifications pop up.</span></div>
       </div>
     </details>
     <input id="importInput" type="file" accept=".txt,text/plain,.json,application/json" hidden>

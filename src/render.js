@@ -231,7 +231,11 @@ function render() {
     ref._sig = sig;
     btn.hidden = hidden;
     btn.classList.toggle("userHidden", itemHidden("u:" + u.id));
-    btn.classList.toggle("owned", owned > 0 && !maxed);
+    // Green means fully bought (complete), matching attained-milestone
+    // green - not mere partial ownership. A cap rising under existing
+    // ownership (e.g. Pockets 1/1 -> 1/4) must not paint a green "owned"
+    // border when nothing new was bought.
+    btn.classList.toggle("owned", owned > 0 && maxed);
     btn.classList.toggle("maxed", maxed);
     btn.classList.toggle("building", building);
     btn.disabled = disabled;
@@ -245,7 +249,7 @@ function render() {
     }
   }
   hideEmptyGroups(actionsCtn);
-  checkMilestones();
+  checkSpecialMessages();
 
   // Home tab: revealed once any home is owned. Counts, buttons, and the
   // sell overflow notice update live; the tab button hides while locked.
@@ -364,7 +368,9 @@ resetBtn.addEventListener("click", () => {
   state = makeFreshState();
   try { localStorage.removeItem(MANUAL_SAVE_KEY); } catch (e) { /* storage unavailable */ }
   buildUI();
+  clearLog();
   log("Hard reset: progress erased.");
+  logIntro();
   render();
 });
 exportBtn.addEventListener("click", exportSave);

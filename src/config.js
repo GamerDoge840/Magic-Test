@@ -45,17 +45,38 @@
       - group: (optional, default "Tasks") section name, shared with
         UPGRADES: same name = same section, actions first.
       - description: (optional) auto-written from costs/gains when omitted.
-      - unlock: (optional) hide until earned, e.g. { resource: "coin",
-        amount: 5 }. Stays visible forever once reached (saved). Same
-        shape works on upgrades.
+      - unlock: (optional) hide until earned. Gates AND-stack without
+        limit, e.g. { resources: { coin: 40, research: 10 },
+        skills: { basicKnowledge: 4 }, upgrades: { pockets: 5 } }.
+        Shorthands: { resource: "coin", amount: 5 } for one currency,
+        { home: "tent" } for one home (an array needs EVERY home),
+        skill: "basicKnowledge", skillLevel: 4 for one skill level
+        (defaults to 1). Same shape works on upgrades. Stays visible
+        forever once reached (saved).
       - unlockLog: (optional) Work Log message when this unlock first
         triggers, e.g. "You found the old axe!". Defaults to
         "Unlocked Action: <name>".
-      - runtext / startLog / stopLog / fullLog / flavor: (optional)
-        runtext defaults to "<name>..."; logs default sensibly.
-        startLog/stopLog/fullLog also accept an array of variants -
-        one is picked at random each time, e.g.
+      - runtext / startLog / stopLog / fullLog / stopFullLog / flavor:
+        (optional) runtext defaults to "<name>..."; logs default sensibly.
+        startLog/stopLog/fullLog/stopFullLog also accept an array of
+        variants - one is picked at random each time, e.g.
         startLog: ["You help someone.", "You help someone else."]
+        stopFullLog replaces fullLog when the action stops BECAUSE of
+        the "Stop if Full" option (currency outputs at cap), e.g. Odd
+        Jobs' stopFullLog: "You can't store any more coins." Vitals-full
+        and out-of-funds stops keep using fullLog.
+      - conditionalLogs: (optional) extra start/stop/full/stopFull
+        variants that join the random pick only while their requires
+        hold, e.g.
+        conditionalLogs: [{ start: "You whistle while you work.",
+          requires: { skills: { oddJobsMastery: 2 } } },
+          { full: "The master is pleased.",
+          requires: { upgrades: { pockets: 5 } } }]
+        Each entry needs requires plus at least one of start/stop/full/
+        stopFull (string or array). requires AND-stacks: skills (level),
+        upgrades/resources/actions/furniture (count), homes (array: own
+        every listed home). With no requires the text always joins the
+        pool (extra weight).
       - xp: (optional, default {}) skill XP granted per completed cycle,
         e.g. xp: { basicKnowledge: 1 }. Unknown skill ids warn and skip.
         Shown in the tooltip under "Skill XP". XP for a skill locked
@@ -191,7 +212,7 @@ const FURNITURE = [
   },
 ];
 
-// MILESTONES: one-time log messages fired by circumstances, not by buying
+// SPECIAL_MESSAGES: one-time log messages fired by circumstances, not by buying
 // something directly. Each entry checks its `requires` once per frame and
 // fires the first time ALL of them hold - then never again (the fired flag
 // is saved). Every requires-key is optional; amounts are minimums:
@@ -201,11 +222,11 @@ const FURNITURE = [
 //   - resources: { coin: 20 } = hold at least that much right now.
 //   - actions: { oddJobs: 50 } = completed that action that many times.
 //   - id: short code (no spaces); text: the message, shown once.
-//   - category: (optional) log category for filters, default "milestone"
+//   - category: (optional) log category for filters, default "specialMessage"
 //            (pale yellow, always visible). "start"/"stop"/"upgrade"/
 //            "unlock"/"improvement" file it under that filter checkbox
 //            instead; "system" shows plain with no special color.
-const MILESTONES = [
+const SPECIAL_MESSAGES = [
   {
     id: "makeshiftBed",
     requires: { furniture: { blankets: 1, pillows: 1 } },
@@ -233,6 +254,10 @@ const ACTIONS = [
     startLog: ["You start to help someone get their cat out of a tree.", "You start helping an old man sweep his porch.", "You start helping someone move some storage boxes.", "You start helping a shopkeep restock their goods.", "You start helping someone deliver an envelope."],
     stopLog: "You stop helping.",
     fullLog: "You eventually find yourself exhausted.",
+    stopFullLog: "You can't store any more coins.",
+    conditionalLogs: [
+      { start: "You start helping a librarian organize their books.", requires: { skills: { basicKnowledge: 1 } } },
+    ],
     runtext: "Helping...",
     improvements: {
       every: 20,
@@ -288,6 +313,7 @@ const ACTIONS = [
     startLog: "You fetch a scroll, unroll it, and begin reading.",
     stopLog: "You pause researching scrolls.",
     fullLog: "You finish up studying your scrolls, for now.",
+    stopFullLog: "You can't store any more Research.",
     runtext: "Reading scrolls...",
     flavor: "Scrolling through scrolls...",
     unlock: { resource: "scroll", amount: 1 },
@@ -359,14 +385,23 @@ const ACTIONS = [
        special: use any name ("Shop", "Gear", or an action group like
        "Work") to choose where it is sold.
      - description: (optional) auto-written from cost/effects.
-     - unlock: (optional) hide until earned, e.g. { resource: "coin",
-       amount: 5 }. Stays visible forever once reached (saved). Same
-       shape works on actions. To gate on a home instead, use
-       { home: "tent" } = visible once that home is owned.
+     - unlock: (optional) hide until earned. Gates AND-stack without
+       limit, e.g. { resources: { coin: 40, research: 10 },
+       skills: { basicKnowledge: 4 }, upgrades: { pockets: 5 } }.
+       Shorthands: { resource: "coin", amount: 5 } for one currency,
+       { home: "tent" } for one home (an array needs EVERY home),
+       skill: "basicKnowledge", skillLevel: 4 for one skill level
+       (defaults to 1), { upgrade: "pockets", upgradeCount: 5 }
+       for one upgrade count (defaults to 1). Same shape works on
+       actions. Stays visible forever once reached (saved).
       - unlockLog: (optional) Work Log message when this unlock first
         triggers. Defaults to "Unlocked Upgrade: <name>".
      - buyLog / flavor: (optional) buyLog defaults to "Bought: <name>"
        plus the owned count, e.g. "(1/5)".
+     - startLog: (optional, buildTime only) Work Log message when the
+       build starts, e.g. startLog: "You set out to explore.". Also
+       accepts an array of variants (one picked at random). Fires on
+       every start and free resume; instant upgrades ignore it.
       - tags: (optional) identifying chips under the tooltip header,
         e.g. tags: ["Upgrade", "Clothing Augment"]. Check from code
         with hasTag(item, "Upgrade") or itemsWithTag("Upgrade").
@@ -419,7 +454,7 @@ const UPGRADES = [
     cost: { coin: 40 },
     maxPurchases: 1,
     buyLog: "You again tear down your old tent, raise the sturdy new one, and move all of your belongings into it.",
-    unlock: { resource: "coin", amount: 40 },
+    unlock: { resource: "coin", amount: 40, skill: "basicKnowledge", skillLevel: 4 },
     unlockLog: "You've saved up enough money for a real-deal tent.",
     effects: [
       { type: "home", home: "survivalistTent" },
@@ -428,17 +463,18 @@ const UPGRADES = [
   },
   {
     id: "exploreTown",
-    name: "Explore Town",
-    group: "Town",
-    header: "Shop",
-    tags: ["Shopping", "Exploration"],
-    cost: { research: 10 },
+    name: "Explore Outskirts",
+    group: "Exploration",
+    header: "Upgrades",
+    tags: ["Exploration"],
+    description: "Venture out and explore the area around the town.",
+    cost: { research: 10, stamina: 10 },
     maxPurchases: 1,
     buildTime: 30,
-    flavor: "Venture out and map the town, street by street.",
-    buyLog: "You've explored the town!",
+    buyLog: "You finish exploring around the town, and now feel confident to explore.",
+    startLog: "You start wandering the plains around town.",
     unlock: { home: "survivalistTent" },
-    unlockLog: "With a sturdy tent as your base, you could really go explore the town.",
+    unlockLog: "You suspect opportunities may await in the lands surrounding the town.",
     effects: [],
   },
   {
@@ -578,7 +614,7 @@ const SKILLS = [
       {
         level: 4,
         name: "Grasp the World",
-        text: "Your understanding of the world begins to deepen. Research Scrolls now only takes 2.5 Stamina, and unlock a new house.",
+        text: "Your understanding of the world begins to deepen. Research Scrolls now only takes 2.5 Stamina, and unlock a new house with 40 Coins.",
         effects: [
           { type: "cost", action: "researchScrolls", resource: "stamina", amount: 2.5 },
         ],

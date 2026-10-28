@@ -226,6 +226,13 @@ logUpgradesChk.addEventListener("change", () => { state.options.logUpgrades = lo
 logUnlocksChk.addEventListener("change", () => { state.options.logUnlocks = logUnlocksChk.checked; applyLogFilters(); });
 logSkillUpsChk.addEventListener("change", () => { state.options.logSkillUps = logSkillUpsChk.checked; applyLogFilters(); });
 logImprovementsChk.addEventListener("change", () => { state.options.logImprovements = logImprovementsChk.checked; applyLogFilters(); });
+balloonFilterBtn.addEventListener("click", () => {
+  balloonSkillChk.checked = state.options.balloonSkillMilestones !== false;
+  balloonFilterModal.hidden = false;
+});
+balloonFilterCloseBtn.addEventListener("click", () => { balloonFilterModal.hidden = true; });
+balloonFilterModal.addEventListener("click", (e) => { if (e.target === balloonFilterModal) balloonFilterModal.hidden = true; });
+balloonSkillChk.addEventListener("change", () => { state.options.balloonSkillMilestones = balloonSkillChk.checked; });
 sortSpaceBtn.addEventListener("click", () => setFurnSort("space"));
 sortNameBtn.addEventListener("click", () => setFurnSort("name"));
 homeSelectBtn.addEventListener("click", () => {
@@ -294,7 +301,7 @@ if (milesHideBtn) milesHideBtn.addEventListener("click", () => toggleHidingMode(
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" && e.key !== "Esc") return;
   let moved = null;
-  for (const m of [logFilterModal, furnFilterModal, homeModal]) {
+  for (const m of [logFilterModal, furnFilterModal, homeModal, balloonFilterModal]) {
     if (m && !m.hidden) {
       if (m.contains(document.activeElement)) moved = document.activeElement;
       m.hidden = true;

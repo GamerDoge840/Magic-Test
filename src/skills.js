@@ -70,7 +70,7 @@ function gainSkillXp(sid, amount) {
     log("[Skill Level Up] Attained Level " + st.level + " in " + skill.name + ".", "skillup");
     for (const m of skill.milestones ?? []) {
       if (m.level === st.level) {
-        balloon("New " + skill.name + " Milestone!", m.text);
+        balloon("New " + skill.name + " Milestone!", m.text, "skillMilestone");
         if (!state.impBase) state.impBase = {};
         for (const e of m.effects ?? []) {
           if (e.type === "improvementCap" && e.action && state.impBase[e.action] === undefined) {
@@ -118,8 +118,10 @@ function effectiveCosts(action) {
 }
 
 // Balloon notifications: cards in the screen's right corner, X dismisses,
-// auto-gone after 15 seconds. Used for skill milestone attainments.
-function balloon(title, body) {
+// auto-gone after 15 seconds. Categories (currently just "skillMilestone")
+// each have a Notification Balloons filter toggle; unknown ones show.
+function balloon(title, body, category) {
+  if (category === "skillMilestone" && state.options.balloonSkillMilestones === false) return;
   const wrap = document.getElementById("balloons");
   if (!wrap) {
     log(title + " " + body);

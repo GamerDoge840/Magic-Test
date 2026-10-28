@@ -26,7 +26,7 @@ setInterval(() => {
   // If outputs are already full (e.g. Rest at max Stamina, or Buy
   // Scrolls with full storage while "Stop if Full" is on), stop cleanly.
   if (outputsAreFull(eff, current.id)) {
-    setAction(null, current.fullLog ?? (current.name + " finished: vitals full."), "full");
+    setAction(null, fullStopMsg(current, eff), "full");
     return;
   }
 
@@ -56,7 +56,7 @@ setInterval(() => {
     if (outputsAreFull(effNow, current.id)) {
       cyc.progress = 0;
       cyc.paid = false;
-      setAction(null, current.fullLog ?? (current.name + " finished: vitals full."), "full");
+      setAction(null, fullStopMsg(current, effNow), "full");
       return;
     }
     // The next cycle starts now: charge up front so stopping later never
@@ -84,7 +84,7 @@ loadManualSave().then((loaded) => {
     render();
     log("Save loaded.");
   } else {
-    log("You're a homeless villager living in a small town. Perhaps if you help some folk, they'll lend you some coin?");
+    logIntro();
   }
 });
 for (const w of configWarnings) {

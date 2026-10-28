@@ -29,6 +29,10 @@ const logUpgradesChk = document.getElementById("logUpgradesChk");
 const logUnlocksChk = document.getElementById("logUnlocksChk");
 const logSkillUpsChk = document.getElementById("logSkillUpsChk");
 const logImprovementsChk = document.getElementById("logImprovementsChk");
+const balloonFilterBtn = document.getElementById("balloonFilterBtn");
+const balloonFilterModal = document.getElementById("balloonFilterModal");
+const balloonFilterCloseBtn = document.getElementById("balloonFilterCloseBtn");
+const balloonSkillChk = document.getElementById("balloonSkillChk");
 const exportBtn = document.getElementById("exportBtn");
 const importBtn = document.getElementById("importBtn");
 const importInput = document.getElementById("importInput");
@@ -146,10 +150,10 @@ function makeFreshState() {
   const furniture = {};
   for (const f of FURNITURE) furniture[f.id] = 0;
   const homes = {};
-  const milestones = {};
+  const specialMessages = {};
   const skills = {};
   for (const s of SKILLS) skills[s.id] = { xp: 0, level: 0 };
-  return { amounts, seen, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, stopIfFull: true, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logSkillUps: true, logImprovements: true, logLimit: LOG_LIMIT_DEFAULT, hidden: {}, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats, homes, currentHome: null, furniture, milestones, skills, stats: { actions: {} }, currentActionId: null, cycles: {}, builds: {}, activeBuildId: null, fullOverride: {}, impBase: {} };
+  return { amounts, seen, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, stopIfFull: true, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logSkillUps: true, logImprovements: true, balloonSkillMilestones: true, logLimit: LOG_LIMIT_DEFAULT, hidden: {}, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats, homes, currentHome: null, furniture, specialMessages, skills, stats: { actions: {} }, currentActionId: null, cycles: {}, builds: {}, activeBuildId: null, fullOverride: {}, impBase: {} };
 }
 
 // Player name: trimmed, capped at 24 chars, never blank (falls back to
@@ -398,33 +402,75 @@ function buildTipTags(item) {
   return row;
 }
 
-// Sticky unlocks: hidden until the condition is first met, then visible
-// forever (persisted in the save) with a one-time Work Log message.
-// Same shape everywhere: { resource: "coin", amount: 5 } - or gate on a
-// home instead: { home: "tent" } = visible once that home is owned.
+// Sticky unlocks: hidden until the conditions are first ALL met, then
+// visible forever (persisted in the save) with a one-time Work Log
+// message. Every gate below is optional and AND-stacks without limit,
+// so endgame items can demand many skills plus high currency amounts:
+//   { resources: { coin: 40, research: 10 } } = hold at least that
+//     much of EACH currency right now (checked live, not spent).
+//     Shorthand for one currency: { resource: "coin", amount: 5 }.
+//   { homes: ["tent", "mediumTent"] } = own EVERY listed home.
+//     Shorthand: { home: "tent" } (a single id, or an array).
+//   { skills: { basicKnowledge: 4, sleeping: 2 } } = reach EACH skill
+//     level. Shorthand: { skill: "basicKnowledge", skillLevel: 4 }
+//     (level defaults to 1). Missing skills.js = skill gates pass.
+//   { upgrades: { pockets: 5 } } = own at least that many of EACH
+//     upgrade. Shorthand: { upgrade: "pockets", upgradeCount: 5 }
+//     (count defaults to 1). Works on actions too.
 // Add `unlock` to any action or upgrade to gate it; groups with nothing
 // visible collapse on their own. Set `unlockLog` to customize the
-// message; it defaults to "Unlocked Action: <name>" / "Unlocked Upgrade:
-// <name>".
+// message; it defaults to "Unlocked Action: <name>" /
+// "Unlocked Upgrade: <name>".
 function unlockMet(item, prefix) {
   if (!item.unlock) return true;
   const key = prefix + ":" + item.id;
   if (state.unlocked[key]) return true;
-  if (item.unlock.home) {
-    if (!state.homes[item.unlock.home]) return false;
-  } else if ((state.amounts[item.unlock.resource] ?? 0) < item.unlock.amount) {
-    return false;
+  const u = item.unlock;
+  // Legacy single-currency gate (uncleaned runtime items) plus the
+  // canonical resources map. Holding is checked live, never spent.
+  if (typeof u.resource === "string") {
+    if ((state.amounts[u.resource] ?? 0) < u.amount) return false;
+  }
+  if (u.resources) {
+    for (const [id, n] of Object.entries(u.resources)) {
+      if ((state.amounts[id] ?? 0) < n) return false;
+    }
+  }
+  // Home gate(s): EVERY listed home must be owned. Accepts the legacy
+  // `home` (single id or array) and the canonical `homes` the same way.
+  const homeReqs = [];
+  if (typeof u.home === "string") homeReqs.push(u.home);
+  else if (Array.isArray(u.home)) homeReqs.push(...u.home);
+  if (typeof u.homes === "string") homeReqs.push(u.homes);
+  else if (Array.isArray(u.homes)) homeReqs.push(...u.homes);
+  for (const h of homeReqs) if (!state.homes[h]) return false;
+  // Optional skill gates (e.g. BK L4 for the Survivalist's Tent): sticky
+  // once met, like everything else here. Missing skills.js = gates pass.
+  if (typeof u.skill === "string" && typeof skillLevel === "function" && skillLevel(u.skill) < (u.skillLevel ?? 1)) return false;
+  if (u.skills && typeof skillLevel === "function") {
+    for (const [sid, lvl] of Object.entries(u.skills)) {
+      if (skillLevel(sid) < lvl) return false;
+    }
+  }
+  // Upgrade-ownership gates: own at least that many of each upgrade.
+  if (typeof u.upgrade === "string") {
+    if ((state.upgrades[u.upgrade] ?? 0) < (u.upgradeCount ?? 1)) return false;
+  }
+  if (u.upgrades) {
+    for (const [uid, n] of Object.entries(u.upgrades)) {
+      if ((state.upgrades[uid] ?? 0) < n) return false;
+    }
   }
   state.unlocked[key] = true;
   log(item.unlockLog ?? ("Unlocked " + (prefix === "u" ? "Upgrade" : "Action") + ": " + item.name), "unlock");
   return true;
 }
 
-// Milestones: one-time circumstantial messages (see MILESTONES in the
-// config). Fired flags live in state.milestones (saved), so each message
-// shows once ever - even across save/load, and even if the circumstance
-// later stops holding (e.g. selling the furniture afterwards).
-function milestoneMet(m) {
+// Special messages: one-time circumstantial messages (see SPECIAL_MESSAGES
+// in the config). Fired flags live in state.specialMessages (saved), so each
+// message shows once ever - even across save/load, and even if the
+// circumstance later stops holding (e.g. selling the furniture afterwards).
+function specialMessageMet(m) {
   const req = m.requires ?? {};
   for (const [id, n] of Object.entries(req.furniture ?? {})) if ((state.furniture[id] ?? 0) < n) return false;
   for (const [id, n] of Object.entries(req.upgrades ?? {})) if ((state.upgrades[id] ?? 0) < n) return false;
@@ -435,12 +481,12 @@ function milestoneMet(m) {
 
 // Runs every frame from render(): cheap (a few entries), and catches every
 // path - buying, importing a save that already qualifies, future systems.
-function checkMilestones() {
-  for (const m of MILESTONES) {
-    if (state.milestones[m.id]) continue;
-    if (milestoneMet(m)) {
-      state.milestones[m.id] = true;
-      log(m.text, m.category ?? "milestone");
+function checkSpecialMessages() {
+  for (const m of SPECIAL_MESSAGES) {
+    if (state.specialMessages[m.id]) continue;
+    if (specialMessageMet(m)) {
+      state.specialMessages[m.id] = true;
+      log(m.text, m.category ?? "specialMessage");
     }
   }
 }
@@ -697,7 +743,7 @@ function normalizeConfig() {
   // share one DOM id. Later duplicates are removed, keeping the first.
   // Entries added later at runtime should call normalizeConfig() again
   // before buildUI().
-  for (const [arr, kind] of [[RESOURCES, "resource"], [ACTIONS, "action"], [UPGRADES, "upgrade"], [PLAYER_STATS, "player stat"], [HOMES, "home"], [FURNITURE, "furniture"], [MILESTONES, "milestone"], [SKILLS, "skill"]]) {
+  for (const [arr, kind] of [[RESOURCES, "resource"], [ACTIONS, "action"], [UPGRADES, "upgrade"], [PLAYER_STATS, "player stat"], [HOMES, "home"], [FURNITURE, "furniture"], [SPECIAL_MESSAGES, "special message"], [SKILLS, "skill"]]) {
     const seen = new Set();
     for (let i = 0; i < arr.length; i++) {
       const e = arr[i];
@@ -764,28 +810,108 @@ function normalizeConfig() {
   const cleanUnlock = (item, ownerLabel) => {
     if (item.unlock === undefined) return;
     const k = item.unlock;
-    if (!k || typeof k !== "object") {
+    if (!k || typeof k !== "object" || Array.isArray(k)) {
       warn(ownerLabel + ": bad unlock, always visible.");
       delete item.unlock;
       return;
     }
-    // Home gate: { home: "tent" } = visible once that home is owned.
-    if (k.home !== undefined) {
-      if (typeof k.home !== "string" || !getHome(k.home)) {
-        warn(ownerLabel + ": bad unlock home, always visible.");
-        delete item.unlock;
-        return;
+    // Every gate below is optional; present gates AND-stack without
+    // limit. Any malformed gate fails the whole unlock visible (same as
+    // the old single-gate behavior), so typos surface instead of hiding
+    // items forever. Cleaned unlocks are stored in canonical plural
+    // form; unlockMet still accepts the legacy singular keys too, so
+    // runtime-injected items work before normalizeConfig() re-runs.
+    const fail = (msg) => {
+      warn(ownerLabel + msg + ", always visible.");
+      delete item.unlock;
+      return true;
+    };
+    // Currency gates: legacy { resource, amount } plus a plural map.
+    // Same rule as costs: unknown resources warn but still lock.
+    const resources = {};
+    if (k.resource !== undefined || k.amount !== undefined) {
+      if (typeof k.resource !== "string" || typeof k.amount !== "number" || !Number.isFinite(k.amount) || k.amount < 0) return void fail(": bad unlock");
+      if (k.amount > 0) {
+        if (!getResource(k.resource)) warn(ownerLabel + ': unlock watches unknown resource "' + k.resource + '".');
+        resources[k.resource] = Math.max(resources[k.resource] ?? 0, k.amount);
       }
-      item.unlock = { home: k.home };
-      return;
     }
-    if (typeof k.resource !== "string" || typeof k.amount !== "number" || !Number.isFinite(k.amount) || k.amount < 0) {
+    if (k.resources !== undefined) {
+      if (!k.resources || typeof k.resources !== "object" || Array.isArray(k.resources)) return void fail(": bad unlock resources");
+      for (const [rk, rv] of Object.entries(k.resources)) {
+        if (typeof rv !== "number" || !Number.isFinite(rv) || rv < 0) {
+          warn(ownerLabel + ': bad unlock resources amount for "' + rk + '", skipped.');
+          continue;
+        }
+        if (rv === 0) continue;
+        if (!getResource(rk)) warn(ownerLabel + ': unlock watches unknown resource "' + rk + '".');
+        resources[rk] = Math.max(resources[rk] ?? 0, rv);
+      }
+    }
+    // Home gates: legacy `home` plus canonical `homes`; each accepts a
+    // single id or an array, and EVERY listed home must be owned (AND).
+    const homes = [];
+    for (const hkey of ["home", "homes"]) {
+      if (k[hkey] === undefined) continue;
+      const list = Array.isArray(k[hkey]) ? k[hkey] : [k[hkey]];
+      if (!list.length) return void fail(": bad unlock home");
+      for (const id of list) {
+        if (typeof id !== "string" || !getHome(id)) return void fail(": bad unlock home");
+        if (!homes.includes(id)) homes.push(id);
+      }
+    }
+    // Skill gates: legacy { skill, skillLevel } plus a plural map.
+    const skills = {};
+    if (k.skill !== undefined || k.skillLevel !== undefined) {
+      if (typeof k.skill !== "string" || !k.skill || (typeof getSkill === "function" && !getSkill(k.skill))) return void fail(": bad unlock skill");
+      const sl = k.skillLevel ?? 1;
+      if (!Number.isInteger(sl) || sl < 1) return void fail(": bad unlock skillLevel");
+      skills[k.skill] = Math.max(skills[k.skill] ?? 0, sl);
+    }
+    if (k.skills !== undefined) {
+      if (!k.skills || typeof k.skills !== "object" || Array.isArray(k.skills)) return void fail(": bad unlock skills");
+      for (const [sid, sl] of Object.entries(k.skills)) {
+        if (typeof getSkill === "function" && !getSkill(sid)) return void fail(": bad unlock skill");
+        if (!Number.isInteger(sl) || sl < 1) return void fail(": bad unlock skillLevel");
+        skills[sid] = Math.max(skills[sid] ?? 0, sl);
+      }
+    }
+    // Upgrade-ownership gates: legacy { upgrade, upgradeCount } plus a
+    // plural map. Own at least that many of each upgrade (works on
+    // actions too, e.g. an action unlocked by 5 Pockets).
+    const upgrades = {};
+    if (k.upgrade !== undefined || k.upgradeCount !== undefined) {
+      if (typeof k.upgrade !== "string" || !getUpgrade(k.upgrade)) return void fail(": bad unlock upgrade");
+      const uc = k.upgradeCount ?? 1;
+      if (!Number.isInteger(uc) || uc < 1) return void fail(": bad unlock upgradeCount");
+      upgrades[k.upgrade] = Math.max(upgrades[k.upgrade] ?? 0, uc);
+    }
+    if (k.upgrades !== undefined) {
+      if (!k.upgrades || typeof k.upgrades !== "object" || Array.isArray(k.upgrades)) return void fail(": bad unlock upgrades");
+      for (const [uid, uc] of Object.entries(k.upgrades)) {
+        if (typeof uid !== "string" || !getUpgrade(uid)) return void fail(": bad unlock upgrade");
+        if (!Number.isInteger(uc) || uc < 1) return void fail(": bad unlock upgradeCount");
+        upgrades[uid] = Math.max(upgrades[uid] ?? 0, uc);
+      }
+    }
+    for (const key of Object.keys(k)) {
+      if (!["resource", "amount", "resources", "home", "homes", "skill", "skillLevel", "skills", "upgrade", "upgradeCount", "upgrades"].includes(key)) {
+        warn(ownerLabel + ': unknown unlock key "' + key + '", ignored.');
+      }
+    }
+    if (item.id && upgrades[item.id] !== undefined) {
+      warn(ownerLabel + ": unlock requires its own purchase, so it can never appear.");
+    }
+    if (!Object.keys(resources).length && !homes.length && !Object.keys(skills).length && !Object.keys(upgrades).length) {
       warn(ownerLabel + ": bad unlock, always visible.");
       delete item.unlock;
       return;
     }
-    if (!getResource(k.resource)) warn(ownerLabel + ': unlock watches unknown resource "' + k.resource + '".');
-    item.unlock = { resource: k.resource, amount: k.amount };
+    item.unlock = {};
+    if (Object.keys(resources).length) item.unlock.resources = resources;
+    if (homes.length) item.unlock.homes = homes;
+    if (Object.keys(skills).length) item.unlock.skills = skills;
+    if (Object.keys(upgrades).length) item.unlock.upgrades = upgrades;
   };
   function cleanHeader(item, ownerLabel) {
     if (item.header === undefined) return;
@@ -820,6 +946,92 @@ function normalizeConfig() {
       warn(ownerLabel + ": bad " + field + " (use a string or an array of strings), using the default.");
       delete item[field];
     }
+  };
+  // Conditional action logs: extra start/stop/full/stopFull variants that
+  // join the random pick while their requires hold (see pickActionLog in
+  // log.js), e.g. conditionalLogs: [{ start: "You whistle while you work.",
+  // requires: { skills: { oddJobsMastery: 2 } } }]. Requires AND-stack:
+  // skills (level), upgrades/resources/actions/furniture (count), homes
+  // (array: own every listed home). Bad entries/slots are skipped with a
+  // warning; unknown ids warn but still gate (a typo just never fires).
+  const cleanConditionalLogs = (item, ownerLabel) => {
+    if (item.conditionalLogs === undefined) return;
+    if (!Array.isArray(item.conditionalLogs)) {
+      warn(ownerLabel + ": bad conditionalLogs (use an array of entries), ignored.");
+      delete item.conditionalLogs;
+      return;
+    }
+    const cleanCountReq = (map, kind, finder, integer) => {
+      if (map === undefined) return {};
+      if (!map || typeof map !== "object" || Array.isArray(map)) {
+        warn(ownerLabel + ": bad conditionalLogs " + kind + " requires, ignored.");
+        return {};
+      }
+      const cleaned = {};
+      for (const [k, v] of Object.entries(map)) {
+        if (typeof v !== "number" || !Number.isFinite(v) || v <= 0 || (integer && !Number.isInteger(v))) {
+          warn(ownerLabel + ": bad conditionalLogs " + kind + ' requires amount for "' + k + '", skipped.');
+          continue;
+        }
+        if (!finder(k)) warn(ownerLabel + ": conditionalLogs " + kind + ' requires unknown "' + k + '".');
+        cleaned[k] = v;
+      }
+      return cleaned;
+    };
+    const kept = [];
+    for (const e of item.conditionalLogs) {
+      const eLabel = ownerLabel + " conditional log";
+      if (!e || typeof e !== "object" || Array.isArray(e)) {
+        warn(eLabel + ": skipped an invalid entry.");
+        continue;
+      }
+      if (e.requires !== undefined && (e.requires === null || typeof e.requires !== "object" || Array.isArray(e.requires))) {
+        warn(eLabel + ": bad requires, skipped the entry.");
+        continue;
+      }
+      const req = e.requires ?? {};
+      for (const key of Object.keys(req)) {
+        if (!["furniture", "upgrades", "resources", "actions", "skills", "homes"].includes(key)) {
+          warn(eLabel + ': unknown requires key "' + key + '", ignored.');
+        }
+      }
+      const homes = [];
+      if (req.homes !== undefined) {
+        const list = Array.isArray(req.homes) ? req.homes : [req.homes];
+        for (const id of list) {
+          if (typeof id !== "string" || !getHome(id)) warn(eLabel + ": bad requires home, skipped.");
+          else if (!homes.includes(id)) homes.push(id);
+        }
+      }
+      const entry = {
+        requires: {
+          furniture: cleanCountReq(req.furniture, "furniture", (k) => getFurniture(k)),
+          upgrades: cleanCountReq(req.upgrades, "upgrade", (k) => getUpgrade(k)),
+          resources: cleanCountReq(req.resources, "resource", (k) => getResource(k)),
+          actions: cleanCountReq(req.actions, "action", (k) => getAction(k)),
+          skills: cleanCountReq(req.skills, "skill", (k) => getSkill(k), true),
+          homes,
+        },
+      };
+      let hasSlot = false;
+      for (const slot of ["start", "stop", "full", "stopFull"]) {
+        const v = e[slot];
+        if (v === undefined) continue;
+        const ok = typeof v === "string" ? !!v : Array.isArray(v) && v.some(x => typeof x === "string" && x);
+        if (!ok) {
+          warn(eLabel + ': bad "' + slot + '" text (use a string or an array of strings), skipped.');
+          continue;
+        }
+        entry[slot] = v;
+        hasSlot = true;
+      }
+      if (!hasSlot) {
+        warn(eLabel + ": no usable log text, skipped.");
+        continue;
+      }
+      kept.push(entry);
+    }
+    item.conditionalLogs = kept;
   };
   // Effect registry: every { type: ... } effect in ONE table, shared by
   // upgrades, homes, furniture, AND skill milestones - so milestone effects
@@ -1065,6 +1277,8 @@ function normalizeConfig() {
     cleanLogField(a, "startLog", 'Action "' + a.id + '"');
     cleanLogField(a, "stopLog", 'Action "' + a.id + '"');
     cleanLogField(a, "fullLog", 'Action "' + a.id + '"');
+    cleanLogField(a, "stopFullLog", 'Action "' + a.id + '"');
+    cleanConditionalLogs(a, 'Action "' + a.id + '"');
   }
   for (const u of UPGRADES) {
     if (typeof u.name !== "string" || !u.name) u.name = u.id;
@@ -1098,6 +1312,15 @@ function normalizeConfig() {
       delete u.description;
     }
     if (!u.description) u.description = autoUpgradeDescription(u);
+    // Build start text: only timed (buildTime) upgrades use it - instant
+    // purchases grant immediately with buyLog, so a start line would just
+    // double-log. Fires on every build start and free resume (like actions).
+    if (u.startLog !== undefined) {
+      if (!u.buildTime) {
+        warn('Upgrade "' + u.id + '": startLog needs buildTime, ignored.');
+        delete u.startLog;
+      } else cleanLogField(u, "startLog", 'Upgrade "' + u.id + '"');
+    }
   }
   for (const h of HOMES) {
     if (typeof h.name !== "string" || !h.name) h.name = h.id;
@@ -1190,8 +1413,8 @@ function normalizeConfig() {
     }
     cleanTags(f, 'Furniture "' + f.id + '"');
   }
-  // Milestones: one-time circumstantial log messages (see MILESTONES in the
-  // config). Requires-maps are cleaned like costs: non-negative finite
+  // Special messages: one-time circumstantial log messages (see
+  // SPECIAL_MESSAGES in the config). Requires-maps are cleaned like costs: non-negative finite
   // amounts only, unknown ids warned about but still checked.
   const cleanReq = (map, mLabel, kind, finder) => {
     if (map === undefined) return {};
@@ -1210,17 +1433,17 @@ function normalizeConfig() {
     }
     return cleaned;
   };
-  for (let i = 0; i < MILESTONES.length; i++) {
-    const m = MILESTONES[i];
-    const mLabel = 'Milestone "' + (m.id || "?") + '"';
+  for (let i = 0; i < SPECIAL_MESSAGES.length; i++) {
+    const m = SPECIAL_MESSAGES[i];
+    const mLabel = 'Special message "' + (m.id || "?") + '"';
     if (typeof m.text !== "string" || !m.text) {
       warn(mLabel + ": no text, removed.");
-      MILESTONES.splice(i, 1); i--;
+      SPECIAL_MESSAGES.splice(i, 1); i--;
       continue;
     }
     if (m.requires !== undefined && (!m.requires || typeof m.requires !== "object" || Array.isArray(m.requires))) {
       warn(mLabel + ": bad requires, removed.");
-      MILESTONES.splice(i, 1); i--;
+      SPECIAL_MESSAGES.splice(i, 1); i--;
       continue;
     }
     const req = m.requires ?? {};
