@@ -1,13 +1,14 @@
 // Labor Game saves: file/clipboard import-export plus the browser Manual Save.
 // Save files look like:
-// { game: "labor-game", version: 10, savedAt: "2026-...", amounts: { stamina: 7, coin: 3 }, seen: { coin: true }, upgrades: { pockets: 1 }, unlocked: { "u:pockets": true }, options: { showMaxedUpgrades: false, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logImprovements: true, logLimit: 200, hidden: { "u:pockets": true }, showMaxedSkills: false, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats: { str: 1 }, homes: { tent: true }, currentHome: "tent", furniture: { coinPiles: 1 }, specialMessages: { makeshiftBed: true }, skills: { basicKnowledge: { xp: 0, level: 1 } }, stats: { actions: { oddJobs: 12 } }, currentActionId: null, cycles: {}, impBase: { oddJobs: 100 } }
+// { game: "labor-game", version: 12, savedAt: "2026-...", amounts: { stamina: 7, coin: 3 }, seen: { coin: true }, upgrades: { pockets: 1 }, unlocked: { "u:pockets": true }, options: { showMaxedUpgrades: false, stopIfFull: true, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logSkillUps: true, logImprovements: true, balloonSkillMilestones: true, showMaxedSkills: false, logLimit: 100, hidden: { "u:pockets": true }, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats: { str: 1 }, homes: { tent: true }, currentHome: "tent", furniture: { coinPiles: 1 }, specialMessages: { makeshiftBed: true }, skills: { basicKnowledge: { xp: 0, level: 1 } }, stats: { actions: { oddJobs: 12 } }, currentActionId: null, cycles: {}, builds: {}, activeBuildId: null, impBase: { oddJobs: 100 }, world: { x: 3, y: 3, tier: "tier0", travel: null } }
+// (options also carries logGathering, invRarity, invType, hideEmptyInv, autosave, autosaveEvery, and logAutosaves; amounts/seen also hold ITEMS ids.)
 // Only ids listed in RESOURCES/ACTIONS/UPGRADES are loaded; missing ones use defaults.
 // Exports use an opaque wrapper (like Antimatter Dimensions saves):
 // LaborGameSavefileFormat4$<base64-zlib-json>EndOfSavefile
 // Old plaintext JSON saves still import as-is.
 
 const SAVE_GAME_ID = "labor-game";
-const SAVE_VERSION = 11;
+const SAVE_VERSION = 12;
 const SAVE_PREFIX = "LaborGameSavefileFormat";
 const SAVE_SUFFIX = "EndOfSavefile";
 // Manual Save: a single browser-local save (localStorage), separate from
@@ -52,6 +53,18 @@ async function loadManualGame() {
   }
 }
 
+// Autosave: the same browser slot as Save Game, on a timer while enabled
+// (Options > Saving, off by default). Logs "Game Autosaved." unless its
+// own log toggle is off. Fires from the main loop (see main.js).
+async function autosaveGame() {
+  try {
+    localStorage.setItem(MANUAL_SAVE_KEY, await encodeSaveText(serializeSave()));
+    if (state.options.logAutosaves !== false) log("Game Autosaved.");
+  } catch (e) {
+    if (state.options.logAutosaves !== false) log("Could not autosave game in this browser.");
+  }
+}
+
 function serializeSave() {
   return {
     game: SAVE_GAME_ID,
@@ -81,6 +94,11 @@ function serializeSave() {
     impBase: { ...(state.impBase ?? {}) },
     // "Run past the cap" overrides ({ actionId: true }). Not on old saves.
     fullOverride: { ...(state.fullOverride ?? {}) },
+    // World position ({ x, y, tier, travel }). Missing on old saves.
+    world: state.world ? {
+      x: state.world.x, y: state.world.y, tier: state.world.tier,
+      travel: state.world.travel ? { ...state.world.travel } : null,
+    } : null,
   };
 }
 
@@ -108,12 +126,14 @@ function applySaveData(data) {
   }
   state.skills = skills;
   // Upgrades next (furniture caps read them), then homes + current home,
-  // then furniture (its cap reads upgrades + home), and only then amounts:
-  // clamping to the *effective* cap needs all three already loaded, or a
-  // save whose cap comes from furniture/a home (e.g. 15 Coin with Coin
-  // Piles) would be wrongly clamped to the smaller pre-load cap on import.
-  // The effective cap includes skill-milestone raises, so over-base
-  // purchases (Pockets 3/1 via Pocket Organizing) survive the round trip.
+  // then furniture (its cap reads upgrades + home + skill milestones),
+  // and only then amounts: clamping to the *effective* cap needs all of
+  // them already loaded, or a save whose cap comes from furniture/a home
+  // (e.g. 15 Coin with Coin Piles) would be wrongly clamped to the
+  // smaller pre-load cap on import. Skills load first (above), so the
+  // effective cap includes skill-milestone raises and over-base purchases
+  // (Pockets 3/1 via Pocket Organizing, Blankets 2/1 via Another Blanket)
+  // survive the round trip.
   const upgrades = {};
   const savedUpgrades = (data.upgrades && typeof data.upgrades === "object") ? data.upgrades : {};
   for (const u of UPGRADES) {
@@ -132,8 +152,13 @@ function applySaveData(data) {
   const savedFurniture = (data.furniture && typeof data.furniture === "object") ? data.furniture : {};
   const furniture = {};
   for (const f of FURNITURE) {
+    // Owned counts load raw (never clamped to the cap): furnitureCap is a
+    // documented home effect type (caps can move with the current home),
+    // so clamping would silently destroy paid furniture after moving
+    // somewhere with a lower cap. Over-cap just shows "4/2" and can't
+    // buy more until room grows - the same rule a mid-session move uses.
     const n = Math.floor(Number(savedFurniture[f.id]));
-    furniture[f.id] = !Number.isFinite(n) || n < 0 ? 0 : Math.min(getEffectiveFurnCap(f), n);
+    furniture[f.id] = !Number.isFinite(n) || n < 0 ? 0 : n;
   }
   state.furniture = furniture;
   // Fired one-time special-message flags. Unknown ids are dropped; old
@@ -153,6 +178,11 @@ function applySaveData(data) {
       amounts[r.id] = Math.min(getEffectiveMax(r.id), n);
     }
   }
+  // Items are uncapped: load any non-negative finite amount as-is.
+  if (typeof ITEMS !== "undefined") for (const it of ITEMS) {
+    const n = Number(data.amounts[it.id]);
+    amounts[it.id] = (!Number.isFinite(n) || n < 0) ? (it.start ?? 0) : Math.floor(n);
+  }
   state.amounts = amounts;
   const savedUnlocked = (data.unlocked && typeof data.unlocked === "object") ? data.unlocked : {};
   const unlocked = {};
@@ -170,10 +200,12 @@ function applySaveData(data) {
   // { id: true }; old saves infer it so earned history isn't lost: held
   // now, started with, paid out by any completed action, or watched by a
   // fired unlock / spent on owned furniture (which required holding it).
+  // Items use the same map for Inventory discovery: any held item shows.
   const savedSeen = (data.seen && typeof data.seen === "object") ? data.seen : null;
   const seen = {};
   if (savedSeen) {
     for (const r of RESOURCES) if (savedSeen[r.id]) seen[r.id] = true;
+    if (typeof ITEMS !== "undefined") for (const it of ITEMS) if (savedSeen[it.id]) seen[it.id] = true;
   } else {
     for (const r of RESOURCES) {
       if (!isCurrency(r)) continue;
@@ -196,6 +228,11 @@ function applySaveData(data) {
       }
       if (held) seen[r.id] = true;
     }
+    // Items: seen while held (or started with). Forage loot marks seen
+    // live, so old saves with items in amounts still list them.
+    if (typeof ITEMS !== "undefined") for (const it of ITEMS) {
+      if ((amounts[it.id] ?? 0) > 0 || (it.start ?? 0) > 0) seen[it.id] = true;
+    }
   }
   state.seen = seen;
   state.playerName = normalizePlayerName(data.playerName);
@@ -203,7 +240,9 @@ function applySaveData(data) {
   const playerStats = {};
   for (const s of PLAYER_STATS) {
     const n = Math.floor(Number(savedPlayerStats[s.id]));
-    playerStats[s.id] = Number.isFinite(n) ? n : (s.start ?? 1);
+    // Floor at the starting value: stats never legitimately go below it,
+    // so a crafted negative can't persist (and display) as e.g. -2 STR.
+    playerStats[s.id] = Number.isFinite(n) ? Math.max(s.start ?? 1, n) : (s.start ?? 1);
   }
   state.playerStats = playerStats;
   state.options = {
@@ -224,8 +263,23 @@ function applySaveData(data) {
     logUnlocks: !data.options || data.options.logUnlocks !== false,
     logSkillUps: !data.options || data.options.logSkillUps !== false,
     logImprovements: !data.options || data.options.logImprovements !== false,
+    logGathering: !data.options || data.options.logGathering !== false,
     balloonSkillMilestones: !data.options || data.options.balloonSkillMilestones !== false,
     logLimit: normalizeLogLimit(data.options && data.options.logLimit),
+    // Inventory rarity + type filters (ids stay valid via the render gates).
+    invRarity: (data.options && typeof data.options.invRarity === "string") ? data.options.invRarity : "all",
+    invType: (data.options && typeof data.options.invType === "string") ? data.options.invType : "all",
+    // Hide exhausted inventory items (on by default): owned-0 items hide
+    // instead of showing grayed-out. Never-obtained items stay hidden
+    // either way (the render's seen gate is unconditional).
+    hideEmptyInv: !data.options || data.options.hideEmptyInv !== false,
+    // Item-tip over-cap sale warning (on by default).
+    sellWarn: !data.options || data.options.sellWarn !== false,
+    // Autosave (off by default): timer save to the browser slot, every
+    // 1/5/10 minutes, with its own log toggle (on by default).
+    autosave: !!(data.options && data.options.autosave),
+    autosaveEvery: normalizeAutosaveEvery(data.options && data.options.autosaveEvery),
+    logAutosaves: !data.options || data.options.logAutosaves !== false,
     furnFilters: {
       maxed: !data.options || !data.options.furnFilters || data.options.furnFilters.maxed !== false,
       owned: !data.options || !data.options.furnFilters || data.options.furnFilters.owned !== false,
@@ -295,6 +349,36 @@ function applySaveData(data) {
     }
   }
   state.impBase = impBase;
+  // World position (missing on old saves - start fresh at the tier's
+  // start tile). Coordinates clamp to the tier's size; an unknown tier
+  // falls back to the first one. A saved trip resumes only when its
+  // target is still in range with positive time left.
+  state.world = (typeof defaultWorldState === "function") ? defaultWorldState() : { tier: null, x: 3, y: 3, travel: null };
+  if (data.world && typeof data.world === "object") {
+    const tiers = (typeof WORLD_TIERS !== "undefined") ? WORLD_TIERS : [];
+    const tier = tiers.some(t => t.id === data.world.tier) ? data.world.tier : (tiers[0] ? tiers[0].id : null);
+    const size = (() => {
+      const t = tiers.find(t => t.id === tier);
+      return (t && Number.isInteger(t.size) && t.size > 0) ? t.size : 6;
+    })();
+    const cx = Math.floor(Number(data.world.x)), cy = Math.floor(Number(data.world.y));
+    state.world.tier = tier;
+    state.world.x = (Number.isFinite(cx) && cx >= 0 && cx < size) ? cx : Math.floor(size / 2);
+    state.world.y = (Number.isFinite(cy) && cy >= 0 && cy < size) ? cy : Math.floor(size / 2);
+    const tr = data.world.travel;
+    if (tr && typeof tr === "object") {
+      const tx = Math.floor(Number(tr.tx)), ty = Math.floor(Number(tr.ty));
+      const total = Number(tr.total), rem = Number(tr.remaining);
+      if (Number.isInteger(tx) && Number.isInteger(ty) && tx >= 0 && ty >= 0 && tx < size && ty < size
+        && Number.isFinite(total) && total > 0 && Number.isFinite(rem) && rem > 0) {
+        // Pre-fractional saves accrued drain separately (drainAcc): fold
+        // any leftover into Stamina once, so nothing vanishes on upgrade.
+        const drain = Number(tr.drainAcc);
+        state.world.travel = { tx, ty, total, remaining: Math.min(rem, total), paused: tr.paused === true };
+        if (Number.isFinite(drain) && drain > 0) state.amounts.stamina = Math.max(0, Math.round(((state.amounts.stamina ?? 0) - drain) * 100) / 100);
+      }
+    }
+  }
   // Hiding mode is a live, in-progress gesture (armed Hide button, struck
   // rows revealed) - never part of a save. Importing must disarm it, or a
   // mode armed before the import would linger over the fresh state.
@@ -435,4 +519,3 @@ async function loadClipArea() {
     log("Could not import save: " + ((e && e.message) || "bad text") + ".");
   }
 }
-

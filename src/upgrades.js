@@ -37,6 +37,10 @@ function buyUpgrade(id) {
     log(u.name + " is already maxed out.");
     return;
   }
+  if ((typeof worldShopBlocked === "function") && worldShopBlocked(u)) {
+    log(tileBlockedMessage(u, "buy"));
+    return;
+  }
   if (!canAfford(u.cost)) {
     log("Not enough for " + u.name + " (" + describeCost(u.cost) + ").");
     return;
@@ -50,6 +54,11 @@ function buyUpgrade(id) {
 // new one pauses whatever was running (its progress and payment are
 // kept). Each completion grants exactly one purchase, then stops.
 function buildUpgrade(u) {
+  // Callers pass the upgrade object (buttons do); resolve a raw id too so
+  // a string can never slip through as an "undefined"-keyed build entry
+  // with activeBuildId = undefined.
+  if (typeof u === "string") u = getUpgrade(u);
+  if (!u) return;
   const owned = state.upgrades[u.id] ?? 0;
   const cap = (typeof getEffectiveUpgradeCap === "function") ? getEffectiveUpgradeCap(u) : (u.maxPurchases ?? 1);
   if (owned >= cap) {
@@ -64,6 +73,11 @@ function buildUpgrade(u) {
     return;
   }
   const b = upgradeBuildState(u.id);
+  if (!b.paid && (typeof worldShopBlocked === "function") && worldShopBlocked(u)) {
+    log(tileBlockedMessage(u, "buy"));
+    render();
+    return;
+  }
   if (!b.paid) {
     if (!canAfford(u.cost)) {
       log("Not enough for " + u.name + " (" + describeCost(u.cost) + ").");
@@ -141,6 +155,7 @@ function buildUpgradeBtn(u) {
     }
     tip.appendChild(sec);
   }
+  const reqSec = (typeof appendTileRequirementSection === "function") ? appendTileRequirementSection(tip, u) : null;
   if (u.flavor) {
     const flavor = document.createElement("div");
     flavor.className = "tip-flavor";
@@ -168,11 +183,15 @@ function buildUpgradeBtn(u) {
     if (hidingMode.actions) { toggleItemHidden("u:" + u.id); return; }
     buyUpgrade(u.id);
   });
-  uiRefs.set("u:" + u.id, { root: btn, label, costs: costRefs, tc: count, fill, prog: progress, time });
+  uiRefs.set("u:" + u.id, { root: btn, label, costs: costRefs, tc: count, fill, prog: progress, time, reqSec });
   const hi = (on) => hiResources({ costs: u.cost, gains: effectGains(u) }, on);
-  btn.addEventListener("mouseenter", () => openTip("u:" + u.id, btn, hi, u.cost));
+  // A paid build resumes (and a running build continues) for free, so its
+  // tip rows tint against the free resume price (see tipCostsForUpgrade),
+  // not the already-paid full cost.
+  const effUpgradeTipCosts = () => (typeof tipCostsForUpgrade === "function") ? tipCostsForUpgrade(u) : (u.cost ?? {});
+  btn.addEventListener("mouseenter", () => openTip("u:" + u.id, btn, hi, effUpgradeTipCosts()));
   btn.addEventListener("mouseleave", () => closeTip("u:" + u.id, hi));
-  btn.addEventListener("focus", () => openTip("u:" + u.id, btn, hi, u.cost));
+  btn.addEventListener("focus", () => openTip("u:" + u.id, btn, hi, effUpgradeTipCosts()));
   btn.addEventListener("blur", () => closeTip("u:" + u.id, hi));
   return btn;
 }

@@ -55,7 +55,8 @@ function buildHeaderSection(entry, btnsClass, buildButtons) {
 
 function appendGroupedResources() {
   // Shared panels: the same resource groups render into EVERY
-  // .js-currencies / .js-vitals container on the page (Work + Home today).
+  // .js-currencies / .js-vitals container on the page (Work + Home +
+  // World + Inventory today).
   // To put Currencies/Vitals on a new tab, just add
   // <div class="js-currencies"></div> + <div class="js-vitals"></div> there -
   // no JS changes needed. Each copy gets its own DOM rows (built fresh per

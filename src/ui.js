@@ -14,6 +14,9 @@ function restoreDetailsOpen(ctn, arr) {
 }
 
 function buildUI() {
+  // Wiping containers removes hovered anchors without a mouseleave, so
+  // drop ring ownership here (openTip self-heals leftovers on next hover).
+  if (typeof resetHi === "function") resetHi();
   uiRefs.clear();
   const actOpen = snapDetailsOpen(actionsCtn);
   const hostOpen = new Map();
@@ -24,8 +27,7 @@ function buildUI() {
   // Unified action groups: ACTIONS and UPGRADES share one namespace.
   // Same group name = same collapsible section (actions first, then
   // upgrades). Sections appear in first-use order: actions first, then
-  // upgrades that introduce a new name. Both default to "Tasks"; "Shop"
-  // is just a regular group name used by the example upgrade below.
+  // upgrades that introduce a new name. Both default to "Tasks".
   // Any action/upgrade can also set `header` to file its group under a
   // titled header section (groups for groups).
   const { top, slotFor } = makeSlotCollector();
@@ -62,11 +64,18 @@ function buildUI() {
   for (const [h, arr] of hostOpen) restoreDetailsOpen(h, arr);
   showMaxedChk.checked = !!state.options.showMaxedUpgrades;
   stopIfFullChk.checked = state.options.stopIfFull !== false;
+  if (typeof hideEmptyInvChk !== "undefined" && hideEmptyInvChk) hideEmptyInvChk.checked = state.options.hideEmptyInv !== false;
+  if (typeof sellWarnChk !== "undefined" && sellWarnChk) sellWarnChk.checked = state.options.sellWarn !== false;
+  if (typeof autosaveChk !== "undefined" && autosaveChk) autosaveChk.checked = !!state.options.autosave;
+  if (typeof autosaveEverySel !== "undefined" && autosaveEverySel) autosaveEverySel.value = String(normalizeAutosaveEvery(state.options.autosaveEvery));
+  if (typeof autosaveLogChk !== "undefined" && autosaveLogChk) autosaveLogChk.checked = state.options.logAutosaves !== false;
   if (logLimitInput) logLimitInput.value = getLogLimit();
-  buildPlayerTab();
-  if (typeof buildSkillsTab === "function") buildSkillsTab();
-  buildFurnitureCards();
-  updateSortButtons();
+ buildPlayerTab();
+ if (typeof buildSkillsTab === "function") buildSkillsTab();
+ buildFurnitureCards();
+ if (typeof buildWorldTab === "function") buildWorldTab();
+  if (typeof buildInventoryTab === "function") buildInventoryTab();
+ updateSortButtons();
   syncFurnFilters();
   buildFurnTypeFilters();
   applyLogFilters();
@@ -204,18 +213,42 @@ logFilterBtn.addEventListener("click", () => {
   logStopChk.checked = state.options.logActionStop !== false;
   logUpgradesChk.checked = state.options.logUpgrades !== false;
   logUnlocksChk.checked = state.options.logUnlocks !== false;
-  logSkillUpsChk.checked = state.options.logSkillUps !== false;
+logSkillUpsChk.checked = state.options.logSkillUps !== false;
   logImprovementsChk.checked = state.options.logImprovements !== false;
+  if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.checked = state.options.logGathering !== false;
   logFilterModal.hidden = false;
 });
 // Home-tab Work Log mirror: same modal, same clear - every copy stays synced.
-if (logFilterBtnHome) logFilterBtnHome.addEventListener("click", () => {
+if (typeof logFilterBtnHome !== "undefined" && logFilterBtnHome) logFilterBtnHome.addEventListener("click", () => {
   logBeginChk.checked = state.options.logActionBegin !== false;
   logStopChk.checked = state.options.logActionStop !== false;
   logUpgradesChk.checked = state.options.logUpgrades !== false;
   logUnlocksChk.checked = state.options.logUnlocks !== false;
   logSkillUpsChk.checked = state.options.logSkillUps !== false;
   logImprovementsChk.checked = state.options.logImprovements !== false;
+  if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.checked = state.options.logGathering !== false;
+  logFilterModal.hidden = false;
+});
+// Inventory-tab Work Log mirror: same modal - every copy stays synced.
+if (typeof logFilterBtnInv !== "undefined" && logFilterBtnInv) logFilterBtnInv.addEventListener("click", () => {
+  logBeginChk.checked = state.options.logActionBegin !== false;
+  logStopChk.checked = state.options.logActionStop !== false;
+  logUpgradesChk.checked = state.options.logUpgrades !== false;
+  logUnlocksChk.checked = state.options.logUnlocks !== false;
+  logSkillUpsChk.checked = state.options.logSkillUps !== false;
+  logImprovementsChk.checked = state.options.logImprovements !== false;
+  if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.checked = state.options.logGathering !== false;
+  logFilterModal.hidden = false;
+});
+// World-tab Work Log mirror: same modal - every copy stays synced.
+if (typeof logFilterBtnWorld !== "undefined" && logFilterBtnWorld) logFilterBtnWorld.addEventListener("click", () => {
+  logBeginChk.checked = state.options.logActionBegin !== false;
+  logStopChk.checked = state.options.logActionStop !== false;
+  logUpgradesChk.checked = state.options.logUpgrades !== false;
+  logUnlocksChk.checked = state.options.logUnlocks !== false;
+  logSkillUpsChk.checked = state.options.logSkillUps !== false;
+  logImprovementsChk.checked = state.options.logImprovements !== false;
+  if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.checked = state.options.logGathering !== false;
   logFilterModal.hidden = false;
 });
 logFilterCloseBtn.addEventListener("click", () => { logFilterModal.hidden = true; });
@@ -226,6 +259,13 @@ logUpgradesChk.addEventListener("change", () => { state.options.logUpgrades = lo
 logUnlocksChk.addEventListener("change", () => { state.options.logUnlocks = logUnlocksChk.checked; applyLogFilters(); });
 logSkillUpsChk.addEventListener("change", () => { state.options.logSkillUps = logSkillUpsChk.checked; applyLogFilters(); });
 logImprovementsChk.addEventListener("change", () => { state.options.logImprovements = logImprovementsChk.checked; applyLogFilters(); });
+if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.addEventListener("change", () => { state.options.logGathering = logGatheringChk.checked; applyLogFilters(); });
+// Inventory rarity filters live in their own modal, like the Log Filters.
+// The chips sync their highlight live (see renderInventory), so the modal
+// needs no per-open sync - opening and closing is all it does.
+invFilterBtn.addEventListener("click", () => { invFilterModal.hidden = false; });
+invFilterCloseBtn.addEventListener("click", () => { invFilterModal.hidden = true; });
+invFilterModal.addEventListener("click", (e) => { if (e.target === invFilterModal) invFilterModal.hidden = true; });
 balloonFilterBtn.addEventListener("click", () => {
   balloonSkillChk.checked = state.options.balloonSkillMilestones !== false;
   balloonFilterModal.hidden = false;
@@ -301,14 +341,16 @@ if (milesHideBtn) milesHideBtn.addEventListener("click", () => toggleHidingMode(
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" && e.key !== "Esc") return;
   let moved = null;
-  for (const m of [logFilterModal, furnFilterModal, homeModal, balloonFilterModal]) {
+  for (const m of [logFilterModal, furnFilterModal, homeModal, balloonFilterModal, invFilterModal, clipBox]) {
     if (m && !m.hidden) {
       if (m.contains(document.activeElement)) moved = document.activeElement;
       m.hidden = true;
+      // The clipboard box tracks its own mode for the Import toggle -
+      // clearing it keeps the toggle in sync after an Escape-dismiss.
+      if (typeof clipBox !== "undefined" && m === clipBox) clipMode = null;
     }
   }
   if (moved && moved.blur) moved.blur();
 });
 manualSaveBtn.addEventListener("click", saveManualGame);
 manualLoadBtn.addEventListener("click", loadManualGame);
-

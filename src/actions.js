@@ -7,9 +7,22 @@ function doTick(action) {
     const max = getEffectiveMax(id);
     const cur = state.amounts[id] ?? 0;
     state.amounts[id] = max === Infinity ? cur + n : Math.min(max, cur + n);
-    if (n > 0) markCurrencySeen(id);
+    if (n > 0) {
+      markCurrencySeen(id);
+      // Inventory discovery: first-time items appear from here on.
+      if (typeof getItem === "function" && getItem(id)) {
+        if (!state.seen) state.seen = {};
+        state.seen[id] = true;
+      }
+    }
   }
   for (const [sid, n] of Object.entries(effectiveXp(action))) gainSkillXp(sid, n);
+  // Gathering actions (e.g. Forage) roll their loot table once per
+  // completed cycle, on top of the static payout above.
+  if (action.gather === true && typeof grantGatherLoot === "function") {
+    const loot = grantGatherLoot(action) ?? [];
+    if (typeof logGather === "function") logGather(loot, action);
+  }
   const count = (state.stats.actions[action.id] ?? 0) + 1;
   state.stats.actions[action.id] = count;
   const imp = action.improvements;
@@ -31,6 +44,21 @@ function setAction(id, stopMsg, stopCategory = "stop") {  const prev = state.cur
     // milestones can discount the price (Scroll Frugality), so every
     // check and payment below reads through effectiveCosts.
     const cyc = state.cycles[id] ?? (state.cycles[id] = { progress: 0, paid: false });
+    // Tile requirement: gated actions (e.g. Buy Scrolls at a General
+    // Store) only START on a matching tile. A paid cycle picked up
+    // mid-bar resumes anywhere, exactly like affordability and builds.
+    if (!cyc.paid && (typeof worldShopBlocked === "function") && worldShopBlocked(action)) {
+      log(tileBlockedMessage(action, "perform"));
+      render();
+      return;
+    }
+    // Tile locks: a modifier (e.g. Small Town) bans some actions on its
+    // tile outright - walk elsewhere. Same paid-resume rule as above.
+    if (!cyc.paid && (typeof worldActionLocked === "function") && worldActionLocked(action)) {
+      log(worldLockMessage(action));
+      render();
+      return;
+    }
     if (!cyc.paid) {
       const startCost = (typeof effectiveCosts === "function") ? effectiveCosts(action) : { ...(action.costs ?? {}) };
       if (!canAfford(startCost)) {
@@ -50,6 +78,9 @@ function setAction(id, stopMsg, stopCategory = "stop") {  const prev = state.cur
     state.currentActionId = id;
     lastTime = performance.now();
     log(pickActionLog(action, "startLog", "start") ?? "Started: " + action.name, "start");
+    // Gather actions accumulate their finds as bullets on this startLog
+    // line (see gatherStart); any other start disarms the previous host.
+    if (typeof gatherStart === "function") gatherStart(action);
   } else {
     state.currentActionId = null;
     lastTime = performance.now();
@@ -91,96 +122,10 @@ function buildActionBtn(a) {
   label.textContent = a.name;
   btn.appendChild(label);
 
-  const tip = document.createElement("span");
-  tip.className = "tip";
-  const head = document.createElement("div");
-  head.className = "tip-head";
-  const title = document.createElement("span");
-  title.textContent = a.improvements ? "[Lvl. " + actionLevel(a) + "] " + a.name : a.name;
-  const count = document.createElement("span");
-  count.className = "tip-count";
-  count.textContent = "0";
-  head.appendChild(title);
-  head.appendChild(count);
-  tip.appendChild(head);
-  const headTags = buildTipTags(a);
-  if (headTags) tip.appendChild(headTags);
-  const desc = document.createElement("div");
-  desc.className = "tip-desc";
-  desc.textContent = a.description ?? autoActionDescription({ tickSeconds: a.tickSeconds ?? 1, costs: a.costs ?? {}, gains: a.gains ?? {} });
-  tip.appendChild(desc);
-  const costRefs = [];
-  appendTipSection(tip, "Cost", a.costs ?? {}, costRefs);
-  // Results rows are live for improved actions (payout grows per level):
-  // build rows for base gains plus any bonus-only resources, then update.
-  // Furniture/home/skill-milestone "gain" effects add payout too, so their
-  // resources get rows even when the base action pays nothing of them
-  // (skill rows read 0 until their milestone lands, like unlevelled
-  // improvement bonuses - render() fills them in live).
-  const gainBase = { ...(a.gains ?? {}) };
-  for (const k of Object.keys(a.improvements?.bonus ?? {})) if (!(k in gainBase)) gainBase[k] = 0;
-  for (const f of FURNITURE) {
-    for (const e of f.effects ?? []) {
-      if (e.type === "gain" && e.action === a.id && e.resource && !(e.resource in gainBase)) gainBase[e.resource] = 0;
-    }
-  }
-  for (const h of HOMES) {
-    for (const e of h.effects ?? []) {
-      if (e.type === "gain" && e.action === a.id && e.resource && !(e.resource in gainBase)) gainBase[e.resource] = 0;
-    }
-  }
-  if (typeof allSkillMilestoneEffects === "function") {
-    for (const x of allSkillMilestoneEffects()) {
-      const e = x.effect;
-      if (e.type === "gain" && e.action === a.id && e.resource && !(e.resource in gainBase)) gainBase[e.resource] = 0;
-    }
-  }
-  const gainRefs = [];
-  appendTipSection(tip, "Results", gainBase, gainRefs);
-  // Skill XP the action grants per cycle (e.g. Research Scrolls -> Basic
-  // Knowledge). Listed right after Results so no payout goes unmentioned.
-  // Rows for locked skills build hidden and unhide live in render().
-  const xpBuilt = (typeof appendTipXpSection === "function") ? appendTipXpSection(tip, a.xp) : null;
-  // The max-level line is live (skill milestones can raise the cap), so
-  // keep its row: render() refreshes the text whenever the cap moves.
-  let impMaxRow = null;
-  if (a.improvements) {
-    const impSec = document.createElement("div");
-    impSec.className = "tip-sec";
-    const impLab = document.createElement("div");
-    impLab.className = "tip-sec-label";
-    impLab.textContent = "Improvement";
-    impSec.appendChild(impLab);
-    const impMax = (typeof getEffectiveImpMax === "function") ? getEffectiveImpMax(a) : a.improvements.maxLevel;
-    const impLines = ["Level up every " + a.improvements.every + " actions.", "Max level: " + (impMax === Infinity ? "none" : impMax) + "."];
-    const impBonus = describeCost(a.improvements.bonus);
-    if (impBonus) impLines.push("Bonus per level: +" + impBonus + ".");
-    impLines.forEach((t, i) => {
-      const row = document.createElement("div");
-      row.className = "tip-row";
-      row.textContent = t;
-      impSec.appendChild(row);
-      if (i === 1) impMaxRow = row;
-    });
-    tip.appendChild(impSec);
-  }
-  // Bottom line for improved actions: live progress to the next level.
-  // Built before the flavor so the flavor always lands last: description,
-  // Cost, Results, Skill XP, Improvement, "% to next", then flavor.
-  let foot = null;
-  if (a.improvements) {
-    foot = document.createElement("div");
-    foot.className = "tip-flavor";
-    foot.textContent = improvementFooter(a);
-    tip.appendChild(foot);
-  }
-  if (a.flavor) {
-    const flavor = document.createElement("div");
-    flavor.className = "tip-flavor";
-    flavor.textContent = a.flavor;
-    tip.appendChild(flavor);
-  }
-  btn.appendChild(tip);
+  // Shared tip body (same tree the World mirror builds, so both agree).
+  const built = buildActionTipBody(a);
+  btn.appendChild(built.tip);
+  const { title, tc: count, desc, autoDesc, costs: costRefs, gains: gainRefs, impMax: impMaxRow, foot, xpSec, xpRows, reqSec, lockSec } = built.refs;
 
   const progress = document.createElement("div");
   progress.className = "action-progress";
@@ -192,7 +137,7 @@ function buildActionBtn(a) {
   time.className = "action-time";
   progress.appendChild(time);
   btn.appendChild(progress);
-  uiRefs.set("a:" + a.id, { root: btn, label, title, foot, desc, autoDesc: !!a._autoDesc, costs: costRefs, gains: gainRefs, fill, prog: progress, time, tc: count, impMax: impMaxRow, xpSec: xpBuilt ? xpBuilt.sec : null, xpRows: xpBuilt ? xpBuilt.rows : null });
+  uiRefs.set("a:" + a.id, { root: btn, label, title, foot, desc, autoDesc, costs: costRefs, gains: gainRefs, fill, prog: progress, time, tc: count, impMax: impMaxRow, xpSec, xpRows, gatherSec: built.refs.gatherSec, reqSec, lockSec });
 
   btn.addEventListener("click", () => {
     // Hiding mode: clicking strikes the action hidden instead of running it.
@@ -210,4 +155,3 @@ function buildActionBtn(a) {
   btn.addEventListener("blur", () => closeTip("a:" + a.id, hi));
   return btn;
 }
-

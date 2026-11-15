@@ -1,7 +1,8 @@
 // Labor Game core: DOM refs, lookups, formatters, costs, tags, unlocks, state factory.
 /* ============================================================
    GAME ENGINE - you should not need to edit below this line.
-   It reads RESOURCES, ACTIONS, and UPGRADES above, so new items just work.
+   It reads the config lists (RESOURCES, ACTIONS, UPGRADES, ...),
+   so new items just work.
    ============================================================ */
 
 const currenciesCtn = document.getElementById("currenciesCtn");
@@ -23,6 +24,10 @@ const logFilterModal = document.getElementById("logFilterModal");
 const logFilterCloseBtn = document.getElementById("logFilterCloseBtn");
 const logFilterBtnHome = document.getElementById("logFilterBtnHome");
 const clearLogBtnHome = document.getElementById("clearLogBtnHome");
+const logFilterBtnWorld = document.getElementById("logFilterBtnWorld");
+const clearLogBtnWorld = document.getElementById("clearLogBtnWorld");
+const logFilterBtnInv = document.getElementById("logFilterBtnInv");
+const clearLogBtnInv = document.getElementById("clearLogBtnInv");
 const logBeginChk = document.getElementById("logBeginChk");
 const logStopChk = document.getElementById("logStopChk");
 const logUpgradesChk = document.getElementById("logUpgradesChk");
@@ -42,6 +47,11 @@ const clipBox = document.getElementById("clipBox");
 const clipArea = document.getElementById("clipArea");
 const clipLoadBtn = document.getElementById("clipLoadBtn");
 let clipMode = null;
+// Selling Mode refs: the arm/disarm button, the amount row it reveals,
+// and the inline custom-amount field in that row.
+const invSellBtn = document.getElementById("invSellBtn");
+const invSellRow = document.getElementById("invSellRow");
+const sellQtyInput = document.getElementById("sellQtyInput");
 // Item-hiding mode (purely visual): per panel kind (currencies, vitals,
 // actions, milestones). While on, user-hidden items show struck-through so they can be
 // unhidden; exiting re-applies the hiding. Runtime-only, never saved.
@@ -59,6 +69,10 @@ const tabWork = document.getElementById("tabWork");
 const tabPlayer = document.getElementById("tabPlayer");
 const tabSkills = document.getElementById("tabSkills");
 const tabOptions = document.getElementById("tabOptions");
+const tabWorldBtn = document.getElementById("tabWorldBtn");
+const tabWorld = document.getElementById("tabWorld");
+const tabInventoryBtn = document.getElementById("tabInventoryBtn");
+const tabInventory = document.getElementById("tabInventory");
 const playerNameEl = document.getElementById("playerNameEl");
 const playerNameInput = document.getElementById("playerNameInput");
 const playerNameEditBtn = document.getElementById("playerNameEditBtn");
@@ -89,6 +103,9 @@ const furnBlockedChk = document.getElementById("furnBlockedChk");
 const showMaxedChk = document.getElementById("showMaxedChk");
 const stopIfFullChk = document.getElementById("stopIfFullChk");
 const logLimitInput = document.getElementById("logLimitInput");
+const autosaveChk = document.getElementById("autosaveChk");
+const autosaveEverySel = document.getElementById("autosaveEverySel");
+const autosaveLogChk = document.getElementById("autosaveLogChk");
 const manualSaveBtn = document.getElementById("manualSaveBtn");
 const manualLoadBtn = document.getElementById("manualLoadBtn");
 // Live DOM refs per item, rebuilt by buildUI: render() reads these
@@ -102,21 +119,27 @@ function showTab(which) {
   tabPlayer.hidden = which !== "player";
   if (tabSkills) tabSkills.hidden = which !== "skills";
   tabOptions.hidden = which !== "options";
+  if (tabWorld) tabWorld.hidden = which !== "world";
+  if (tabInventory) tabInventory.hidden = which !== "inventory";
   tabWorkBtn.classList.toggle("active", which === "work");
   tabHomeBtn.classList.toggle("active", which === "home");
   tabPlayerBtn.classList.toggle("active", which === "player");
   if (tabSkillsBtn) tabSkillsBtn.classList.toggle("active", which === "skills");
   tabOptionsBtn.classList.toggle("active", which === "options");
+  if (tabWorldBtn) tabWorldBtn.classList.toggle("active", which === "world");
+  if (tabInventoryBtn) tabInventoryBtn.classList.toggle("active", which === "inventory");
   tabWorkBtn.setAttribute("aria-selected", which === "work" ? "true" : "false");
   tabHomeBtn.setAttribute("aria-selected", which === "home" ? "true" : "false");
   tabPlayerBtn.setAttribute("aria-selected", which === "player" ? "true" : "false");
   if (tabSkillsBtn) tabSkillsBtn.setAttribute("aria-selected", which === "skills" ? "true" : "false");
   tabOptionsBtn.setAttribute("aria-selected", which === "options" ? "true" : "false");
+  if (tabWorldBtn) tabWorldBtn.setAttribute("aria-selected", which === "world" ? "true" : "false");
+  if (tabInventoryBtn) tabInventoryBtn.setAttribute("aria-selected", which === "inventory" ? "true" : "false");
 }
 
-// Work Log cap: keeps the DOM small for performance. Default 200 entries,
+// Work Log cap: keeps the DOM small for performance. Default 100 entries,
 // customizable in Options, clamped to 10-1000.
-const LOG_LIMIT_DEFAULT = 200;
+const LOG_LIMIT_DEFAULT = 100;
 const LOG_LIMIT_MIN = 10;
 const LOG_LIMIT_MAX = 1000;
 function normalizeLogLimit(v) {
@@ -132,9 +155,37 @@ function normalizeFurnSort(v) {
   return { key, dir };
 }
 
+// Autosave interval in minutes: 1, 5, or 10. Anything else resets to 5.
+const AUTOSAVE_EVERY_DEFAULT = 5;
+function normalizeAutosaveEvery(v) {
+  const n = Math.floor(Number(v));
+  return (n === 1 || n === 5 || n === 10) ? n : AUTOSAVE_EVERY_DEFAULT;
+}
+
+// Item rarities, commonest-first (inventory grid + filter chips follow
+// this order). Declared up here because normalizeConfig() below validates
+// ITEMS rarities against it at load time. Colors live with the inventory
+// UI; ids are engine truth.
+const RARITY_ORDER = ["garbage", "common", "uncommon", "rare", "exotic", "legendary"];
+
 const configWarnings = normalizeConfig();
 let state = makeFreshState();
 let lastTime = performance.now();
+
+// Fresh World position: first tier's start tile (top-left origin), no
+// travel in progress. Reads WORLD_TIERS defensively so stripped copies
+// without world config still boot (world.js guards everything else).
+function defaultWorldState() {
+  let tier = null, x = 3, y = 3;
+  if (typeof WORLD_TIERS !== "undefined" && WORLD_TIERS.length) {
+    const t = WORLD_TIERS[0];
+    tier = t.id;
+    const size = Number.isInteger(t.size) && t.size > 0 ? t.size : 6;
+    x = (t.start && Number.isInteger(t.start.x)) ? Math.min(size - 1, Math.max(0, t.start.x)) : Math.floor(size / 2);
+    y = (t.start && Number.isInteger(t.start.y)) ? Math.min(size - 1, Math.max(0, t.start.y)) : Math.floor(size / 2);
+  }
+  return { tier, x, y, travel: null };
+}
 
 function makeFreshState() {
   const amounts = {};
@@ -143,6 +194,8 @@ function makeFreshState() {
     amounts[r.id] = r.start ?? 0;
     if ((r.start ?? 0) > 0 && isCurrency(r)) seen[r.id] = true;
   }
+  // Items share the amounts map (uncapped, so no cap math anywhere).
+  if (typeof ITEMS !== "undefined") for (const it of ITEMS) amounts[it.id] = it.start ?? 0;
   const upgrades = {};
   for (const u of UPGRADES) upgrades[u.id] = 0;
   const playerStats = {};
@@ -153,7 +206,7 @@ function makeFreshState() {
   const specialMessages = {};
   const skills = {};
   for (const s of SKILLS) skills[s.id] = { xp: 0, level: 0 };
-  return { amounts, seen, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, stopIfFull: true, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logSkillUps: true, logImprovements: true, balloonSkillMilestones: true, logLimit: LOG_LIMIT_DEFAULT, hidden: {}, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 } }, playerName: "Placeholder", playerStats, homes, currentHome: null, furniture, specialMessages, skills, stats: { actions: {} }, currentActionId: null, cycles: {}, builds: {}, activeBuildId: null, fullOverride: {}, impBase: {} };
+  return { amounts, seen, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, stopIfFull: true, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logSkillUps: true, logImprovements: true, logGathering: true, balloonSkillMilestones: true, showMaxedSkills: false, logLimit: LOG_LIMIT_DEFAULT, hidden: {}, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 }, invRarity: "all", invType: "all", hideEmptyInv: true, sellWarn: true, autosave: false, autosaveEvery: AUTOSAVE_EVERY_DEFAULT, logAutosaves: true }, playerName: "Placeholder", playerStats, homes, currentHome: null, furniture, specialMessages, skills, stats: { actions: {} }, currentActionId: null, cycles: {}, builds: {}, activeBuildId: null, fullOverride: {}, impBase: {}, world: defaultWorldState() };
 }
 
 // Player name: trimmed, capped at 24 chars, never blank (falls back to
@@ -231,14 +284,29 @@ function attainedSkillMilestoneEffects() {
   return allSkillMilestoneEffects().filter(x => skillLevel(x.source) >= x.req);
 }
 
+// Per-level skill scaling with an optional cap: an effect with
+// `perLevel: true, cap: 5` counts at most 5 levels (e.g. Sleeping's
+// first milestone stops growing past Sleeping Level 5). Read everywhere
+// a perLevel skill effect is valued so tooltips and engine agree.
+function skillEffectLevels(sourceId, e) {
+  if (!e.perLevel) return 1;
+  const lvl = skillLevel(sourceId);
+  return (typeof e.cap === "number") ? Math.min(lvl, e.cap) : lvl;
+}
+
 // Effective furniture purchase cap: base maxPurchases plus every owned
-// "furnitureCap" upgrade effect and the current home's (e.g. Medium Tent's
-// upgrade lets you stack a third Coin Pile).
+// "furnitureCap" upgrade/home effect and every attained skill-milestone
+// "furnitureCap" effect (e.g. Sleeping's Another Blanket lets you own
+// more Blankets), plus the current home's. Read everywhere the cap
+// matters so gating, tooltips, and save clamping all agree.
 function getEffectiveFurnCap(f) {
   let cap = f.maxPurchases ?? 1;
   if (cap !== Infinity) {
     for (const { effect: e, mult } of activeItemEffects()) {
       if (e.type === "furnitureCap" && e.furniture === f.id) cap += e.amount * mult;
+    }
+    for (const x of attainedSkillMilestoneEffects()) {
+      if (x.effect.type === "furnitureCap" && x.effect.furniture === f.id) cap += x.effect.amount;
     }
   }
   return cap;
@@ -263,9 +331,13 @@ function getEffectiveUpgradeCap(u) {
 // so the main loop can never hit zero/negative cycles.
 const MIN_TICK_SECONDS = 0.1;
 function getEffectiveTick(a) {
-  let t = a.tickSeconds;
+  let t = a.tickSeconds ?? 1;
   for (const { effect: e, mult } of activeItemEffects()) {
     if (e.type === "time" && e.action === a.id) t -= e.amount * mult;
+  }
+  for (const x of attainedSkillMilestoneEffects()) {
+    const e = x.effect;
+    if (e.type === "time" && e.action === a.id) t -= e.amount * skillEffectLevels(x.source, e);
   }
   return Math.max(MIN_TICK_SECONDS, t);
 }
@@ -294,7 +366,16 @@ function furnitureBlocked(f) {
 }
 
 function getResource(id) {
-  return RESOURCES.find(r => r.id === id);
+  return RESOURCES.find(r => r.id === id) ?? (typeof ITEMS !== "undefined" ? ITEMS.find(i => i.id === id) : undefined);
+}
+
+// Inventory items: non-currency holdings (no cap, no bar) from the ITEMS
+// list. They live in state.amounts like resources, so costs, gains,
+// unlock watches, and auto-written descriptions accept item ids
+// anywhere a resource id works - getResource resolves both lists, and
+// getEffectiveMax returns Infinity for anything without a finite max.
+function getItem(id) {
+  return (typeof ITEMS !== "undefined" ? ITEMS : []).find(i => i.id === id);
 }
 
 function isCurrency(def) {
@@ -396,7 +477,9 @@ function buildTipTags(item) {
   for (const t of tags) {
     const chip = document.createElement("span");
     chip.className = "tip-tag";
-    chip.textContent = t;
+    // Tags render capitalized ("consumable" -> "Consumable"); the raw
+    // lowercase form stays the mechanic key checked by code.
+    chip.textContent = t.slice(0, 1).toUpperCase() + t.slice(1);
     row.appendChild(chip);
   }
   return row;
@@ -554,6 +637,14 @@ function describeEffect(e) {
     const act = e.action ? getAction(e.action) : null;
     return "-" + formatNum(e.amount) + "s " + (act ? act.name : e.action) + " time";
   }
+  if (e.type === "travelTime") {
+    const b = (e.biome && typeof worldBiomeDef === "function") ? worldBiomeDef(e.biome) : null;
+    return "-" + formatNum(e.amount) + "s " + (b ? b.name + " " : "World ") + "travel time";
+  }
+  if (e.type === "terrainDifficulty") {
+    const b = (e.biome && typeof worldBiomeDef === "function") ? worldBiomeDef(e.biome) : null;
+    return "-" + formatNum(e.amount) + "/s " + (b ? b.name + " " : "World ") + "travel Stamina drain";
+  }
   return e.type + (e.resource ? " " + e.resource : "");
 }
 
@@ -694,7 +785,7 @@ function effectiveGains(a) {
   }
   for (const x of attainedSkillMilestoneEffects()) {
     const e = x.effect;
-    if (e.type === "gain" && e.action === a.id && e.resource) out[e.resource] = (out[e.resource] ?? 0) + e.amount * (e.perLevel ? skillLevel(x.source) : 1);
+    if (e.type === "gain" && e.action === a.id && e.resource) out[e.resource] = (out[e.resource] ?? 0) + e.amount * skillEffectLevels(x.source, e);
   }
   return out;
 }
@@ -709,6 +800,12 @@ function effectiveXp(a) {
   if (imp && imp.xpBonus) {
     const lvl = actionLevel(a);
     if (lvl > 0) for (const [sid, n] of Object.entries(imp.xpBonus)) out[sid] = (out[sid] ?? 0) + n * lvl;
+  }
+  // Milestone XP multipliers (e.g. Plain Sense II): applied last so the
+  // action tooltip already reflects the doubled rate.
+  if (typeof xpMultFor === "function") for (const sid of Object.keys(out)) {
+    const m = xpMultFor(sid);
+    if (m !== 1) out[sid] *= m;
   }
   return out;
 }
@@ -743,7 +840,7 @@ function normalizeConfig() {
   // share one DOM id. Later duplicates are removed, keeping the first.
   // Entries added later at runtime should call normalizeConfig() again
   // before buildUI().
-  for (const [arr, kind] of [[RESOURCES, "resource"], [ACTIONS, "action"], [UPGRADES, "upgrade"], [PLAYER_STATS, "player stat"], [HOMES, "home"], [FURNITURE, "furniture"], [SPECIAL_MESSAGES, "special message"], [SKILLS, "skill"]]) {
+  for (const [arr, kind] of [[RESOURCES, "resource"], [ACTIONS, "action"], [UPGRADES, "upgrade"], [PLAYER_STATS, "player stat"], [HOMES, "home"], [FURNITURE, "furniture"], [SPECIAL_MESSAGES, "special message"], [SKILLS, "skill"], ...(typeof ITEMS !== "undefined" ? [[ITEMS, "item"]] : [])]) {
     const seen = new Set();
     for (let i = 0; i < arr.length; i++) {
       const e = arr[i];
@@ -776,6 +873,70 @@ function normalizeConfig() {
     cleanTags(r, 'Resource "' + r.id + '"');
     cleanHeader(r, 'Resource "' + r.id + '"');
   }
+  // Items: same name/tags shape as resources, plus rarity and an optional
+  // consume bundle. Unknown or malformed bits warn and reset - an item can
+  // never silently stop being edible or change color.
+  if (typeof ITEMS !== "undefined") for (const it of ITEMS) {
+    const label = 'Item "' + it.id + '"';
+    if (typeof it.name !== "string" || !it.name) it.name = it.id;
+    if (it.plural !== undefined && (typeof it.plural !== "string" || !it.plural)) {
+      warn(label + ": bad plural, ignored.");
+      delete it.plural;
+    }
+    if (it.description !== undefined && typeof it.description !== "string") {
+      warn(label + ": bad description, ignored.");
+      delete it.description;
+    }
+    if (it.rarity === undefined) it.rarity = "common";
+    else if (!RARITY_ORDER.includes(it.rarity)) {
+      warn(label + ': unknown rarity "' + it.rarity + '", reset to common.');
+      it.rarity = "common";
+    }
+    cleanTags(it, label);
+    const consumable = getTags(it).includes("consumable");
+    // Edibility is tag-driven: the consume bundle only works with the
+    // "consumable" tag, and the tag needs a valid bundle to do anything.
+    if (it.consume !== undefined && !consumable) {
+      warn(label + ": consume bundle without the consumable tag, ignored.");
+      delete it.consume;
+    } else if (consumable) {
+      if (!it.consume || typeof it.consume !== "object" || Array.isArray(it.consume)) {
+        warn(label + ": consumable but no valid consume bundle - eating it does nothing.");
+        it.consume = { gains: {} };
+      } else {
+        if (it.consume.button !== undefined && (typeof it.consume.button !== "string" || !it.consume.button)) {
+          warn(label + ": bad consume button, reset to Consume.");
+          delete it.consume.button;
+        }
+        it.consume.gains = (() => {
+          // Same rules as costs (see cleanMap below - this block runs
+          // before it is defined): non-negative finite numbers, zero
+          // dropped, unknown ids warn but still grant.
+          const src = it.consume.gains;
+          if (src === undefined) return {};
+          if (!src || typeof src !== "object" || Array.isArray(src)) {
+            warn(label + ": bad consume gains, ignored.");
+            return {};
+          }
+          const cleaned = {};
+          for (const [k, v] of Object.entries(src)) {
+            if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
+              warn(label + ": bad consume gains amount for \"" + k + '", skipped.');
+              continue;
+            }
+            if (v === 0) continue;
+            if (!getResource(k)) warn(label + ': consume gains reference unknown resource "' + k + '".');
+            cleaned[k] = v;
+          }
+          return cleaned;
+        })();
+        if (it.consume.log !== undefined && typeof it.consume.log !== "string") {
+          warn(label + ": bad consume log, ignored.");
+          delete it.consume.log;
+        }
+      }
+    }
+  }
   for (const s of PLAYER_STATS) {
     if (typeof s.name !== "string" || !s.name) s.name = s.id;
     if (typeof s.abbr !== "string" || !s.abbr) s.abbr = s.name.slice(0, 3).toUpperCase();
@@ -807,6 +968,12 @@ function normalizeConfig() {
     }
     return cleaned;
   };
+  // Item sell prices (Selling Mode): same rules as costs - non-negative
+  // finite numbers, zeros dropped, unknown ids warn. An item is sellable
+  // only when at least one priced entry survives cleaning.
+  if (typeof ITEMS !== "undefined") for (const it of ITEMS) {
+    it.sellPrice = cleanMap(it.sellPrice, 'Item "' + it.id + '"', "sell price");
+  }
   const cleanUnlock = (item, ownerLabel) => {
     if (item.unlock === undefined) return;
     const k = item.unlock;
@@ -938,6 +1105,30 @@ function normalizeConfig() {
     }
     item.tags = kept;
   }
+  // Tile requirement: which world tile tags this action/upgrade/
+  // furniture needs ("requiresTile: 'General Store'" or an array like
+  // ["General Store", "Market"] - ANY match satisfies it, matched
+  // case-insensitively against the tile's tags). Normalizes to an array;
+  // bad entries are skipped with a warning, an empty result is deleted
+  // (no requirement). The legacy "shopping" tag still implies
+  // ["General Store"] - see tileRequirementTags in world.js.
+  function cleanTileRequires(item, ownerLabel) {
+    if (item.requiresTile === undefined) return;
+    const list = Array.isArray(item.requiresTile) ? item.requiresTile : [item.requiresTile];
+    const kept = [];
+    for (const t of list) {
+      if (typeof t !== "string" || !t.trim()) {
+        warn(ownerLabel + ": skipped a bad requiresTile entry (use non-empty strings).");
+        continue;
+      }
+      const name = t.trim();
+      if (!kept.some(k => k.toLowerCase() === name.toLowerCase())) kept.push(name);
+    }
+    if (!kept.length) {
+      warn(ownerLabel + ": bad requiresTile, ignored.");
+      delete item.requiresTile;
+    } else item.requiresTile = kept;
+  };
   const cleanLogField = (item, field, ownerLabel) => {
     const v = item[field];
     if (v === undefined) return;
@@ -1044,6 +1235,18 @@ function normalizeConfig() {
   // Each entry's clean() preserves that family's history: item effects
   // (upgrade/home/furniture) warn about unknown ids but keep the effect,
   // while skill effects skip unknown targets outright.
+  // Optional per-level cap for skill effects (see skillEffectLevels):
+  // `cap` is a skill level number - scaling counts at most that many
+  // levels. Returns the cap, undefined when absent, or null (skip the
+  // whole effect) when present but invalid.
+  const cleanSkillCap = (e, ownerLabel) => {
+    if (e.cap === undefined) return undefined;
+    if (!Number.isInteger(e.cap) || e.cap < 1) {
+      warn(ownerLabel + ': skipped an invalid effect (bad cap - use a positive integer skill level).');
+      return null;
+    }
+    return e.cap;
+  };
   const EFFECT_DEFS = {
     max: {
       contexts: ["upgrade", "home", "furniture"],
@@ -1065,12 +1268,17 @@ function normalizeConfig() {
         }
         // Skill-gated payout: times the skill's level when perLevel (e.g.
         // Sleeping restores extra Stamina). Read through effectiveGains.
+        // An optional `cap` stops the scaling past that skill level.
         if (kind === "skill") {
           if (!getAction(e.action) || !getResource(e.resource)) {
             warn(ownerLabel + ': skipped an invalid effect (use { type: "gain", action, resource, amount }).');
             return null;
           }
-          return { type: "gain", action: e.action, resource: e.resource, amount: e.amount, perLevel: e.perLevel === true };
+          const out = { type: "gain", action: e.action, resource: e.resource, amount: e.amount, perLevel: e.perLevel === true };
+          const cap = cleanSkillCap(e, ownerLabel);
+          if (cap === null) return null;
+          if (cap !== undefined) out.cap = cap;
+          return out;
         }
         if (!getAction(e.action)) warn(ownerLabel + ': effect targets unknown action "' + e.action + '".');
         if (!getResource(e.resource)) warn(ownerLabel + ': effect targets unknown resource "' + e.resource + '".');
@@ -1088,7 +1296,7 @@ function normalizeConfig() {
       },
     },
     furnitureCap: {
-      contexts: ["upgrade", "home"],
+      contexts: ["upgrade", "home", "skill"],
       clean(e, ownerLabel) {
         if (typeof e.furniture !== "string" || !getFurniture(e.furniture) || !Number.isInteger(e.amount) || e.amount < 1) {
           warn(ownerLabel + ': skipped an invalid effect (use { type: "furnitureCap", furniture, amount }).');
@@ -1108,14 +1316,21 @@ function normalizeConfig() {
       },
     },
     time: {
-      contexts: ["upgrade", "furniture", "home"],
-      clean(e, ownerLabel) {
+      contexts: ["upgrade", "furniture", "home", "skill"],
+      clean(e, ownerLabel, kind) {
         if (typeof e.action !== "string" || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
           warn(ownerLabel + ': skipped an invalid effect (use { type: "time", action, amount }).');
           return null;
         }
         if (!getAction(e.action)) warn(ownerLabel + ': effect targets unknown action "' + e.action + '".');
-        return { type: "time", action: e.action, amount: e.amount };
+        const out = { type: "time", action: e.action, amount: e.amount };
+        if (kind === "skill" && e.perLevel === true) out.perLevel = true;
+        if (kind === "skill") {
+          const cap = cleanSkillCap(e, ownerLabel);
+          if (cap === null) return null;
+          if (cap !== undefined) out.cap = cap;
+        }
+        return out;
       },
     },
     stat: {
@@ -1125,7 +1340,73 @@ function normalizeConfig() {
           warn(ownerLabel + ': skipped an invalid effect (use { type: "stat", stat, amount }).');
           return null;
         }
-        return { type: "stat", stat: e.stat, amount: e.amount, perLevel: e.perLevel === true };
+        const out = { type: "stat", stat: e.stat, amount: e.amount, perLevel: e.perLevel === true };
+        const cap = cleanSkillCap(e, ownerLabel);
+        if (cap === null) return null;
+        if (cap !== undefined) out.cap = cap;
+        return out;
+      },
+    },
+    travelTime: {
+      contexts: ["upgrade", "home", "furniture", "skill"],
+      clean(e, ownerLabel, kind) {
+        // Faster travel: each World tile takes `amount` fewer seconds to
+        // enter (floored at 0s, stacking - a 0s tile teleports instantly
+        // but still charges one second of terrain drain). Read through
+        // getEffectiveTravelTime so tooltips and travel agree. An optional
+        // `biome` limits it to one biome's tiles (validated against
+        // WORLD_BIOMES), e.g. Plains Navigation only speeds up plains.
+        if (typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+          warn(ownerLabel + ': skipped an invalid effect (use { type: "travelTime", amount }).');
+          return null;
+        }
+        let biome = null;
+        if (e.biome !== undefined) {
+          if (typeof e.biome !== "string" || !(typeof WORLD_BIOMES !== "undefined" && WORLD_BIOMES.some(b => b.id === e.biome))) {
+            warn(ownerLabel + ': skipped an invalid effect (unknown travelTime biome "' + e.biome + '").');
+            return null;
+          }
+          biome = e.biome;
+        }
+        const out = { type: "travelTime", amount: e.amount };
+        if (biome) out.biome = biome;
+        if (kind === "skill" && e.perLevel === true) out.perLevel = true;
+        if (kind === "skill") {
+          const cap = cleanSkillCap(e, ownerLabel);
+          if (cap === null) return null;
+          if (cap !== undefined) out.cap = cap;
+        }
+        return out;
+      },
+    },
+    terrainDifficulty: {
+      contexts: ["upgrade", "home", "furniture", "skill"],
+      clean(e, ownerLabel, kind) {
+        // Easier terrain: `amount` less Stamina drained per second while
+        // traveling (floored at 0, stacking). Read through
+        // getEffectiveTerrainDifficulty. An optional `biome` limits it to
+        // one biome's tiles (validated against WORLD_BIOMES).
+        if (typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+          warn(ownerLabel + ': skipped an invalid effect (use { type: "terrainDifficulty", amount }).');
+          return null;
+        }
+        let biome = null;
+        if (e.biome !== undefined) {
+          if (typeof e.biome !== "string" || !(typeof WORLD_BIOMES !== "undefined" && WORLD_BIOMES.some(b => b.id === e.biome))) {
+            warn(ownerLabel + ': skipped an invalid effect (unknown terrainDifficulty biome "' + e.biome + '").');
+            return null;
+          }
+          biome = e.biome;
+        }
+        const out = { type: "terrainDifficulty", amount: e.amount };
+        if (biome) out.biome = biome;
+        if (kind === "skill" && e.perLevel === true) out.perLevel = true;
+        if (kind === "skill") {
+          const cap = cleanSkillCap(e, ownerLabel);
+          if (cap === null) return null;
+          if (cap !== undefined) out.cap = cap;
+        }
+        return out;
       },
     },
     cost: {
@@ -1152,6 +1433,20 @@ function normalizeConfig() {
           return null;
         }
         return { type: "improvementCap", action: e.action, amount: e.amount };
+      },
+    },
+    xpMult: {
+      contexts: ["skill"],
+      clean(e, ownerLabel) {
+        // Skill XP multiplier: every XP grant for `skill` is multiplied by
+        // `amount` (compounding when several apply), e.g. Plain Sense II
+        // doubles Plains Navigation XP. Read through xpMultFor wherever XP
+        // is granted (effectiveXp, footfall) so tooltips stay truthful.
+        if (typeof e.skill !== "string" || !getSkill(e.skill) || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+          warn(ownerLabel + ': skipped an invalid effect (use { type: "xpMult", skill, amount }).');
+          return null;
+        }
+        return { type: "xpMult", skill: e.skill, amount: e.amount };
       },
     },
     skill: {
@@ -1219,7 +1514,10 @@ function normalizeConfig() {
           warn('Action "' + a.id + '": bad xp amount for "' + k + '", skipped.');
           continue;
         }
-        if (!getSkill(k)) warn('Action "' + a.id + '": xp grants unknown skill "' + k + '".');
+        // Unknown skills are dropped (not just warned): kept entries would
+        // grant nothing at runtime yet still show a phantom "Skill XP" row
+        // with the raw id in tooltips.
+        if (!getSkill(k)) { warn('Action "' + a.id + '": xp grants unknown skill "' + k + '", skipped.'); continue; }
         cleaned[k] = v;
       }
       a.xp = cleaned;
@@ -1279,6 +1577,7 @@ function normalizeConfig() {
     cleanLogField(a, "fullLog", 'Action "' + a.id + '"');
     cleanLogField(a, "stopFullLog", 'Action "' + a.id + '"');
     cleanConditionalLogs(a, 'Action "' + a.id + '"');
+    cleanTileRequires(a, 'Action "' + a.id + '"');
   }
   for (const u of UPGRADES) {
     if (typeof u.name !== "string" || !u.name) u.name = u.id;
@@ -1321,6 +1620,7 @@ function normalizeConfig() {
         delete u.startLog;
       } else cleanLogField(u, "startLog", 'Upgrade "' + u.id + '"');
     }
+    cleanTileRequires(u, 'Upgrade "' + u.id + '"');
   }
   for (const h of HOMES) {
     if (typeof h.name !== "string" || !h.name) h.name = h.id;
@@ -1404,6 +1704,7 @@ function normalizeConfig() {
       warn('Furniture "' + f.id + '": bad description, auto-generated.');
       delete f.description;
     }
+    cleanTileRequires(f, 'Furniture "' + f.id + '"');
     if (!f.description) f.description = "Furniture for your home.";
     cleanLogField(f, "buyLog", 'Furniture "' + f.id + '"');
     cleanLogField(f, "sellLog", 'Furniture "' + f.id + '"');
@@ -1517,6 +1818,183 @@ function normalizeConfig() {
       }
       kept.sort((x, y) => x.level - y.level);
       s.milestones = kept;
+    }
+  }
+  // World: tiers, biomes, modifiers, sites, mirrored actions (see WORLD_*
+  // in the config). Missing arrays (stripped copies) are skipped; bad
+  // entries warn and are removed in place, like everything above.
+  {
+    const worldBiomes = (typeof WORLD_BIOMES !== "undefined") ? WORLD_BIOMES : [];
+    const worldTiers = (typeof WORLD_TIERS !== "undefined") ? WORLD_TIERS : [];
+    const worldMods = (typeof WORLD_MODIFIERS !== "undefined") ? WORLD_MODIFIERS : [];
+    const worldSites = (typeof WORLD_SITES !== "undefined") ? WORLD_SITES : [];
+    const seenBiome = new Set();
+    for (let i = 0; i < worldBiomes.length; i++) {
+      const b = worldBiomes[i];
+      if (!b || typeof b.id !== "string" || !b.id || seenBiome.has(b.id)) {
+        warn("Removed world biome with no id.");
+        worldBiomes.splice(i, 1); i--; continue;
+      }
+      seenBiome.add(b.id);
+      if (typeof b.name !== "string" || !b.name) b.name = b.id;
+      if (typeof b.travelTime !== "number" || !Number.isFinite(b.travelTime) || b.travelTime <= 0) {
+        if (b.travelTime !== undefined) warn('World biome "' + b.id + '": bad travelTime, reset to 5.');
+        b.travelTime = 5;
+      }
+      if (typeof b.terrainDifficulty !== "number" || !Number.isFinite(b.terrainDifficulty) || b.terrainDifficulty < 0) {
+        if (b.terrainDifficulty !== undefined) warn('World biome "' + b.id + '": bad terrainDifficulty, reset to 1.');
+        b.terrainDifficulty = 1;
+      }
+      if (b.color !== undefined && typeof b.color !== "string") {
+        warn('World biome "' + b.id + '": bad color, ignored.');
+        delete b.color;
+      }
+      if (b.description !== undefined && typeof b.description !== "string") {
+        warn('World biome "' + b.id + '": bad description, ignored.');
+        delete b.description;
+      }
+      cleanTags(b, 'World biome "' + b.id + '"');
+    }
+    const seenTier = new Set();
+    for (let i = 0; i < worldTiers.length; i++) {
+      const t = worldTiers[i];
+      if (!t || typeof t.id !== "string" || !t.id || seenTier.has(t.id)) {
+        warn("Removed world tier with no id.");
+        worldTiers.splice(i, 1); i--; continue;
+      }
+      seenTier.add(t.id);
+      if (typeof t.name !== "string" || !t.name) t.name = t.id;
+      if (!Number.isInteger(t.size) || t.size <= 0) {
+        if (t.size !== undefined) warn('World tier "' + t.id + '": bad size, reset to 6.');
+        t.size = 6;
+      }
+      if (typeof t.biome !== "string" || !worldBiomes.some(b => b.id === t.biome)) {
+        warn('World tier "' + t.id + '": unknown biome, removed.');
+        worldTiers.splice(i, 1); i--; continue;
+      }
+      const s = t.start;
+      if (!s || !Number.isInteger(s.x) || !Number.isInteger(s.y) || s.x < 0 || s.y < 0 || s.x >= t.size || s.y >= t.size) {
+        if (s !== undefined) warn('World tier "' + t.id + '": bad start, centered.');
+        t.start = { x: Math.floor(t.size / 2), y: Math.floor(t.size / 2) };
+      }
+    }
+    const seenMod = new Set();
+    for (let i = 0; i < worldMods.length; i++) {
+      const m = worldMods[i];
+      if (!m || typeof m.id !== "string" || !m.id || seenMod.has(m.id)) {
+        warn("Removed world modifier with no id.");
+        worldMods.splice(i, 1); i--; continue;
+      }
+      seenMod.add(m.id);
+      if (typeof m.name !== "string" || !m.name) m.name = m.id;
+      if (m.short !== undefined && (typeof m.short !== "string" || !m.short || m.short.length > 4)) {
+        warn('World modifier "' + m.id + '": bad short overlay, ignored.');
+        delete m.short;
+      }
+      if (m.travelTime !== undefined && (typeof m.travelTime !== "number" || !Number.isFinite(m.travelTime))) {
+        warn('World modifier "' + m.id + '": bad travelTime, ignored.');
+        delete m.travelTime;
+      }
+      if (m.terrainDifficulty !== undefined && (typeof m.terrainDifficulty !== "number" || !Number.isFinite(m.terrainDifficulty))) {
+        warn('World modifier "' + m.id + '": bad terrainDifficulty, ignored.');
+        delete m.terrainDifficulty;
+      }
+      if (m.description !== undefined && typeof m.description !== "string") {
+        warn('World modifier "' + m.id + '": bad description, ignored.');
+        delete m.description;
+      }
+      // Paint color: a CSS color string (e.g. "#84240c") overriding the
+      // tile's biome background. Bad values are ignored (biome shows).
+      if (m.color !== undefined && (typeof m.color !== "string" || !m.color.trim())) {
+        warn('World modifier "' + m.id + '": bad color, ignored.');
+        delete m.color;
+      }
+      // Paint size: fraction of the tile's width/height the modifier
+      // color covers (0..1, default 1 = full tile). Bad values are
+      // ignored (modifier covers the whole tile).
+      if (m.size !== undefined && (typeof m.size !== "number" || !Number.isFinite(m.size) || m.size <= 0 || m.size > 1)) {
+        warn('World modifier "' + m.id + '": bad size, ignored.');
+        delete m.size;
+      }
+      // Action locks: action ids banned on this tile (e.g. Small Town
+      // locking Forage). Unknown ids warn and drop; an empty list or a
+      // bad shape clears the field (nothing locked).
+      if (m.locks !== undefined) {
+        const list = Array.isArray(m.locks) ? m.locks : [m.locks];
+        const kept = [];
+        for (const id of list) {
+          if (typeof id !== "string" || !id) {
+            warn('World modifier "' + m.id + '": skipped a bad locked action (use action ids).');
+            continue;
+          }
+          if (kept.some(k => k.toLowerCase() === id.toLowerCase())) continue;
+          if (!ACTIONS.some(a => a.id === id)) {
+            warn('World modifier "' + m.id + '": unknown locked action "' + id + '", removed.');
+            continue;
+          }
+          kept.push(id);
+        }
+        if (!kept.length) delete m.locks;
+        else m.locks = kept;
+      }
+      cleanTags(m, 'World modifier "' + m.id + '"');
+    }
+    const seenSite = new Set();
+    for (let i = 0; i < worldSites.length; i++) {
+      const s = worldSites[i];
+      const tier = s ? worldTiers.find(t => t.id === s.tier) : null;
+      const mod = s ? worldMods.find(m => m.id === s.modifier) : null;
+      const key = s ? (s.tier + ":" + s.x + "," + s.y) : "?";
+      if (!s || !tier || !mod || !Number.isInteger(s.x) || !Number.isInteger(s.y) || s.x < 0 || s.y < 0 || s.x >= tier.size || s.y >= tier.size || seenSite.has(key)) {
+        warn("Removed a bad world site (needs a known tier, in-range x/y, and a known modifier).");
+        worldSites.splice(i, 1); i--; continue;
+      }
+      seenSite.add(key);
+    }
+    if (typeof WORLD_ACTIONS !== "undefined") {
+      if (!Array.isArray(WORLD_ACTIONS)) {
+        warn("WORLD_ACTIONS: bad list, ignored.");
+        WORLD_ACTIONS.length = 0;
+      } else {
+        for (let i = 0; i < WORLD_ACTIONS.length; i++) {
+          const id = WORLD_ACTIONS[i];
+          if (typeof id !== "string" || !getAction(id)) {
+            warn('WORLD_ACTIONS: unknown action "' + id + '", removed.');
+            WORLD_ACTIONS.splice(i, 1); i--;
+          }
+        }
+      }
+    }
+    // Forage loot tables: which items an action like Forage can find, per
+    // tier plus an optional biome id or tile tag (first list match wins).
+    // Bad entries are dropped with a warning; an empty table stays empty
+    // (those tiles simply yield nothing).
+    if (typeof FORAGE_TABLES !== "undefined") {
+      if (!Array.isArray(FORAGE_TABLES)) {
+        warn("FORAGE_TABLES: bad list, ignored.");
+        FORAGE_TABLES.length = 0;
+      } else {
+        for (let i = 0; i < FORAGE_TABLES.length; i++) {
+          const t = FORAGE_TABLES[i];
+          const bad = !t || typeof t !== "object" || Array.isArray(t) || typeof t.tier !== "string" || !t.tier || !Array.isArray(t.items);
+          const list = !bad ? t.items : [];
+          const kept = [];
+          if (!bad) for (const e of list) {
+            if (!e || typeof e !== "object" || typeof e.item !== "string" || !getItem(e.item) || typeof e.weight !== "number" || !Number.isFinite(e.weight) || e.weight <= 0) {
+              warn("FORAGE_TABLES: skipped a bad loot entry (needs a known item id and a positive weight).");
+              continue;
+            }
+            kept.push({ item: e.item, weight: e.weight });
+          }
+          if (bad || !kept.length) {
+            warn("FORAGE_TABLES: removed a bad table (needs a tier and at least one valid loot entry).");
+            FORAGE_TABLES.splice(i, 1); i--; continue;
+          }
+          t.items = kept;
+          if (t.biome !== undefined && typeof t.biome !== "string") { warn("FORAGE_TABLES: bad biome, ignored."); delete t.biome; }
+          if (t.tag !== undefined && typeof t.tag !== "string") { warn("FORAGE_TABLES: bad tag, ignored."); delete t.tag; }
+        }
+      }
     }
   }
   return warnings;

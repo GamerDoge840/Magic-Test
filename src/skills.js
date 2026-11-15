@@ -83,6 +83,18 @@ function gainSkillXp(sid, amount) {
   renderSkills();
 }
 
+// Skill XP multipliers from attained milestones: every attained "xpMult"
+// effect for the skill compounds (Plain Sense II x2). Read everywhere XP
+// is granted (effectiveXp, footfall) so all sources agree.
+function xpMultFor(sid) {
+  let m = 1;
+  for (const x of attainedSkillMilestoneEffects()) {
+    const e = x.effect;
+    if (e && e.type === "xpMult" && e.skill === sid) m *= e.amount;
+  }
+  return m;
+}
+
 // Main Stat totals: base value plus every attained milestone's "stat"
 // effect (times the skill's level when perLevel).
 function getEffectiveStat(statId) {
@@ -90,7 +102,7 @@ function getEffectiveStat(statId) {
   let v = state.playerStats[statId] ?? def?.start ?? 1;
   for (const x of attainedSkillMilestoneEffects()) {
     const e = x.effect;
-    if (e.type === "stat" && e.stat === statId) v += e.amount * (e.perLevel ? skillLevel(x.source) : 1);
+    if (e.type === "stat" && e.stat === statId) v += e.amount * skillEffectLevels(x.source, e);
   }
   return v;
 }
@@ -175,7 +187,6 @@ function buildSkillTip(s) {
   head.appendChild(title);
   const count = document.createElement("span");
   count.className = "tip-count";
-  head.appendChild(title);
   head.appendChild(count);
   tip.appendChild(head);
   const headTags = buildTipTags(s);
@@ -227,13 +238,111 @@ function buildSkillRow(s) {
     selectedSkillId = s.id;
     renderSkills();
   });
-  // Automatic placement: long skill tips flip below the row and cap their
-  // height instead of clipping through the top of the screen.
+  // Automatic placement: long skill tips detach via position:fixed (like
+  // furniture tips) and use viewport room, so in cramped viewports they
+  // open full-size instead of being crushed to a sliver inside the short
+  // Skills list with no usable scrollbar. The node stays in place, so the
+  // :hover/:focus-visible show rules keep working; leave/blur clears the
+  // inline positioning again. Scroll/resize while open re-places.
   const skillTip = tipBuilt.tip;
-  const fitSkill = () => { if (typeof fitTip === "function") fitTip(skillTip, btn, "up"); if (typeof syncTipPointer === "function") syncTipPointer(btn, true); };
+  const fitSkill = () => {
+    if (typeof placeSkillTip === "function") placeSkillTip(skillTip, btn);
+    else if (typeof fitTip === "function") { fitTip(skillTip, btn, "up"); if (typeof syncTipPointer === "function") syncTipPointer(btn, true); }
+    activeSkillTip = { btn, tip: skillTip };
+  };
+  const unfitSkill = () => {
+    if (activeSkillTip && activeSkillTip.btn === btn) activeSkillTip = null;
+    if (typeof clearSkillTip === "function") clearSkillTip(skillTip);
+  };
   btn.addEventListener("mouseenter", fitSkill);
   btn.addEventListener("focus", fitSkill);
+  btn.addEventListener("mouseleave", unfitSkill);
+  btn.addEventListener("blur", unfitSkill);
   return btn;
+}
+
+// Skill tip placement: viewport-roomed fixed detach (same pattern as
+// furniture/world tips). The Skills list is short in cramped viewports,
+// so an in-list tip gets capped to a sliver with no usable scrollbar;
+// detached, it opens full-size over neighboring panels instead.
+let activeSkillTip = null; // { btn, tip } of the open skill tip
+function placeSkillTip(tip, anchor) {
+  if (!tip || !anchor) return;
+  const keep = { position: tip.style.position, top: tip.style.top, bottom: tip.style.bottom, left: tip.style.left, transform: tip.style.transform, maxHeight: tip.style.maxHeight, marginLeft: tip.style.marginLeft };
+  tip.style.position = "";
+  tip.style.top = "";
+  tip.style.bottom = "";
+  tip.style.left = "";
+  tip.style.transform = "";
+  tip.style.maxHeight = "";
+  tip.style.marginLeft = "";
+  // Measure with the tip forcibly shown: open paths can land a frame
+  // before CSS :hover/:focus-visible paints it visible, and a display:none
+  // tip reads 0 and bails, stranding it at its natural spot.
+  const needShow = getComputedStyle(tip).display === "none";
+  if (needShow) tip.style.display = "block";
+  const h = tip.offsetHeight;
+  if (!h) {
+    tip.style.position = keep.position;
+    tip.style.top = keep.top;
+    tip.style.bottom = keep.bottom;
+    tip.style.left = keep.left;
+    tip.style.transform = keep.transform;
+    tip.style.maxHeight = keep.maxHeight;
+    tip.style.marginLeft = keep.marginLeft;
+    if (needShow) tip.style.display = "";
+    return;
+  }
+  const VH = window.innerHeight, VW = window.innerWidth;
+  const b = anchor.getBoundingClientRect();
+  const roomUp = b.top - 8;
+  const roomDown = VH - 8 - b.bottom;
+  let dir = "up";
+  if (roomUp < h + 8 && roomDown > roomUp) dir = "down";
+  const room = dir === "up" ? roomUp : roomDown;
+  const cs = getComputedStyle(tip);
+  const centered = cs.transform !== "none";
+  const chrome = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) +
+    (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+  const avail = Math.floor(room - chrome);
+  const cssCap = Math.min(360, VH * 0.7);
+  const cap = avail <= 0 ? 80 : avail < 80 ? avail : Math.min(avail, cssCap);
+  if (room < h + 8) tip.style.maxHeight = cap + "px";
+  tip.style.position = "fixed";
+  tip.style.bottom = "auto";
+  tip.style.marginLeft = "";
+  tip.style.transform = "none";
+  const w = tip.offsetWidth;
+  const wantLeft = centered ? b.left + b.width / 2 - w / 2 : b.left;
+  tip.style.left = Math.max(8, Math.min(Math.round(wantLeft), VW - 8 - w)) + "px";
+  tip.style.top = dir === "down" ? Math.round(b.bottom - 2) + "px" : Math.round(b.top + 2 - tip.offsetHeight) + "px";
+  if (needShow) tip.style.display = "";
+  if (typeof syncTipPointer === "function") syncTipPointer(anchor, true);
+}
+
+function clearSkillTip(tip) {
+  if (!tip) return;
+  tip.style.position = "";
+  tip.style.top = "";
+  tip.style.bottom = "";
+  tip.style.left = "";
+  tip.style.transform = "";
+  tip.style.maxHeight = "";
+  tip.style.marginLeft = "";
+}
+
+// While a skill tip is open, scrolling or resizing would strand its fixed
+// pixels away from the anchor: re-place instead.
+if (typeof window !== "undefined" && !window.__skillTipTrack) {
+  window.__skillTipTrack = true;
+  const retrackSkillTip = () => {
+    if (activeSkillTip && activeSkillTip.btn && activeSkillTip.btn.isConnected) {
+      const tip = activeSkillTip.tip;
+      if (tip && tip.isConnected && getComputedStyle(tip).display !== "none" && typeof placeSkillTip === "function") placeSkillTip(tip, activeSkillTip.btn);
+    }
+  };
+  window.addEventListener("scroll", retrackSkillTip, true);
+  window.addEventListener("resize", retrackSkillTip);
 }
 
 function buildSkillsTab() {

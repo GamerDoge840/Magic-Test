@@ -79,6 +79,10 @@ function buyFurniture(id) {
     log(f.name + " is already maxed out.");
     return;
   }
+  if ((typeof worldShopBlocked === "function") && worldShopBlocked(f)) {
+    log(tileBlockedMessage(f, "buy"));
+    return;
+  }
   if (!canAfford(f.cost)) {
     log("Not enough for " + f.name + " (" + describeCost(f.cost) + ").");
     return;
@@ -108,7 +112,14 @@ function sellFurniture(id) {
   for (const [rid, n] of Object.entries(f.cost ?? {})) {
     const max = getEffectiveMax(rid);
     state.amounts[rid] = max === Infinity ? (state.amounts[rid] ?? 0) + n : Math.min(max, (state.amounts[rid] ?? 0) + n);
-    if (n > 0) markCurrencySeen(rid);
+    if (n > 0) {
+      markCurrencySeen(rid);
+      // Item refunds discover like any other find (see doTick).
+      if (typeof getItem === "function" && getItem(rid)) {
+        if (!state.seen) state.seen = {};
+        state.seen[rid] = true;
+      }
+    }
   }
   for (const r of RESOURCES) {
     const m = getEffectiveMax(r.id);
@@ -346,6 +357,7 @@ function buildFurnitureCard(f) {
   hrow.appendChild(hv);
   hsec.appendChild(hrow);
   tip.appendChild(hsec);
+  const rsec = (typeof appendTileRequirementSection === "function") ? appendTileRequirementSection(tip, f) : null;
   if (f.flavor) {
     const flavor = document.createElement("div");
     flavor.className = "tip-flavor";
@@ -355,7 +367,7 @@ function buildFurnitureCard(f) {
   card.appendChild(tip);
 
   card.tabIndex = 0;
-  uiRefs.set("f:" + f.id, { root: card, owned, buy, sell, sellNotice: snotice, tipCount: count, costs: costRefs });
+  uiRefs.set("f:" + f.id, { root: card, name: nm, owned, buy, sell, sellNotice: snotice, tipCount: count, costs: costRefs, reqSec: rsec });
   // Buy vs Sell highlight on their own buttons (card background counts as
   // Buy): moving between buttons switches the mode; leaving the card turns
   // both off. The ring hits every mirror copy via hiResources.
@@ -367,8 +379,12 @@ function buildFurnitureCard(f) {
     if (hiMode === "buy") buyHi(false);
     else if (hiMode === "sell") sellHi(false);
     hiMode = mode;
-    if (mode === "buy") buyHi(true);
-    else if (mode === "sell") sellHi(true);
+    // Same ownership as action/upgrade tips (see tips.js): the newest
+    // hover clears first, and leaving only clears while still the owner.
+    if (mode === "buy" || mode === "sell") {
+      claimHi("f:" + f.id);
+      (mode === "buy" ? buyHi : sellHi)(true);
+    } else releaseHi("f:" + f.id);
   }
   // Info tooltip upkeep (same on Buy and Sell hover; the Sell tooltip is
   // positioned too). Live row tints refresh every frame via render().
@@ -393,6 +409,7 @@ function buildFurnitureCard(f) {
 }
 
 function buildFurnitureCards() {
+  if (typeof resetHi === "function") resetHi();
   furnitureCtn.innerHTML = "";
   const list = sortedFurniture();
   if (!list.length) {

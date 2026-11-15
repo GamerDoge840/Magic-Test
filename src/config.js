@@ -85,6 +85,18 @@
       - tags: (optional) identifying chips under the tooltip header,
         e.g. tags: ["Work", "Charismatic"]. Check from code with
         hasTag(item, "Work") or itemsWithTag("Work").
+      - requiresTile: (optional) world tile tag (or array of tags) this
+        action needs, e.g. requiresTile: "General Store". ANY listed tag
+        satisfies it (matched case-insensitively). While unmet the action
+        can't start, its button shows a red "Name*", and its tooltip shows
+        a "Requires" section (both hidden again once satisfied). The legacy "shopping" tag still implies
+        ["General Store"] - see the WORLD section.
+      - gather: (optional) when true, one FORAGE_TABLES item lands per
+        completed cycle on top of the static payout (see FORAGE_TABLES).
+        The tooltip lists the current tile's loot odds (unseen items show
+        as "???" in their rarity color).
+        Finds merge as "• +N Item" bullets into the action's startLog
+        line (same item accumulates); empty cycles add nothing.
       - improvements: (optional) level-ups earned by repetition, e.g.
         improvements: { every: 20, maxLevel: 5, bonus: { coin: 0.1 },
         improvementLog: "They're warming up to you." }. Every `every`
@@ -104,6 +116,56 @@ const RESOURCES = [
   { id: "coin",    name: "Coin",    start: 0,  max: 5, kind: "currency", group: "Basic", nameColor: "#B87333", plural: "Coins", tooltip: "Copper-forged coins, standard-issue currency in many parts of the world.", tags: ["Currency"] },
   { id: "scroll",  name: "Scroll",  start: 0,  max: 4, kind: "currency", group: "Knowledge", nameColor: "#f6eee3", plural: "Scrolls", tooltip: "Perhaps the simplest form of stored knowledge.", tags: ["Currency", "Knowledge", "Written"] },
   { id: "research", name: "Research", start: 0, max: 10, kind: "currency", group: "Basic", nameColor: "#BDFFFB", tooltip: "Research into the nature of many things of this world.", tags: ["Currency", "Knowledge"] },
+];
+
+// ITEMS: non-currency holdings shown in the Inventory tab (unlocked
+// alongside the World tab), never in the Currencies/Vitals panels.
+// Same id/name/description/tags shape as resources, plus:
+//   - rarity: (optional, default "common") one of garbage, common,
+//     uncommon, rare, exotic, legendary. Paints the item's name
+//     everywhere (inventory grid, gather log lines, tooltips).
+//   - plural: (optional) plural at != 1, e.g. Apples.
+//   - tags: (optional) identifying chips, e.g. ["Herb", "Food"].
+//     The "consumable" tag makes the item edible from the Inventory
+//     tab (see `consume` below).
+//   - consume: (optional, needs the "consumable" tag) what eating one
+//     unit grants, e.g. consume: { button: "Eat", gains: { stamina: 1 } }.
+//     `button` (optional, default "Consume") is the button's text;
+//     `gains` (optional, default {}) pays Vitals and/or Currencies
+//     through the normal capped grants; `log` (optional) overrides the
+//     base consume line (default "You consume <name>."). The gains always
+//     follow it as "(+N Name, ...)", each in its target's own color
+//     (Stamina's pale yellow for "+1 Stamina").
+//   - sellPrice: (optional) what Selling Mode pays per unit sold, e.g.
+//     sellPrice: { coin: 1 }. Same amount rules as costs (non-negative
+//     finite numbers, zeros dropped, unknown ids warn). An item without
+//     any surviving priced entry can't be sold. Proceeds pay through the
+//     normal capped grants (excess over a cap is destroyed; the item's
+//     tooltip warns when the current sell amount would overflow), so
+//     over-cap sales still clear inventory.
+// Items never cap (Infinity) and never show bars. Actions, upgrades,
+// and furniture can demand them in costs/gains maps by id, exactly
+// like currencies (e.g. costs: { greenleaf: 2 }).
+const ITEMS = [
+  {
+    id: "greenleaf",
+    name: "Greenleaf",
+    plural: "Greenleaves",
+    rarity: "common",
+    tags: ["Herb", "Foraged"],
+    description: "A herb known for its very vibrant green leaves. Used in low-level alchemy.",
+    sellPrice: { coin: 1 },
+  },
+  {
+    id: "apples",
+    name: "Apple",
+    plural: "Apples",
+    rarity: "common",
+    tags: ["Food", "Foraged", "consumable"],
+    description: "Common red fruit.",
+    consume: { button: "Eat", gains: { stamina: 1 }, log: "You eat an apple." },
+    sellPrice: { coin: 1 },
+  },
 ];
 
 // PLAYER_STATS: the six character stats shown on the Player tab.
@@ -136,7 +198,14 @@ const PLAYER_STATS = [
 //   - effects: (optional, default []) passive boosts while current:
 //              { type: "max", resource, amount } = +amount to that cap,
 //              { type: "gain", action, resource, amount } = +amount of that
-//              resource every cycle of that action.
+//              resource every cycle of that action,
+//              { type: "time", action, amount } = that many fewer seconds
+//              per cycle of that action,
+//              { type: "furnitureCap", furniture, amount } = +amount to that
+//              furniture's purchase cap,
+//              { type: "travelTime", amount } / { type: "terrainDifficulty",
+//              amount } = faster / easier World travel (same as upgrades,
+//              including the optional biome limit).
 //   - replaces: (optional) home id (or array) this home overrides when
 //              granted: the listed homes are removed and this one becomes
 //              current instantly. Unowned replaced homes hide from the list.
@@ -149,7 +218,7 @@ const HOMES = [
 
 // FURNITURE: upgrade-like items bought for the current home, sold back for
 // a full refund. Same fields as upgrades (id/name/cost/maxPurchases/
-// description/buyLog/tags/effects), plus:
+// description/buyLog/tags/effects/requiresTile), plus:
 //   - space: (optional, default 1) Floor Space taken, in 0.5 steps
 //            (e.g. 0.5, 1, 1.5). Total used space may never exceed the
 //            current home's space.
@@ -159,6 +228,9 @@ const HOMES = [
 //   - sellLog: (optional) Work Log message when selling one, e.g.
 //            "You break apart a coin pile.". Defaults to "Sold: <name>".
 //   - flavor: (optional) italic line at the bottom of the tooltip.
+// While a cost asks for more than its cap holds, the tile requirement
+// is unmet, or the house's Floor Space is full, the furniture name shows
+// a red "Name*" like actions/upgrades.
 // Selling refunds the full cost, capped at each resource's cap - excess
 // over the cap is destroyed (the sell tooltip warns when that would happen).
 // "gain" effects add to an action's payout: { type: "gain", action: "rest",
@@ -187,12 +259,12 @@ const FURNITURE = [
     cost: { coin: 10 },
     maxPurchases: 1,
     requiresHome: ["tent", "mediumTent", "survivalistTent"],
-    tags: ["Recovery", "Furniture"],
+    tags: ["Shopping", "Recovery", "Furniture"],
     description: "Some simple blankets to keep the cold off.",
     buyLog: "You buy some blankets from the store.",
     sellLog: "You fold up your blankets and sell them off.",
     effects: [
-      { type: "gain", action: "rest", resource: "stamina", amount: 0.25 },
+      { type: "gain", action: "rest", resource: "stamina", amount: 0.2 },
     ],
   },
   {
@@ -202,7 +274,7 @@ const FURNITURE = [
     cost: { coin: 20 },
     maxPurchases: 2,
     requiresHome: ["mediumTent", "survivalistTent"],
-    tags: ["Recovery", "Furniture"],
+    tags: ["Shopping", "Recovery", "Furniture"],
     description: "Some slightly overpriced yet comfortable pillows.",
     buyLog: "You buy some pillows from the store.",
     sellLog: "You sell some pillows.",
@@ -326,6 +398,41 @@ const ACTIONS = [
       improvementLog: "[Research Scrolls Improved!] You have improved at looking through your scrolls.",
     },
   },
+  {
+    id: "explorePlains",
+    name: "Explore Plains",
+    header: "Tasks",
+    group: "Exploration",
+    tags: ["Exploration"],
+    tickSeconds: 6,
+    costs: { stamina: 2.5 },
+    xp: { plainsNavigation: 0.5 },
+    requiresTile: "Plains",
+    description: "Wander the open plains to learn how to better navigate them.",
+    startLog: "You set out across the open plains.",
+    stopLog: "You stop wandering through the plains.",
+    fullLog: "You are too exhausted to keep exploring.",
+    runtext: "Exploring...",
+    unlock: { upgrade: "exploreTown" },
+  },
+  {
+    id: "forage",
+    name: "Forage",
+    header: "Tasks",
+    group: "Exploration",
+    tags: ["Exploration", "Gathering"],
+    tickSeconds: 4,
+    costs: { stamina: 2 },
+    requiresTile: "Plains",
+    description: "Forage in the wilderness for items and usable plants. Different biomes have different items.",
+    startLog: "You start looking for stuff to gather off the ground...",
+    stopLog: "You stop foraging.",
+    fullLog: "You are too exhausted to keep foraging.",
+    runtext: "Foraging...",
+    flavor: "Nature's bounty...",
+    unlock: { upgrade: "exploreTown" },
+    gather: true, // roll one FORAGE_TABLES item per completed cycle (see below)
+  },
 
   // QUICK ADD - minimal action (gains only, 1s, auto description):
   // { id: "beg", name: "Beg", gains: { coin: 1 } },
@@ -369,6 +476,16 @@ const ACTIONS = [
                 = +1 to that furniture's purchase cap,
                 { type: "time", action: "rest", amount: 0.1 }
                 = 0.1s less per cycle of that action.
+                 { type: "travelTime", amount: 1 } = 1s less per World
+                 tile traveled to (floored at 0s, stacking - a 0s tile
+                 teleports instantly but still charges one second of its
+                 terrain drain). Add
+                 biome: "plains" to limit it to one biome's tiles. Read
+                 through getEffectiveTravelTime so future upgrades just work.
+                 { type: "terrainDifficulty", amount: 0.2 } = 0.2 less
+                 Stamina drained per second while traveling (floored at 0,
+                 same optional biome).
+                 Read through getEffectiveTerrainDifficulty.
                 Bad entries are skipped with a warning in the Work Log.
                 Effects share one { type, ... } shape everywhere (upgrades,
                 homes, furniture, skill milestones): skill-only types are
@@ -379,7 +496,7 @@ const ACTIONS = [
        exactly like action completion time: costs are paid when the
        build starts, clicking the upgrade pauses it, and resuming a
        paid build is free. One build runs at a time; each completion
-       grants one purchase (then stops, even if repeatable).
+       grants one purchase (then stops, even if repeatable). Builds tick alongside actions - running both at once is intentional.
      - group: (optional, default "Tasks") section name, shared with
        ACTIONS: same name = same section, actions first. "Shop" is not
        special: use any name ("Shop", "Gear", or an action group like
@@ -405,6 +522,12 @@ const ACTIONS = [
       - tags: (optional) identifying chips under the tooltip header,
         e.g. tags: ["Upgrade", "Clothing Augment"]. Check from code
         with hasTag(item, "Upgrade") or itemsWithTag("Upgrade").
+      - requiresTile: (optional) world tile tag (or array of tags) this
+        upgrade needs, e.g. requiresTile: "General Store". ANY listed tag
+        satisfies it (matched case-insensitively). While unmet the upgrade
+        can't be bought, its button shows a red "Name*", and its tooltip
+        shows a "Requires" section (both hidden again once satisfied). The
+        legacy "shopping" tag still implies ["General Store"] - see the WORLD section.
       - header: (optional) file this group under a titled header
         section, e.g. header: "Upgrades". Same header = same
         section; groups for groups.
@@ -467,12 +590,12 @@ const UPGRADES = [
     group: "Exploration",
     header: "Upgrades",
     tags: ["Exploration"],
-    description: "Venture out and explore the area around the town.",
+    description: "Venture out and survey the area around the town.",
     cost: { research: 10, stamina: 10 },
     maxPurchases: 1,
     buildTime: 30,
-    buyLog: "You finish exploring around the town, and now feel confident to explore.",
-    startLog: "You start wandering the plains around town.",
+    buyLog: "You finish exploring around the town, and now feel confident to set out on your own.",
+    startLog: "You start wandering the wilderness around town.",
     unlock: { home: "survivalistTent" },
     unlockLog: "You suspect opportunities may await in the lands surrounding the town.",
     effects: [],
@@ -568,9 +691,28 @@ const UPGRADES = [
 //         { type: "upgradeCap", upgrade: "pockets", amount: 3 } =
 //         that upgrade can be bought 3 more times past its base
 //         maxPurchases.
+//         { type: "furnitureCap", furniture: "blankets", amount: 1 } =
+//         that furniture can be bought 1 more time past its base
+//         maxPurchases.
+//         { type: "travelTime", amount: 1 } = World tiles take 1s less
+//         to enter (floored at 0s, stacking - a 0s tile teleports
+//         instantly but still charges one second of terrain drain);
+//         add perLevel: true to
+//         multiply by the skill's level, and biome: "plains" to limit it
+//         to one biome's tiles. Plains Navigation uses both.
+//         { type: "terrainDifficulty", amount: 0.2 } = 0.2 less Stamina
+//         drained per second while traveling (floored at 0, stacking);
+//         perLevel and biome work the same way.
+//         Skill effects with perLevel: true accept an optional cap (a
+//         skill level number): scaling counts at most that many levels,
+//         e.g. { ..., perLevel: true, cap: 5 } stops growing past Level 5.
 //         { type: "skill", skill: "sleeping" } = unlocks that skill:
 //         locked skills earn no XP, hide from tooltips, and stay out of
 //         the Skills tab (below Level 1) until unlocked.
+//         { type: "xpMult", skill: "plainsNavigation", amount: 2 } =
+//         all XP for that skill is doubled (multipliers compound).
+//         { type: "time", action: "explorePlains", amount: 0.1,
+//         perLevel: true } = that action takes 0.1s less per skill level.
 //         All effect types are validated by one registry (EFFECT_DEFS in
 //         core.js) - see its header to add a type.
 // Reaching a level logs "[Skill Level Up] Attained Level N in <name>." (green);
@@ -614,7 +756,7 @@ const SKILLS = [
       {
         level: 4,
         name: "Grasp the World",
-        text: "Your understanding of the world begins to deepen. Research Scrolls now only takes 2.5 Stamina, and unlock a new house with 40 Coins.",
+        text: "Your understanding of the world begins to deepen. Research Scrolls now only takes 2.5 Stamina, and unlock a new house for 40 Coins.",
         effects: [
           { type: "cost", action: "researchScrolls", resource: "stamina", amount: 2.5 },
         ],
@@ -633,7 +775,7 @@ const SKILLS = [
     milestones: [
       {
         level: 1,
-        name: "Seasoned Helper",
+        name: "Decent Helper",
         text: "Odd Jobs' Improvement cap increased by 5. (Doesn't apply retroactively.)",
         effects: [
           { type: "improvementCap", action: "oddJobs", amount: 5 },
@@ -678,12 +820,148 @@ const SKILLS = [
       {
         level: 1,
         name: "Calm Rest",
-        text: "Rest restores +0.05 more Stamina per Sleeping level.",
+        text: "Rest restores +0.03 more Stamina per Sleeping level, up to Level 5.",
         effects: [
-          { type: "gain", action: "rest", resource: "stamina", amount: 0.05, perLevel: true },
+          { type: "gain", action: "rest", resource: "stamina", amount: 0.03, perLevel: true, cap: 5 },
+        ],
+      },
+      {
+        level: 6,
+        name: "Another Blanket",
+        text: "You can buy 1 more Blanket.",
+        effects: [
+          { type: "furnitureCap", furniture: "blankets", amount: 1 },
+        ],
+      },
+    ],
+  },
+  {
+    id: "plainsNavigation",
+    name: "Plains Navigation",
+    group: "Exploration",
+    maxLevel: 15,
+    baseXp: 2,
+    scaling: 1.45,
+    tags: ["Skill", "Exploration"],
+    description: "Familiarity with wandering through the grass.",
+    milestones: [
+      {
+        level: 1,
+        name: "Plain Sense",
+        text: "Plains take 0.05s less to travel through per level of Plains Navigation.",
+        effects: [
+          { type: "travelTime", biome: "plains", amount: 0.05, perLevel: true },
+        ],
+      },
+      {
+        level: 3,
+        name: "Plains Investigation",
+        text: "Explore Plains takes 0.1s less per level of Plains Navigation.",
+        effects: [
+          { type: "time", action: "explorePlains", amount: 0.1, perLevel: true },
+        ],
+      },
+      {
+        level: 4,
+        name: "Plain Sense II",
+        text: "Double Plains Navigation XP gain from all sources.",
+        effects: [
+          { type: "xpMult", skill: "plainsNavigation", amount: 2 },
         ],
       },
     ],
   },
 ];
 
+// WORLD: the tile map the player walks around (World tab).
+// Bones of the feature: one small area, one biome, one town.
+//   WORLD_TIERS: one entry per selectable "World Tier" (the tab's dropdown
+//     lists these; picking one keeps your position per tier but every tier
+//     currently generates the same land, so the dropdown does nothing yet).
+//     - id:   short code (no spaces, e.g. "tier0")
+//     - name: label in the dropdown (e.g. "World Tier 0")
+//     - size: tiles per side, positive integer (6 = a 6x6 area)
+//     - biome: default WORLD_BIOMES id filling every tile
+//     - start: { x, y } tile the player begins on (0-based, top-left origin)
+//   WORLD_BIOMES: land types. Every tile is one biome, like resources.
+//     - id / name: (name defaults to id)
+//     - travelTime: (optional, default 5) seconds to move onto the tile
+//     - terrainDifficulty: (optional, default 1) Stamina drained per second
+//       while traveling onto the tile. Both read through
+//       getEffectiveTravelTime / getEffectiveTerrainDifficulty, so the
+//       "travelTime" / "terrainDifficulty" upgrade effects modify them.
+//     - color: (optional) tile background, e.g. "#8fd694" light green
+//     - description: (optional) shown in the tile info window
+//     - tags: (optional) chips, e.g. tags: ["Plains"]
+//   WORLD_MODIFIERS: overlays placed on tiles (see WORLD_SITES). They add
+//     tags and can shift stats, e.g. Small Town adds "General Store".
+//     - id / name: (name defaults to id)
+//     - short: (optional) up to 4 characters painted on the tile, e.g. "ST"
+//     - tags: (optional) extra tile tags while the modifier sits there
+//     - travelTime / terrainDifficulty: (optional, default 0) flat additions
+//       to the biome's values for that tile (may be negative)
+//     - color: (optional) tile background, e.g. "#84240c" brown - wins
+//       over the biome's color. Dark colors get light text automatically.
+//     - size: (optional, default 1) fraction of the tile's width/height
+//       the modifier color covers, centered (0.75 = a 75%-wide inset
+//       with the biome's color showing as a rim around it). 1 (or
+//       missing) obscures the tile entirely, as before.
+//     - locks: (optional) action ids banned on this tile, e.g.
+//       locks: ["forage", "explorePlains"] - those actions can't start
+//       or run while standing here (walk to another tile). Paid-cycle
+//       resume still finishes anywhere, like tile requirements.
+//     - description: (optional) shown in the tile info window
+//   WORLD_SITES: where modifiers sit: { tier, x, y, modifier }.
+//     The Small Town sits in the center of the Tier 0 plains.
+//   WORLD_ACTIONS: action ids mirrored into the World Actions window
+//     (Rest for mid-travel recovery, Explore Plains for plains XP,
+//     Forage for gathering plants and fruit). Explore Plains and Forage
+//     are locked on the Small Town tile itself, so they run on the
+//     surrounding plains - Rest works everywhere.
+//     These stay usable from the Work tab too. Mirror tooltips detach
+//     above the narrow strip at full size: they may overlap the Tile
+//     panel, but never anything above it.
+// Tile requirements: actions, upgrades, and furniture list world tile
+// tags they need with `requiresTile` (a tag or an array - ANY match
+// satisfies, matched case-insensitively), e.g.
+// requiresTile: "General Store". While unmet the item can't start/buy,
+// a running gated action stops at its next unpaid cycle, and its tooltip
+// shows a "Requires" section (hidden again once satisfied). The legacy
+// "shopping" tag still implies ["General Store"], so existing "Shopping"
+// tags keep working. Before the World unlocks (implicitly in town)
+// everything runs/buys as normal. Tile modifiers can also ban actions
+// outright with `locks` (nothing on the banned tile runs them while the
+// ban stands).
+// Tile-scoped travel effects: "travelTime" / "terrainDifficulty" effects
+// accept an optional biome ("plains", ...) limiting them to that biome's
+// tiles - Plains Navigation speeds up plains only, leaving future biomes
+// untouched.
+const WORLD_TIERS = [
+  { id: "tier0", name: "World Tier 0", size: 6, biome: "plains", start: { x: 3, y: 3 } },
+];
+
+const WORLD_BIOMES = [
+  { id: "plains", name: "Plains", travelTime: 5, terrainDifficulty: 0.5, color: "#8CD65A", description: "A stretch of land comprised of grass and not much else.", tags: ["Plains"] },
+];
+
+const WORLD_MODIFIERS = [
+  { id: "smallTown", name: "Small Town", short: "ST", tags: ["General Store"], color: "#84240c", size: 0.75, travelTime: -3, terrainDifficulty: -1, locks: ["forage", "explorePlains"], description: "A small town with a store to purchase goods from." },
+];
+
+const WORLD_SITES = [
+  { tier: "tier0", x: 3, y: 3, modifier: "smallTown" },
+];
+
+const WORLD_ACTIONS = ["rest", "explorePlains", "forage"];
+
+// FORAGE_TABLES: what the Forage action can find, per World Tier and tile.
+// Each entry picks its loot list by tier plus EITHER a biome id or a tile
+// tag (matched case-insensitively, first match in list order wins):
+//   { tier: "tier0", biome: "plains", items: [{ item: "greenleaf", weight: 60 },
+// //   { item: "apples", weight: 40 }] }
+// One unit of one rolled item lands per completed cycle (weights are
+// relative - 60/40 = 60% Greenleaf). Tiles with no matching entry yield
+// nothing. Item ids must exist in ITEMS (validated with a warning).
+const FORAGE_TABLES = [
+  { tier: "tier0", biome: "plains", items: [{ item: "greenleaf", weight: 60 }, { item: "apples", weight: 40 }] },
+];

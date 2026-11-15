@@ -51,8 +51,8 @@ function buildResourceEl(r) {
   if (isCurrency(r)) {
     const line = document.createElement("div");
     line.className = "currency";
-      line.dataset.res = r.id;
-      line.innerHTML = '<span class="cur-val"></span><span class="cur-name"></span>';
+    line.dataset.res = r.id;
+    line.innerHTML = '<span class="cur-val"></span><span class="cur-name"></span>';
     line.querySelector(".cur-name").textContent = r.name;
     if (r.nameColor) line.querySelector(".cur-name").style.color = r.nameColor;
     line.tabIndex = 0;

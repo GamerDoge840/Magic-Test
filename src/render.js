@@ -74,8 +74,12 @@ function render() {
     // unlockMet must run every frame (it logs one-time unlocks), but the
     // DOM writes below are skipped while nothing changed.
     // User hiding is ignored in hiding mode so struck actions show.
-    const hidden = !unlockMet(a, "a") || (!hidingMode.actions && itemHidden("a:" + a.id));
     const isActive = state.currentActionId === a.id;
+    // Tile-modifier locks (e.g. Small Town banning Forage) hide the
+    // action outright instead of a red star. A running action stays
+    // visible until the next tick stops it.
+    const lockHide = ((typeof worldActionLocked === "function") ? worldActionLocked(a) : false) && !isActive;
+    const hidden = !unlockMet(a, "a") || (!hidingMode.actions && itemHidden("a:" + a.id)) || lockHide;
     const count = state.stats.actions[a.id] ?? 0;
     // Skill milestones can discount the price (Scroll Frugality): every
     // affordability check, cap check, and label below reads the effective
@@ -97,7 +101,16 @@ function render() {
     // border goes away and auto-stop re-arms for the next fill-up.
     if (state.fullOverride && state.fullOverride[a.id] && !currencyGainsAreFull(effectiveGains(a))) delete state.fullOverride[a.id];
     const ovr = !!(state.fullOverride && state.fullOverride[a.id]);
-    const disabled = hidingMode.actions ? false : (isActive ? false : ((!canAfford(effCost) && !paidResume) || vitalsFull));
+    // Tile requirement: gated actions (e.g. Buy Scrolls) only start on
+    // a matching tile. A paid cycle picked up mid-bar resumes anywhere,
+    // exactly like upgrades and timed builds.
+    // Tile-modifier locks (e.g. Small Town banning Forage) block the
+    // same way.
+    const shopBlock = (typeof worldShopBlocked === "function") ? worldShopBlocked(a) : false;
+    const lockBlock = (typeof worldActionLocked === "function") ? worldActionLocked(a) : false;
+    const tileBlocked = shopBlock || lockBlock;
+    const tileStopped = tileBlocked && !paidResume;
+    const disabled = hidingMode.actions ? false : (isActive ? false : ((!canAfford(effCost) && !paidResume) || vitalsFull || tileStopped));
     const prog = cyc ? cyc.progress : 0;
     const tick = getEffectiveTick(a);
     const pkey = isActive ? prog.toFixed(3) : "";
@@ -115,7 +128,10 @@ function render() {
     // so the effective costs join the sig too - otherwise the tooltip's
     // Cost row would wait for the next run to refresh.
     const costSig = Object.keys(effCost).sort().map(id => id + ":" + effCost[id]).join(",");
-    const sig = (hidden ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + (isActive ? 1 : 0) + "|" + pkey + "|" + count + "|" + (overMax ? 1 : 0) + "|" + (itemHidden("a:" + a.id) ? 1 : 0) + "|" + impCap + "|" + xpSig + "|" + costSig + "|" + (curFull ? 1 : 0) + "|" + (ovr ? 1 : 0);
+    // Gather odds reveal on first-time finds without any new completions,
+    // so the table + seen state joins the sig too (like the XP unlock sig).
+    const gatherSig = (typeof gatherTipSig === "function") ? gatherTipSig(a) : "";
+    const sig = (hidden ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + (isActive ? 1 : 0) + "|" + pkey + "|" + count + "|" + (overMax ? 1 : 0) + "|" + (itemHidden("a:" + a.id) ? 1 : 0) + "|" + impCap + "|" + xpSig + "|" + costSig + "|" + (curFull ? 1 : 0) + "|" + (ovr ? 1 : 0) + "|" + (tileBlocked ? 1 : 0) + "|" + gatherSig;
     if (ref._sig === sig) continue;
     ref._sig = sig;
     btn.hidden = hidden;
@@ -134,71 +150,18 @@ function render() {
     if (ref.time) ref.time.textContent = isActive ? formatDuration(tick - prog, (s) => s.toFixed(2) + "s") : "";
     if (ref.tc) ref.tc.textContent = count;
     if (ref.label) {
-      ref.label.textContent = a.name + (overMax ? "*" : "");
-      ref.label.style.color = overMax ? "red" : "";
+      // Red "Name*" while the price exceeds a cap OR the tile requirement
+      // is unmet (off-tile). The asterisk uses the unmet requirement
+      // itself, not the stopped state, so a paid cycle picked up mid-bar
+      // still shows it while staying clickable for its free resume.
+      const reqStar = overMax || tileBlocked;
+      ref.label.textContent = a.name + (reqStar ? "*" : "");
+      ref.label.style.color = reqStar ? "red" : "";
     }
-    // Improved actions: live level in the header and live progress-to-next
-    // in the footer (count is in the sig, so any level change lands here;
-    // writes are no-ops when unchanged). The max-level line is live too:
-    // skill milestones can raise the cap mid-run.
-    if (a.improvements) {
-      const titleText = "[Lvl. " + actionLevel(a) + "] " + a.name;
-      if (ref.title && ref.title.textContent !== titleText) ref.title.textContent = titleText;
-      const footText = improvementFooter(a);
-      if (ref.foot && ref.foot.textContent !== footText) ref.foot.textContent = footText;
-      if (ref.impMax) {
-        const cap = (typeof getEffectiveImpMax === "function") ? getEffectiveImpMax(a) : a.improvements.maxLevel;
-        const maxText = "Max level: " + (cap === Infinity ? "none" : cap) + ".";
-        if (ref.impMax.textContent !== maxText) ref.impMax.textContent = maxText;
-      }
-    }
-    // Results rows always show the effective payout (base + improvement
-    // levels + furniture/home boosts), so tooltips stay truthful for every
-    // action - e.g. Rest shows 1.25 Stamina once Blankets are owned.
-    // Outside the sig gate on purpose: buying furniture changes the payout
-    // without changing the sig, and the per-row check keeps it cheap.
-    {
-      const eff = effectiveGains(a);
-      for (const g of ref.gains ?? []) {
-        const t = formatNum(eff[g.id] ?? 0);
-        if (g.el.textContent !== t) g.el.textContent = t;
-      }
-      // Cost rows are live for the same reason: a fresh discount changes
-      // the price without changing the sig, and the per-row check is cheap.
-      for (const c of ref.costs ?? []) {
-        const t = formatNum(effCost[c.id] ?? 0);
-        if (c.el.textContent !== t) c.el.textContent = t;
-      }
-      // Skill XP rows unhide live when their skill unlocks: unlocks fire
-      // mid-session with no UI rebuild (e.g. Basic Knowledge M3 revealing
-      // Odd Jobs Mastery on the Odd Jobs tooltip). Unlocks never reverse,
-      // so rows only ever appear, and the section follows suit.
-      if (ref.xpSec && typeof skillUnlocked === "function") {
-        let anyVisible = false;
-        const ex = (typeof effectiveXp === "function") ? effectiveXp(a) : (a.xp ?? {});
-        for (const x of ref.xpRows ?? []) {
-          const show = skillUnlocked(x.sid);
-          if (x.row.hidden === show) x.row.hidden = !show;
-          if (show) {
-            anyVisible = true;
-            // XP rows show the effective grant (base + improvement levels),
-            // so Research Scrolls reads 1.1 once improved.
-            if (x.el) {
-              const t = "+" + formatNum(ex[x.sid] ?? 0);
-              if (x.el.textContent !== t) x.el.textContent = t;
-            }
-          }
-        }
-        if (ref.xpSec.hidden === anyVisible) ref.xpSec.hidden = !anyVisible;
-      }
-      // Auto-written descriptions embed the base costs, so refresh them
-      // when discounts change the price. Custom descriptions stay as-is.
-      if (ref.autoDesc) {
-        const showCosts = Object.fromEntries(Object.entries(effCost).filter(([, n]) => n > 0));
-        const t = autoActionDescription({ tickSeconds: a.tickSeconds, costs: showCosts, gains: effectiveGains(a) });
-        if (ref.desc && ref.desc.textContent !== t) ref.desc.textContent = t;
-      }
-    }
+    // Live tooltip numbers (level header/footer, payouts, discounts, XP
+    // unlocks, requirement visibility): shared with the World mirror, so
+    // both copies refresh from one place.
+    if (typeof renderActionTipLive === "function") renderActionTipLive(a, ref);
   }
 
   for (const u of UPGRADES) {
@@ -224,13 +187,20 @@ function render() {
     const building = state.activeBuildId === u.id;
     const paidBuild = !building && !!b && b.paid === true;
     const bprog = b ? b.progress : 0;
-    const disabled = !hidingMode.actions && (maxed || (building ? false : (!canAfford(u.cost) && !paidBuild)));
+    // Tile requirement: gated upgrades only buy on a matching tile (free
+    // while the World is still locked). A paid build resumes anywhere,
+    // exactly like affordability.
+    const shopBlock = (typeof worldShopBlocked === "function") ? worldShopBlocked(u) : false;
+    const shopStopped = shopBlock && !building && !paidBuild;
+    const disabled = !hidingMode.actions && (maxed || (building ? false : (!canAfford(u.cost) && !paidBuild)) || shopStopped);
     const overMax = costExceedsMax(u.cost);
-    const sig = (hidden ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + owned + "|" + (overMax ? 1 : 0) + "|" + (itemHidden("u:" + u.id) ? 1 : 0) + "|" + (capNow === Infinity ? "i" : capNow) + "|" + (building ? bprog.toFixed(1) : (paidBuild ? "p" : "-"));
+    const sig = (hidden ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + owned + "|" + (overMax ? 1 : 0) + "|" + (itemHidden("u:" + u.id) ? 1 : 0) + "|" + (capNow === Infinity ? "i" : capNow) + "|" + (building ? bprog.toFixed(1) : (paidBuild ? "p" : "-")) + "|" + (shopStopped ? 1 : 0) + "|" + (shopBlock ? 1 : 0);
     if (ref._sig === sig) continue;
     ref._sig = sig;
     btn.hidden = hidden;
     btn.classList.toggle("userHidden", itemHidden("u:" + u.id));
+    // Requirement section only shows while the tile requirement is unmet.
+    if (ref.reqSec) ref.reqSec.hidden = !shopBlock;
     // Green means fully bought (complete), matching attained-milestone
     // green - not mere partial ownership. A cap rising under existing
     // ownership (e.g. Pockets 1/1 -> 1/4) must not paint a green "owned"
@@ -244,8 +214,11 @@ function render() {
     if (u.buildTime && ref.time) ref.time.textContent = building ? formatDuration(u.buildTime - bprog, (s) => s.toFixed(1) + "s") : "";
     if (ref.tc) ref.tc.textContent = formatNum(owned) + "/" + (capNow === Infinity ? "no limit" : formatNum(capNow));
     if (ref.label) {
-      ref.label.textContent = u.name + (overMax ? "*" : "");
-      ref.label.style.color = overMax ? "red" : "";
+      // Same red "Name*" as actions: over-cap price or unmet tile
+      // requirement (off-store). Paid builds resuming free stay clickable.
+      const reqStar = overMax || shopBlock;
+      ref.label.textContent = u.name + (reqStar ? "*" : "");
+      ref.label.style.color = reqStar ? "red" : "";
     }
   }
   hideEmptyGroups(actionsCtn);
@@ -273,8 +246,16 @@ function render() {
       const noSpace = used + (f.space ?? 1) > max;
       const cantAfford = !canAfford(f.cost);
       const hidden = !furnVisible(f);
-      const disBuy = maxed || cantAfford || noSpace;
+      // Tile requirement mirrors upgrades: gated furniture only buys on a
+      // matching tile (free while the World is still locked).
+      const shopBlock = (typeof worldShopBlocked === "function") ? worldShopBlocked(f) : false;
+      const disBuy = maxed || cantAfford || noSpace || shopBlock;
       const disSell = owned <= 0;
+      // Same red "Name*" as actions/upgrades: a price above its cap can
+      // never be saved up for, the tile requirement is unmet, or the
+      // house's Floor Space is full (nothing more fits until room frees).
+      const overMax = (typeof costExceedsMax === "function") ? costExceedsMax(f.cost ?? {}) : false;
+      const spaceFull = used >= max;
       let overflow = "";
       if (owned > 0) {
         const over = [];
@@ -292,13 +273,21 @@ function render() {
         else if (over.length === 2) overflow = "Selling now would destroy " + over[0] + " and " + over[1] + " over the cap.";
         else if (over.length) overflow = "Selling now would destroy " + over.slice(0, -1).join(", ") + ", and " + over[over.length - 1] + " over the cap.";
       }
-      const sig = (hidden ? 1 : 0) + "|" + owned + "|" + (cap === Infinity ? "i" : cap) + "|" + (disBuy ? 1 : 0) + "|" + (disSell ? 1 : 0) + "|" + overflow;
+      const sig = (hidden ? 1 : 0) + "|" + owned + "|" + (cap === Infinity ? "i" : cap) + "|" + (disBuy ? 1 : 0) + "|" + (disSell ? 1 : 0) + "|" + overflow + "|" + (shopBlock ? 1 : 0) + "|" + (overMax ? 1 : 0) + "|" + (spaceFull ? 1 : 0);
       if (ref._sig === sig) continue;
       ref._sig = sig;
       ref.root.hidden = hidden;
+      if (ref.name) {
+        const reqStar = overMax || shopBlock || spaceFull;
+        const want = f.name + (reqStar ? "*" : "");
+        if (ref.name.textContent !== want) ref.name.textContent = want;
+        if ((ref.name.style.color || "") !== (reqStar ? "red" : "")) ref.name.style.color = reqStar ? "red" : "";
+      }
       ref.owned.textContent = owned + "/" + formatNum(cap);
       ref.buy.disabled = disBuy;
       ref.sell.disabled = disSell;
+      // Requirement section only shows while the tile requirement is unmet.
+      if (ref.reqSec) ref.reqSec.hidden = !shopBlock;
       if (ref.tipCount) ref.tipCount.textContent = owned + "/" + formatNum(cap);
       if (ref.sellNotice) {
         ref.sellNotice.textContent = overflow;
@@ -328,6 +317,17 @@ function render() {
     tabSkillsBtn.hidden = !(typeof skillsUnlocked === "function" && skillsUnlocked());
   }
   if (typeof renderSkills === "function") renderSkills();
+  // World tab: visibility gating lives in renderWorld (locked until
+  // Explore Outskirts is performed), plus the map/travel repaint.
+  if (typeof renderWorld === "function") renderWorld();
+  // Inventory tab: unlocked alongside the World tab; the item grid
+  // repaints live from amounts/seen through renderInventory.
+  if (typeof tabInventoryBtn !== "undefined" && tabInventoryBtn) {
+    const invOpen = (typeof worldUnlocked === "function") ? worldUnlocked() : true;
+    tabInventoryBtn.hidden = !invOpen;
+    if (!invOpen && typeof tabInventory !== "undefined" && tabInventory && !tabInventory.hidden) showTab("work");
+  }
+  if (typeof renderInventory === "function") renderInventory();
 
   if (!current) {
     const stamina = state.amounts.stamina;
@@ -346,12 +346,19 @@ function render() {
   if (nowCancelBtn) nowCancelBtn.disabled = !state.currentActionId;
   // Keep the open tooltip's row tints truthful while amounts tick by.
   // Action tips recompute the discounted price (a milestone can land while
-  // the tip is open); other tips reuse the costs captured on open.
+  // the tip is open); upgrade tips go free on paid builds; other tips reuse
+  // the costs captured on open. The hover poll runs here too: it opens rings
+  // for CSS-hovered anchors whose mouse events never fire (disabled buttons)
+  // and heals missed leaves.
+  if (typeof pollHoverTip === "function") pollHoverTip();
   if (hoverTip && hoverTip.ref.root.isConnected) {
     let costs = hoverTip.costs;
-    if (hoverTip.key.startsWith("a:") && typeof effectiveCosts === "function") {
+    if ((hoverTip.key.startsWith("a:") || hoverTip.key.startsWith("w:")) && typeof effectiveCosts === "function") {
       const act = getAction(hoverTip.key.slice(2));
       if (act) costs = tipCostsFor(act, effectiveCosts(act));
+    } else if (hoverTip.key.startsWith("u:") && typeof getUpgrade === "function") {
+      const u = getUpgrade(hoverTip.key.slice(2));
+      if (u && typeof tipCostsForUpgrade === "function") costs = tipCostsForUpgrade(u);
     }
     tintTip(hoverTip.ref, costs);
     if (typeof syncTipPointer === "function") syncTipPointer(hoverTip.ref.root);
@@ -363,6 +370,8 @@ const nowCancelBtn = document.getElementById("nowCancelBtn");
 if (nowCancelBtn) nowCancelBtn.addEventListener("click", () => setAction(null));
 clearLogBtn.addEventListener("click", clearLog);
 if (typeof clearLogBtnHome !== "undefined" && clearLogBtnHome) clearLogBtnHome.addEventListener("click", clearLog);
+if (typeof clearLogBtnWorld !== "undefined" && clearLogBtnWorld) clearLogBtnWorld.addEventListener("click", clearLog);
+if (typeof clearLogBtnInv !== "undefined" && clearLogBtnInv) clearLogBtnInv.addEventListener("click", clearLog);
 resetBtn.addEventListener("click", () => {
   if (!confirm("Hard Reset will erase all progress. Are you sure?")) return;
   state = makeFreshState();
@@ -390,6 +399,8 @@ tabHomeBtn.addEventListener("click", () => showTab("home"));
 tabPlayerBtn.addEventListener("click", () => showTab("player"));
 tabSkillsBtn.addEventListener("click", () => showTab("skills"));
 tabOptionsBtn.addEventListener("click", () => showTab("options"));
+if (typeof tabWorldBtn !== "undefined" && tabWorldBtn) tabWorldBtn.addEventListener("click", () => showTab("world"));
+if (typeof tabInventoryBtn !== "undefined" && tabInventoryBtn) tabInventoryBtn.addEventListener("click", () => showTab("inventory"));
 showMaxedChk.addEventListener("change", () => {
   state.options.showMaxedUpgrades = showMaxedChk.checked;
   render();
@@ -398,8 +409,29 @@ stopIfFullChk.addEventListener("change", () => {
   state.options.stopIfFull = stopIfFullChk.checked;
   render();
 });
+if (typeof hideEmptyInvChk !== "undefined" && hideEmptyInvChk) hideEmptyInvChk.addEventListener("change", () => {
+  state.options.hideEmptyInv = hideEmptyInvChk.checked;
+  render();
+});
+if (typeof sellWarnChk !== "undefined" && sellWarnChk) sellWarnChk.addEventListener("change", () => {
+  state.options.sellWarn = sellWarnChk.checked;
+  render();
+});
 if (logLimitInput) logLimitInput.addEventListener("change", () => {
   state.options.logLimit = normalizeLogLimit(logLimitInput.value);
   logLimitInput.value = state.options.logLimit;
   trimLog();
+});
+if (typeof autosaveChk !== "undefined" && autosaveChk) autosaveChk.addEventListener("change", () => {
+  state.options.autosave = autosaveChk.checked;
+  render();
+});
+if (typeof autosaveEverySel !== "undefined" && autosaveEverySel) autosaveEverySel.addEventListener("change", () => {
+  state.options.autosaveEvery = normalizeAutosaveEvery(autosaveEverySel.value);
+  autosaveEverySel.value = String(state.options.autosaveEvery);
+  render();
+});
+if (typeof autosaveLogChk !== "undefined" && autosaveLogChk) autosaveLogChk.addEventListener("change", () => {
+  state.options.logAutosaves = autosaveLogChk.checked;
+  render();
 });

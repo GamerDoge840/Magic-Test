@@ -29,8 +29,125 @@
   #nowCancelBtn { padding: 2px 9px; font-size: 0.95em; line-height: 1.2; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
   #nowCancelBtn:disabled { opacity: 0.35; cursor: default; }
   #resetBtn { background: #c00; color: #fff; border-color: #900; }
-  #tabWork, #tabHome, #tabSkills { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #tabWork, #tabHome, #tabSkills, #tabWorld { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   #tabPlayer { flex: 1; min-height: 0; }
+  /* World tab: tile rail | map | vitals on top, the log stretched across
+     the whole bottom row. */
+  #worldGrid { display: grid; grid-template-columns: 268px minmax(0, 1fr) 240px; grid-template-rows: minmax(0, 1fr) 30vh; grid-template-areas: "wleft wmap wvitals" "wlog wlog wlog"; gap: 10px; margin-bottom: 0; text-align: left; align-items: stretch; flex: 1; min-height: 0; }
+  #worldGrid .panel { overflow: hidden; }
+  #worldLeftCol { grid-area: wleft; }
+  #worldMapPanel { grid-area: wmap; }
+  #worldVitalsPanel { grid-area: wvitals; }
+  #worldLogPanel { grid-area: wlog; max-height: 30vh; }
+  #worldTierRow { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 0.9em; flex: none; }
+  #worldTierRow select { background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 4px 8px; }
+  #worldMapCtn { display: grid; gap: 6px; justify-content: center; align-content: start; margin-bottom: 8px; overflow-y: auto; min-height: 0; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; --wt: 48px; position: relative; }
+  @media (min-width: 1100px) { #worldMapCtn { --wt: 64px; } }
+  .worldTile { width: var(--wt); height: var(--wt); font-weight: bold; font-size: 0.85em; text-align: center; white-space: nowrap; overflow: hidden; border-radius: 8px; border: 1px solid #4a4f5c; background: #8fd694; color: #14301c; padding: 2px; }
+  .worldTile.is-adj { cursor: pointer; border-color: #7fd97f; }
+  .worldTile.is-player { outline: 2px solid #fff; outline-offset: -2px; }
+  .worldTile.is-target { outline: 2px dashed #fff; outline-offset: -2px; }
+  .worldTile:not(.is-adj):not(.is-player) { opacity: 0.75; }
+  #worldTravelWrap { margin-top: auto; flex: none; display: flex; gap: 8px; align-items: center; }
+  #worldTravelProg { position: relative; height: 18px; background: rgba(0, 0, 0, 0.15); border-radius: 999px; overflow: hidden; flex: 1; }
+  #worldTravelBtn { background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 2px 10px; flex: none; }
+  /* The traveling player: an overlay sliding from the origin tile toward
+     the destination as the trip progresses (positioned by renderWorld). */
+  #worldPlayerMarker { position: absolute; z-index: 5; width: calc(var(--wt) * 0.62); height: calc(var(--wt) * 0.62); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.85em; color: #fff; background: rgba(20, 48, 28, 0.92); border: 2px solid #fff; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); }
+  #worldTravelFill { height: 100%; width: 0%; background: #7fd97f; }
+  #worldTravelTime { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 0.68em; font-weight: bold; background: rgba(0, 0, 0, 0.55); color: #fff; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+  .worldTileHead { font-weight: bold; font-size: 1em; }
+  .worldTileCoords { opacity: 0.7; font-size: 0.85em; margin-bottom: 6px; }
+  .worldTileStats { font-size: 0.9em; margin: 6px 0; display: flex; flex-direction: column; gap: 2px; }
+  .worldTileDesc { font-size: 0.85em; opacity: 0.8; }
+  .worldTileLocks { font-size: 0.9em; margin: 6px 0; color: #e04848; }
+  /* Tile window dividers: every stacked block (name/coords/tags/stats/
+     description, or the parked World Action card) separates with a
+     divider, so the window reads as distinct sections. */
+  #worldTileCtn > * + * { border-top: 1px solid #333842; margin-top: 8px; padding-top: 8px; }
+  #worldTileCtn { min-height: 0; max-height: 34vh; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
+  #worldActionsCtn { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
+  /* World Action mirrors detach their tips via position:fixed
+     (placeWorldTip) to escape the narrow strip's clipping: they must
+     not lift on hover, because a transformed ancestor makes fixed
+     positioning relative to the button instead of the viewport,
+     flinging the tip hundreds of pixels down off-screen. Enabled
+     mirrors broke this way while disabled ones (no lift) looked fine;
+     Work-tab tips stay absolute and keep their lift. */
+  #worldActionsCtn .actionBtn:hover { transform: none; }
+  /* Inventory tab: big item grid | vitals on top, the log stretched across
+     the whole bottom row (same pattern as the World tab). */
+  #tabInventory { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #invGrid { display: grid; grid-template-columns: minmax(0, 1fr) 240px; grid-template-rows: minmax(0, 1fr) 30vh; grid-template-areas: "inv invv" "invlog invlog"; gap: 10px; margin-bottom: 0; text-align: left; align-items: stretch; flex: 1; min-height: 0; }
+  #invGrid .panel { overflow: hidden; display: flex; flex-direction: column; min-height: 0; text-align: left; }
+  #invMainPanel { grid-area: inv; }
+  #invVitalsPanel { grid-area: invv; }
+  #invLogPanel { grid-area: invlog; max-height: 30vh; }
+  @media (max-width: 1100px) {
+    #invGrid { grid-template-columns: minmax(0, 1fr) 240px; grid-template-rows: none; flex: none; }
+    #invLogPanel { max-height: 34vh; }
+  }
+  @media (max-width: 700px) {
+    #invGrid { grid-template-columns: 1fr; grid-template-areas: "inv" "invv" "invlog"; }
+    #invLogPanel { max-height: 44vh; }
+  }
+  #invFilterRow { flex-wrap: wrap; }
+  #invTypeRow { flex-wrap: nowrap; overflow-x: auto; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #333842; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
+  #invTypeRow:empty, #invTypeRow[hidden] { display: none; }
+  #invGridCtn { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; align-content: start; flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; padding: 2px; }
+  /* Selling Mode: armed cells take a pointer and glow green on hover. */
+  #invGridCtn.selling .invCell { cursor: pointer; }
+  #invGridCtn.selling .invCell:hover { border-color: #7fd97f; }
+  #invSellRow { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #333842; flex-wrap: wrap; }
+  #furnSortRow { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #333842; }
+  #invSellRow:empty, #invSellRow[hidden] { display: none; }
+  .invCell { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; background: #1b1f26; border: 1px solid #333842; border-radius: 8px; padding: 8px 6px; text-align: center; }
+  .invCell.invEmpty { opacity: 0.45; }
+  .invName { font-weight: bold; font-size: 0.9em; overflow-wrap: anywhere; }
+  /* Item rarity colors (shared by inventory cells, item tooltips, and
+     gather-log bullets - applied as classes, not inline styles, so the
+     light-mode block below can re-tone them for white backgrounds). */
+  .rar-garbage { color: #9aa3b5; }
+  .rar-common { color: #f5f5f5; }
+  .rar-uncommon { color: #7fd97f; }
+  .rar-rare { color: #7fc9ff; }
+  .rar-exotic { color: #c58fff; }
+  .rar-legendary { background: linear-gradient(180deg, #ffd700, #b8860b); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: bold; }
+  /* Rarity filter chips wear their rarity's color - same palette as .rar-*,
+     but scoped to beat the .furnSortRow button color. "All" is no rarity
+     and keeps the default button color. */
+  #invFilterRow button.rar-garbage { color: #9aa3b5; }
+  #invFilterRow button.rar-common { color: #f5f5f5; }
+  #invFilterRow button.rar-uncommon { color: #7fd97f; }
+  #invFilterRow button.rar-rare { color: #7fc9ff; }
+  #invFilterRow button.rar-exotic { color: #c58fff; }
+  #invFilterRow button.rar-legendary { background: linear-gradient(180deg, #ffd700, #b8860b); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: bold; }
+  .invCount { font-size: 0.85em; opacity: 0.85; }
+  .invConsumeBtn { padding: 2px 10px; font-size: 0.85em; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
+  .invConsumeBtn:hover:not(:disabled) { background: #343945; }
+  .invConsumeBtn:disabled { opacity: 0.35; cursor: default; }
+  /* Layout spacer in inedible cells: reserves the Consume button's height
+     (invisible + untouchable) so all boxes line up. */
+  .invConsumeBtn.invConsumeSpacer { visibility: hidden; pointer-events: none; }
+  .invCell .tip { display: none; position: absolute; bottom: calc(100% - 2px); left: 50%; transform: translateX(-50%); min-width: 180px; max-width: 240px; width: max-content; max-height: min(360px, 70vh); overflow-y: auto; overscroll-behavior: contain; border: 1px solid #565e70; background: #161a20; color: #eee; font-size: 0.85em; font-weight: normal; text-align: left; padding: 10px 12px; white-space: normal; z-index: 10; pointer-events: none; border-radius: 6px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55); }
+  .invCell:hover .tip, .invCell:focus-visible .tip { display: block; }
+  .invCell:hover, .invCell:focus-visible { z-index: 11; }
+  /* Gathering results log plain, like any other entry (logGather groups
+     consecutive finds into one line); item names carry rarity colors. */
+  @media (max-width: 1100px) {
+    #invGridCtn { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+  @media (max-width: 700px) {
+    #invGridCtn { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  @media (max-width: 1100px) {
+    #worldGrid { grid-template-columns: 240px minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "wleft wmap" "wvitals wmap" "wlog wlog"; flex: none; }
+    #worldLogPanel { max-height: 34vh; }
+  }
+  @media (max-width: 700px) {
+    #worldGrid { grid-template-columns: 1fr; grid-template-areas: "wmap" "wleft" "wvitals" "wlog"; }
+    #worldLogPanel { max-height: 44vh; }
+  }
   /* Main three-column shell: resource rail | center stage | log.
      Shared by Work (actions center) and Home (furniture center). */
   #workGrid, #homeGrid { display: grid; grid-template-columns: 268px minmax(0, 1fr) 320px; gap: 10px; margin-bottom: 0; text-align: left; align-items: stretch; flex: 1; min-height: 0; }
@@ -327,6 +444,11 @@
   .skillRow.selected { outline: 2px solid #7fd97f; }
   /* Hovered rows rise above neighbors so tooltips are never covered. */
   .skillRow:hover { z-index: 11; }
+  /* Skill tips detach via position:fixed (placeSkillTip) to escape the
+     list's clipping: rows must not lift on hover, because a transformed
+     ancestor makes fixed positioning relative to the row instead of the
+     viewport, flinging the tip off-screen (same as World mirrors). */
+  #skillsGrid .skillRow:hover { transform: none; }
   .skillTop { font-weight: bold; }
   .skillXbar { height: 10px; background: rgba(0, 0, 0, 0.35); border-radius: 999px; overflow: hidden; }
   .skillXfill { height: 100%; width: 0%; background: #7fd97f; }
@@ -336,7 +458,7 @@
   .mileHead { font-weight: bold; margin-bottom: 2px; }
   /* Balloon notifications: fixed top-right cards, X dismisses, auto-gone in 15s.
      New balloons slide down into place (off under reduced-motion). */
-  #balloons { position: fixed; top: 12px; right: 12px; z-index: 100; display: flex; flex-direction: column; gap: 8px; max-width: min(340px, calc(100vw - 24px)); }
+  #balloons { position: fixed; top: 12px; right: 12px; z-index: 100; display: flex; flex-direction: column; gap: 8px; max-width: min(340px, calc(100vw - 24px)); max-height: calc(100vh - 24px); overflow-y: auto; }
   @keyframes balloonIn { from { transform: translateY(-18px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
   .balloon { background: #22262f; border: 1px solid #7fd97f; border-radius: 8px; padding: 10px 12px; text-align: left; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); animation: balloonIn 0.28s ease-out; }
   .balloon-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: bold; color: #7fd97f; margin-bottom: 4px; }
@@ -354,8 +476,10 @@
   /* One-time special messages stand out in pale yellow. */
   #logEl div.logSpecialMessage, #logElHome div.logSpecialMessage, .js-log div.logSpecialMessage { color: #FFFFA1; }
  /* Log + Furniture + Balloon filter + Select Home modals: fixed overlay + dialog box. */
-  #logFilterModal, #furnFilterModal, #homeModal, #balloonFilterModal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  #logFilterModal, #furnFilterModal, #homeModal, #balloonFilterModal, #invFilterModal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
   .modalBox { background: #1b1f26; border: 1px solid #4a4f5c; border-radius: 10px; padding: 14px 18px; width: 460px; max-width: calc(100vw - 32px); text-align: left; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6); }
+  #sellQtyInput { width: 76px; background: #22262f; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 4px 8px; font-size: 0.95em; }
+  #invSellQtyBtns { display: contents; }
   .modalBox h3 { margin: 0 0 4px; font-size: 1em; text-align: center; }
   .modalBox label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 0.92em; font-weight: bold; }
   .filterGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; margin-top: 10px; }
@@ -367,10 +491,12 @@
   @media (max-width: 520px) { .modalBox { width: 300px; } .filterGrid { grid-template-columns: 1fr; } }
 .modalBtns { margin-top: 14px; text-align: center; }
   /* Thin scrollbars on dark scroll areas. */
-  #currenciesCtn::-webkit-scrollbar, #vitalsCtn::-webkit-scrollbar, #actionsCtn::-webkit-scrollbar, #furnitureCtn::-webkit-scrollbar,
+  #currenciesCtn::-webkit-scrollbar, #vitalsCtn::-webkit-scrollbar, #actionsCtn::-webkit-scrollbar, #furnitureCtn::-webkit-scrollbar, #worldTileCtn::-webkit-scrollbar, #worldActionsCtn::-webkit-scrollbar, #invGridCtn::-webkit-scrollbar,
   #logEl::-webkit-scrollbar, #logElHome::-webkit-scrollbar, .js-log::-webkit-scrollbar { width: 8px; }
-  #currenciesCtn::-webkit-scrollbar-thumb, #vitalsCtn::-webkit-scrollbar-thumb, #actionsCtn::-webkit-scrollbar-thumb, #furnitureCtn::-webkit-scrollbar-thumb,
+  #currenciesCtn::-webkit-scrollbar-thumb, #vitalsCtn::-webkit-scrollbar-thumb, #actionsCtn::-webkit-scrollbar-thumb, #furnitureCtn::-webkit-scrollbar-thumb, #worldTileCtn::-webkit-scrollbar-thumb, #worldActionsCtn::-webkit-scrollbar-thumb, #invGridCtn::-webkit-scrollbar-thumb,
   #logEl::-webkit-scrollbar-thumb, #logElHome::-webkit-scrollbar-thumb, .js-log::-webkit-scrollbar-thumb { background: #4a4f5c; border-radius: 4px; }
+  #invTypeRow::-webkit-scrollbar { height: 8px; }
+  #invTypeRow::-webkit-scrollbar-thumb { background: #4a4f5c; border-radius: 4px; }
   @media (prefers-color-scheme: light) {
     body { background: #f2f2f2; color: #111; }
     .panel { background: #fff; border-color: #bbb; }
@@ -383,7 +509,7 @@
     .panel h2 { background: #e8e8e8; color: #222; border-bottom-color: #bbb; }
     .actionBtn, .shopBtn { background: #f5f5f5; color: #111; border-color: #999; }
     .actionBtn:hover:not(:disabled), .shopBtn:hover:not(:disabled) { background: #e8e8e8; }
-    .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip, .furnCard .tip, .homeRow .tip, .skillRow .tip { background: #fff; color: #000; border-color: #999; }
+    .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip, .furnCard .tip, .homeRow .tip, .skillRow .tip, .invCell .tip { background: #fff; color: #000; border-color: #999; }
     .tip-head { border-bottom-color: #ccc; }
     .tip-count { color: #555; }
     .tip-desc { color: #333; }
@@ -398,6 +524,11 @@
     .furnSortRow button, .furnBtns button, .homeRow { background: #f5f5f5; color: #111; border-color: #999; }
     .furnSortRow button:hover:not(:disabled), .furnBtns button:hover:not(:disabled), .homeRow:hover:not(:disabled) { background: #e8e8e8; }
     .furnSortRow button.active { background: #333; color: #fff; border-color: #333; }
+    .invCell { background: #f5f5f5; border-color: #999; }
+    #invTypeRow, #invSellRow { border-bottom-color: #bbb; }
+    #furnSortRow { border-bottom-color: #bbb; }
+    .invConsumeBtn { background: #e4e4e4; color: #222; border-color: #999; }
+    .invConsumeBtn:hover:not(:disabled) { background: #e8e8e8; }
     .tip-sec { border-color: #999; }
     .tip-tag { background: #e4e4e4; border-color: #aaa; }
     .modalBox { background: #fff; color: #111; border-color: #bbb; }
@@ -413,6 +544,9 @@
     .playerStatsHead { color: #666; border-bottom-color: #ccc; }
     .optionRow button { background: #e4e4e4; color: #222; border: 1px solid #aaa; border-radius: 6px; }
     .optionRow input { background: #fff; color: #000; border: 1px solid #999; border-radius: 6px; }
+    #sellQtyInput { background: #fff; color: #000; border: 1px solid #999; }
+    #worldTierRow select { background: #fff; color: #000; border: 1px solid #999; border-radius: 6px; }
+    .worldTile { border-color: #999; }
     /* Dark-mode resource/log hues wash out on white: darken the config-driven
        inline colors (hue preserved via filter) and log accents for light mode. */
     .currency .cur-name, .res .res-name { filter: brightness(0.55); }
@@ -422,6 +556,24 @@
     #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement, #logEl div.logSkillup, #logElHome div.logSkillup, .js-log div.logSkillup { color: #1c7a1c; }
     #logEl div.logFull, #logElHome div.logFull, .js-log div.logFull { color: #c96a00; }
     #logEl div.logSpecialMessage, #logElHome div.logSpecialMessage, .js-log div.logSpecialMessage { color: #8a6d00; }
+    #worldTileCtn > * + * { border-top-color: #bbb; }
+    /* Dark-mode rarity hues wash out on white (common is near-white):
+       re-tone them for light backgrounds. The legendary gradient keeps
+       its shape, darkened; resource-gain spans in consume lines get the
+       same brightness treatment as currency/resource values above. */
+    .rar-garbage { color: #5b6478; }
+    .rar-common { color: #4a4a4a; }
+    .rar-uncommon { color: #1e7d1e; }
+    .rar-rare { color: #0b6e99; }
+    .rar-exotic { color: #7a3fd1; }
+    .rar-legendary { background: linear-gradient(180deg, #b8860b, #7a5c00); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    #invFilterRow button.rar-garbage { color: #5b6478; }
+    #invFilterRow button.rar-common { color: #4a4a4a; }
+    #invFilterRow button.rar-uncommon { color: #1e7d1e; }
+    #invFilterRow button.rar-rare { color: #0b6e99; }
+    #invFilterRow button.rar-exotic { color: #7a3fd1; }
+    #invFilterRow button.rar-legendary { background: linear-gradient(180deg, #b8860b, #7a5c00); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .gain-c { filter: brightness(0.55); }
   }
   html { color-scheme: light dark; }
 </style>
@@ -437,6 +589,8 @@
     <button id="tabHomeBtn" class="tab" type="button" role="tab" aria-selected="false" hidden>Home</button>
     <button id="tabPlayerBtn" class="tab" type="button" role="tab" aria-selected="false">Player</button>
     <button id="tabSkillsBtn" class="tab" type="button" role="tab" aria-selected="false" hidden>Skills</button>
+    <button id="tabWorldBtn" class="tab" type="button" role="tab" aria-selected="false" hidden>World</button>
+    <button id="tabInventoryBtn" class="tab" type="button" role="tab" aria-selected="false" hidden>Inventory</button>
     <button id="tabOptionsBtn" class="tab" type="button" role="tab" aria-selected="false">Options</button>
   </nav>
   <div id="nowCard">
@@ -481,7 +635,7 @@
         <h2 class="hasBtn"><span class="hbtns left"><span class="homeLabel">Home:</span><button id="homeSelectBtn" type="button">Small Tent</button></span><span class="htitle">Furniture</span><span class="hbtns"><button id="furnFilterBtn" type="button">Filters</button></span></h2>
         <div class="homeMetaRow"><span id="floorSpaceEl">Floor Space: 0 / 0</span></div>
         <div id="homeFullNote" class="homeFullNote" hidden>You can't seem to cram anything more in here...</div>
-        <div class="furnSortRow"><span>Sort:</span><button id="sortSpaceBtn" type="button">Floor Space ↕</button><button id="sortNameBtn" type="button">Furnishing ↕</button></div>
+        <div class="furnSortRow" id="furnSortRow"><span>Sort:</span><button id="sortSpaceBtn" type="button">Floor Space ↕</button><button id="sortNameBtn" type="button">Furnishing ↕</button></div>
         <div id="furnitureCtn"></div>
       </div>
       <section class="panel panel-log" aria-label="Log">
@@ -520,6 +674,65 @@
     </div>
   </div>
 
+  <div id="tabWorld" role="tabpanel" hidden>
+    <div id="worldGrid">
+      <div class="sideCol" id="worldLeftCol">
+        <section class="panel" aria-label="Tile">
+          <h2>Tile</h2>
+          <div id="worldTileCtn"></div>
+        </section>
+        <section class="panel" aria-label="World Actions">
+          <h2>World Actions</h2>
+          <div id="worldActionsCtn"></div>
+        </section>
+      </div>
+      <section class="panel" id="worldMapPanel" aria-label="Map">
+        <h2>World</h2>
+        <div id="worldTierRow"><label>World Tier <select id="worldTierSelect"></select></label></div>
+        <div id="worldMapCtn"></div>
+        <div id="worldTravelWrap" hidden>
+          <div id="worldTravelProg"><div id="worldTravelFill"></div><span id="worldTravelTime"></span></div>
+          <button id="worldTravelBtn" type="button">Stop</button>
+        </div>
+      </section>
+      <section class="panel" id="worldVitalsPanel" aria-label="Vitals">
+        <h2>Vitals</h2>
+        <div id="vitalsCtnWorld" class="js-vitals"></div>
+      </section>
+      <section class="panel" id="worldLogPanel" aria-label="Log">
+        <h2 class="hasBtn"><span class="hbtns left"><button id="logFilterBtnWorld" type="button">Filters</button></span><span class="htitle">Log</span><span class="hbtns"><button id="clearLogBtnWorld" type="button">Clear Log</button></span></h2>
+        <div id="logElWorld" class="js-log" aria-live="polite"></div>
+      </section>
+    </div>
+  </div>
+
+  <div id="tabInventory" role="tabpanel" hidden>
+    <div id="invGrid">
+      <section class="panel" id="invMainPanel" aria-label="Inventory">
+        <h2 class="hasBtn"><span class="hbtns left"><button id="invFilterBtn" type="button">Rarity Filters</button><button id="invSellBtn" type="button" title="Sell items for Coins (General Store only)">Sell</button></span><span class="htitle">Inventory</span></h2>
+        <div class="furnSortRow" id="invTypeRow"></div>
+        <div class="furnSortRow" id="invSellRow" hidden><span>Sell:</span><span id="invSellQtyBtns"></span><input id="sellQtyInput" type="number" min="1" max="99999" step="1" title="Custom amount - each click sells up to this many of the tapped item."></div>
+        <div id="invGridCtn"></div>
+      </section>
+      <section class="panel" id="invVitalsPanel" aria-label="Vitals">
+        <h2>Vitals</h2>
+        <div id="vitalsCtnInv" class="js-vitals"></div>
+      </section>
+      <section class="panel" id="invLogPanel" aria-label="Log">
+        <h2 class="hasBtn"><span class="hbtns left"><button id="logFilterBtnInv" type="button">Filters</button></span><span class="htitle">Log</span><span class="hbtns"><button id="clearLogBtnInv" type="button">Clear Log</button></span></h2>
+        <div id="logElInv" class="js-log" aria-live="polite"></div>
+      </section>
+    </div>
+  </div>
+
+<div id="invFilterModal" hidden>
+  <div class="modalBox" role="dialog" aria-modal="true" aria-labelledby="invFilterTitle">
+    <h3 id="invFilterTitle">Rarity Filters</h3>
+    <div class="furnSortRow" id="invFilterRow"></div>
+    <div class="modalBtns"><button id="invFilterCloseBtn" type="button">Close</button></div>
+  </div>
+</div>
+
 <div id="logFilterModal" hidden>
   <div class="modalBox" role="dialog" aria-modal="true" aria-labelledby="logFilterTitle">
     <h3 id="logFilterTitle">Log Filters</h3>
@@ -547,6 +760,10 @@
       <div class="filterItem">
         <label><input id="logImprovementsChk" type="checkbox"> Action improvements</label>
         <div class="modalSub">Logs notifying of action improvements.</div>
+      </div>
+      <div class="filterItem">
+        <label><input id="logGatheringChk" type="checkbox"> Gathering results</label>
+        <div class="modalSub">Teal bulletins listing what Forage finds.</div>
       </div>
     </div>
     <div class="modalSub modalNote">(Note: Some system messages are always visible in the log regardless of filters.)</div>
@@ -613,6 +830,9 @@
       <div style="padding: 6px 10px 10px;">
     <div class="optionRow"><button id="manualSaveBtn" type="button">Save Game</button><span>Save progress in this browser.</span></div>
     <div class="optionRow"><button id="manualLoadBtn" type="button">Load Saved Game</button><span>Load the browser save (also loads on start).</span></div>
+    <div class="optionRow"><label style="white-space:nowrap"><input id="autosaveChk" type="checkbox"> Enable autosave</label><span>Automatically save progress in this browser on a timer. Off by default.</span></div>
+    <div class="optionRow"><label>Autosave every <select id="autosaveEverySel"><option value="1">1 minute</option><option value="5">5 minutes</option><option value="10">10 minutes</option></select></label><span>How often the autosave fires while enabled.</span></div>
+    <div class="optionRow"><label style="white-space:nowrap"><input id="autosaveLogChk" type="checkbox"> Log autosaves</label><span>Show "Game Autosaved." in the log each time.</span></div>
     <div class="optionRow"><button id="exportBtn" type="button">Export Save (File)</button><span>Download progress as a file.</span></div>
     <div class="optionRow"><button id="importBtn" type="button">Import Save (File)</button><span>Load progress from a file.</span></div>
     <div class="optionRow"><button id="exportClipBtn" type="button">Export Save (Clipboard)</button><span>Copy progress as text.</span></div>
@@ -629,6 +849,8 @@
       <div style="padding: 6px 10px 10px;">
     <div class="optionRow"><label><input id="showMaxedChk" type="checkbox"> Show maxed-out Work upgrades</label></div>
     <div class="optionRow"><label style="white-space:nowrap"><input id="stopIfFullChk" type="checkbox"> Stop if Full</label><span>Actions automatically stop when one of their currency outputs reaches its cap. A stopped-full action shows an orange border — click it to run anyway.</span></div>
+    <div class="optionRow"><label style="white-space:nowrap"><input id="hideEmptyInvChk" type="checkbox"> Hide empty inventory items</label><span>Inventory hides items you own 0 of instead of showing them grayed-out. Items you never obtained stay hidden either way.</span></div>
+    <div class="optionRow"><label style="white-space:nowrap"><input id="sellWarnChk" type="checkbox"> Warn before over-cap sales</label><span>Item tooltips warn when selling the current amount would overflow a cap ("Selling 3 would destroy 1.5 Coins over the cap."). On by default.</span></div>
     <div class="optionRow"><label>Log Entry Cap <input id="logLimitInput" type="number" min="10" max="1000" step="1" style="width: 80px;"></label><span>Older entries beyond this number are removed (10–1000, default 200).</span></div>
     <div class="optionRow"><button id="balloonFilterBtn" type="button">Notification Balloons</button><span>Choose which balloon notifications pop up.</span></div>
       </div>
@@ -647,6 +869,8 @@
 <script src="src/upgrades.js"></script>
 <script src="src/furniture.js"></script>
 <script src="src/skills.js"></script>
+<script src="src/inventory.js"></script>
+<script src="src/world.js"></script>
 <script src="src/render.js"></script>
 <script src="src/ui.js"></script>
 <script src="src/main.js"></script>
@@ -655,7 +879,7 @@
 // in a local copy), say so visibly instead of showing empty panels.
 if (typeof buildUI !== "function" || typeof RESOURCES === "undefined") {
   document.getElementById("statusEl").textContent = "Game files failed to load.";
-  document.getElementById("logEl").innerHTML = "<div>This file expects a folder named src next to it, containing: config.js, core.js, save.js, log.js, actions.js, tips.js, resources.js, groups.js, upgrades.js, furniture.js, skills.js, render.js, ui.js, main.js.</div>";
+  document.getElementById("logEl").innerHTML = "<div>This file expects a folder named src next to it, containing: config.js, core.js, save.js, log.js, actions.js, tips.js, resources.js, groups.js, upgrades.js, furniture.js, skills.js, inventory.js, world.js, render.js, ui.js, main.js.</div>";
 }
 </script>
 </body>

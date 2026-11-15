@@ -72,17 +72,20 @@ function fitTip(tip, anchor, prefer) {
   // measures 0, and bailing with the reset in place would wipe its
   // last-good placement - revealed later in the wrong spot.
   const keepTop = tip.style.top, keepBottom = tip.style.bottom,
-    keepMaxH = tip.style.maxHeight, keepML = tip.style.marginLeft;
+    keepMaxH = tip.style.maxHeight, keepML = tip.style.marginLeft,
+    keepMaxW = tip.style.maxWidth;
   tip.style.top = "";
   tip.style.bottom = "";
   tip.style.maxHeight = "";
   tip.style.marginLeft = "";
+  tip.style.maxWidth = "";
   const h = tip.offsetHeight;
   if (!h) {
     tip.style.top = keepTop;
     tip.style.bottom = keepBottom;
     tip.style.maxHeight = keepMaxH;
     tip.style.marginLeft = keepML;
+    tip.style.maxWidth = keepMaxW;
     return;
   }
   const b = anchor.getBoundingClientRect();
@@ -133,16 +136,28 @@ function fitTip(tip, anchor, prefer) {
   } else if (tip.style.maxHeight) {
     tip.style.maxHeight = "";
   }
-  // Horizontal clamp for centered tips (left:50% ones): shift inboard when
-  // near a window edge. Left-anchored tips (actions/furniture) skip this.
+  // Horizontal clamp for centered tips (left:50% ones): shift inboard
+  // when near an edge - but a tip WIDER than its visible home (e.g. a
+  // 240px World-mirror tip in the narrow World Actions strip) can't be
+  // shifted into fit, so narrow it to the visible width and center it
+  // there instead of shoving it sideways off the other edge.
+  // Left-anchored tips (detached furniture ones) skip this.
   const centered = getComputedStyle(tip).transform !== "none";
   if (centered) {
     const r = tip.getBoundingClientRect();
-    let shift = 0;
-    if (r.left < bounds.left) shift = bounds.left - r.left;
-    else if (r.right > bounds.right) shift = bounds.right - r.right;
-    const want = shift ? Math.round(shift) + "px" : "";
-    if (tip.style.marginLeft !== want) tip.style.marginLeft = want;
+    const availW = bounds.right - bounds.left;
+    if (r.width > availW + 1) {
+      tip.style.maxWidth = Math.max(120, Math.floor(availW)) + "px";
+      const r2 = tip.getBoundingClientRect();
+      const want = Math.round(bounds.left + (availW - r2.width) / 2 - r2.left) + "px";
+      if (tip.style.marginLeft !== want) tip.style.marginLeft = want;
+    } else {
+      let shift = 0;
+      if (r.left < bounds.left) shift = bounds.left - r.left;
+      else if (r.right > bounds.right) shift = bounds.right - r.right;
+      const want = shift ? Math.round(shift) + "px" : "";
+      if (tip.style.marginLeft !== want) tip.style.marginLeft = want;
+    }
   } else if (tip.style.marginLeft) {
     tip.style.marginLeft = "";
   }
@@ -187,6 +202,309 @@ function appendTipXpSection(tip, xp) {
   return { sec, rows: refs };
 }
 
+// Tile-requirement tooltip section ("Requires: General Store tile"),
+// shared by action, upgrade, and furniture tips. Returns the section
+// element (or null when the item needs no tile); render() hides it while
+// the requirement is met, so it only ever shows off-store.
+function appendTileRequirementSection(tip, item) {
+  if (typeof tileRequirementTags !== "function") return null;
+  if (!tileRequirementTags(item).length) return null;
+  const sec = document.createElement("div");
+  sec.className = "tip-sec";
+  const lab = document.createElement("div");
+  lab.className = "tip-sec-label";
+  lab.textContent = "Requires";
+  sec.appendChild(lab);
+  const row = document.createElement("div");
+  row.className = "tip-row";
+  const s = document.createElement("span");
+  s.textContent = tileRequirementLabel(item);
+  row.appendChild(s);
+  sec.appendChild(row);
+  tip.appendChild(sec);
+  return sec;
+}
+
+// Shared action-tip body: the same header/tags/desc/Cost/Results/Skill
+// XP/Improvement/foot/flavor/Requires tree for Work buttons and World
+// Action mirrors, so both tooltips always agree. Returns the tip node
+// plus the live refs render() refreshes (counts, payouts, XP rows,
+// requirement visibility).
+// Tile-lock tooltip section ("Locked: Small Town"), shared the same
+// way. Built for any action some modifier can lock; render() shows it
+// only while the CURRENT tile bans this action.
+function appendTileLockSection(tip, item) {
+  if (!item || !item.id || typeof worldActionLocked !== "function") return null;
+  const mods = (typeof WORLD_MODIFIERS !== "undefined") ? WORLD_MODIFIERS : [];
+  const lockers = mods.filter(m => {
+    const locks = Array.isArray(m.locks) ? m.locks : (m.locks === undefined ? [] : [m.locks]);
+    return locks.some(l => typeof l === "string" && l.toLowerCase() === String(item.id).toLowerCase());
+  });
+  if (!lockers.length) return null;
+  const sec = document.createElement("div");
+  sec.className = "tip-sec";
+  const lab = document.createElement("div");
+  lab.className = "tip-sec-label";
+  lab.textContent = "Locked";
+  sec.appendChild(lab);
+  const row = document.createElement("div");
+  row.className = "tip-row";
+  const s = document.createElement("span");
+  s.textContent = lockers.map(m => m.name).join(" or ");
+  row.appendChild(s);
+  sec.appendChild(row);
+  sec.hidden = true;
+  tip.appendChild(sec);
+  return sec;
+}
+
+function buildActionTipBody(a) {
+  const tip = document.createElement("span");
+  tip.className = "tip";
+  const head = document.createElement("div");
+  head.className = "tip-head";
+  const title = document.createElement("span");
+  title.textContent = a.improvements ? "[Lvl. " + actionLevel(a) + "] " + a.name : a.name;
+  const count = document.createElement("span");
+  count.className = "tip-count";
+  count.textContent = "0";
+  head.appendChild(title);
+  head.appendChild(count);
+  tip.appendChild(head);
+  const headTags = buildTipTags(a);
+  if (headTags) tip.appendChild(headTags);
+  const desc = document.createElement("div");
+  desc.className = "tip-desc";
+  desc.textContent = a.description ?? autoActionDescription({ tickSeconds: a.tickSeconds ?? 1, costs: a.costs ?? {}, gains: a.gains ?? {} });
+  tip.appendChild(desc);
+  const costRefs = [];
+  appendTipSection(tip, "Cost", a.costs ?? {}, costRefs);
+  // Results rows are live for improved actions (payout grows per level):
+  // build rows for base gains plus any bonus-only resources, then update.
+  // Furniture/home/skill-milestone "gain" effects add payout too, so their
+  // resources get rows even when the base action pays nothing of them
+  // (skill rows read 0 until their milestone lands, like unlevelled
+  // improvement bonuses - render() fills them in live).
+  const gainBase = { ...(a.gains ?? {}) };
+  for (const k of Object.keys(a.improvements?.bonus ?? {})) if (!(k in gainBase)) gainBase[k] = 0;
+  for (const f of FURNITURE) {
+    for (const e of f.effects ?? []) {
+      if (e.type === "gain" && e.action === a.id && e.resource && !(e.resource in gainBase)) gainBase[e.resource] = 0;
+    }
+  }
+  for (const h of HOMES) {
+    for (const e of h.effects ?? []) {
+      if (e.type === "gain" && e.action === a.id && e.resource && !(e.resource in gainBase)) gainBase[e.resource] = 0;
+    }
+  }
+  if (typeof allSkillMilestoneEffects === "function") {
+    for (const x of allSkillMilestoneEffects()) {
+      const e = x.effect;
+      if (e.type === "gain" && e.action === a.id && e.resource && !(e.resource in gainBase)) gainBase[e.resource] = 0;
+    }
+  }
+  const gainRefs = [];
+  appendTipSection(tip, "Results", gainBase, gainRefs);
+  // Skill XP the action grants per cycle (e.g. Research Scrolls -> Basic
+  // Knowledge). Listed right after Results so no payout goes unmentioned.
+  // Rows for locked skills build hidden and unhide live in render().
+  const xpBuilt = (typeof appendTipXpSection === "function") ? appendTipXpSection(tip, a.xp) : null;
+  // Gather odds (gather actions only, e.g. Forage): the current tile's
+  // loot table with each item's share. Unseen items show as "???" in
+  // their rarity color. Refreshed live in render() (moving tiles or
+  // first-time finds rebuild the rows).
+  const gatherSec = appendGatherSection(tip, a);
+  // The max-level line is live (skill milestones can raise the cap), so
+  // keep its row: render() refreshes the text whenever the cap moves.
+  let impMaxRow = null;
+  if (a.improvements) {
+    const impSec = document.createElement("div");
+    impSec.className = "tip-sec";
+    const impLab = document.createElement("div");
+    impLab.className = "tip-sec-label";
+    impLab.textContent = "Improvement";
+    impSec.appendChild(impLab);
+    const impMax = (typeof getEffectiveImpMax === "function") ? getEffectiveImpMax(a) : a.improvements.maxLevel;
+    const impLines = ["Level up every " + a.improvements.every + " actions.", "Max level: " + (impMax === Infinity ? "none" : impMax) + "."];
+    const impBonus = describeCost(a.improvements.bonus);
+    if (impBonus) impLines.push("Bonus per level: +" + impBonus + ".");
+    impLines.forEach((t, i) => {
+      const row = document.createElement("div");
+      row.className = "tip-row";
+      row.textContent = t;
+      impSec.appendChild(row);
+      if (i === 1) impMaxRow = row;
+    });
+    tip.appendChild(impSec);
+  }
+  // Bottom line for improved actions: live progress to the next level.
+  // Built before the flavor and requirement so the flavor always lands last.
+  let foot = null;
+  if (a.improvements) {
+    foot = document.createElement("div");
+    foot.className = "tip-flavor";
+    foot.textContent = improvementFooter(a);
+    tip.appendChild(foot);
+  }
+  const reqSec = appendTileRequirementSection(tip, a);
+  const lockSec = appendTileLockSection(tip, a);
+  if (a.flavor) {
+    const flavor = document.createElement("div");
+    flavor.className = "tip-flavor";
+    flavor.textContent = a.flavor;
+    tip.appendChild(flavor);
+  }
+  return { tip, refs: { title, tc: count, desc, autoDesc: !!a._autoDesc, costs: costRefs, gains: gainRefs, impMax: impMaxRow, foot, xpSec: xpBuilt ? xpBuilt.sec : null, xpRows: xpBuilt ? xpBuilt.rows : null, gatherSec, reqSec, lockSec } };
+}
+
+// Gather-odds section for gather actions: one row per loot-table entry
+// (name in its rarity color + percentage share), rebuilt whenever the
+// current table or any entry's seen state changes. Items never found yet
+// hide behind "???" (still in their rarity color). Tiles with no table
+// get a single "nothing here" row. Returns { sec, sig } for the live
+// refresh, or null for non-gather actions.
+function appendGatherSection(tip, a) {
+  if (!a || a.gather !== true) return null;
+  const sec = document.createElement("div");
+  sec.className = "tip-sec";
+  const lab = document.createElement("div");
+  lab.className = "tip-sec-label";
+  lab.textContent = "Gather";
+  sec.appendChild(lab);
+  const body = document.createElement("div");
+  sec.appendChild(body);
+  tip.appendChild(sec);
+  const ref = { sec, body, sig: null };
+  refreshGatherSection(a, ref);
+  return ref;
+}
+
+// Signature for the gather-odds section: table identity plus every
+// entry's seen flag. Joins the render() button sig (like the XP unlock
+// sig), so a first-time find refreshes the tooltip even when nothing
+// else about the button changed.
+function gatherTipSig(a) {
+  if (!a || a.gather !== true || typeof findForageTable !== "function") return "";
+  const table = findForageTable();
+  const items = (table && Array.isArray(table.items)) ? table.items : [];
+  const idx = (typeof FORAGE_TABLES !== "undefined") ? FORAGE_TABLES.indexOf(table) : -1;
+  return idx + "|" + items.map(e => e.item + ((state.seen && state.seen[e.item]) ? 1 : 0)).join(",");
+}
+
+function refreshGatherSection(a, ref) {
+  if (!a || !ref) return;
+  const sig = gatherTipSig(a);
+  if (ref.sig === sig) return;
+  ref.sig = sig;
+  const table = (typeof findForageTable === "function") ? findForageTable() : null;
+  const items = (table && Array.isArray(table.items)) ? table.items : [];
+  ref.body.textContent = "";
+  if (!items.length) {
+    const row = document.createElement("div");
+    row.className = "tip-row";
+    row.textContent = "Nothing to find on this tile.";
+    ref.body.appendChild(row);
+    return;
+  }
+  let total = 0;
+  for (const e of items) total += e.weight;
+  for (const e of items) {
+    const def = (typeof getItem === "function") ? getItem(e.item) : null;
+    const row = document.createElement("div");
+    row.className = "tip-row";
+    const nm = document.createElement("span");
+    const found = !!(state.seen && state.seen[e.item]);
+    nm.textContent = found ? (def ? def.name : e.item) : "???";
+    if (def && typeof itemRarityClass === "function") nm.classList.add(itemRarityClass(def));
+    const pct = document.createElement("span");
+    pct.textContent = (total > 0 ? formatNum(e.weight / total * 100) : 0) + "%";
+    row.appendChild(nm);
+    row.appendChild(pct);
+    ref.body.appendChild(row);
+  }
+}
+
+// Live refresh for an action tip (Work button or World mirror): leveled
+// header/footer/max line, effective Results/Cost rows, XP-row unlocks,
+// auto-description. Every write is a no-op when unchanged, so calling it
+// on every render is cheap.
+function renderActionTipLive(a, ref) {
+  if (!a || !ref) return;
+  const count = state.stats.actions[a.id] ?? 0;
+  if (ref.tc && ref.tc.textContent !== String(count)) ref.tc.textContent = count;
+  if (a.improvements) {
+    const titleText = "[Lvl. " + actionLevel(a) + "] " + a.name;
+    if (ref.title && ref.title.textContent !== titleText) ref.title.textContent = titleText;
+    const footText = improvementFooter(a);
+    if (ref.foot && ref.foot.textContent !== footText) ref.foot.textContent = footText;
+    if (ref.impMax) {
+      const cap = (typeof getEffectiveImpMax === "function") ? getEffectiveImpMax(a) : a.improvements.maxLevel;
+      const maxText = "Max level: " + (cap === Infinity ? "none" : cap) + ".";
+      if (ref.impMax.textContent !== maxText) ref.impMax.textContent = maxText;
+    }
+  }
+  // Results rows always show the effective payout (base + improvement
+  // levels + furniture/home boosts), so tooltips stay truthful for every
+  // action - e.g. Rest shows 1.25 Stamina once Blankets are owned.
+  {
+    const effCost = (typeof effectiveCosts === "function") ? effectiveCosts(a) : { ...(a.costs ?? {}) };
+    const eff = effectiveGains(a);
+    for (const g of ref.gains ?? []) {
+      const t = formatNum(eff[g.id] ?? 0);
+      if (g.el.textContent !== t) g.el.textContent = t;
+    }
+    // Cost rows are live for the same reason: a fresh discount changes
+    // the price without changing the sig, and the per-row check is cheap.
+    for (const c of ref.costs ?? []) {
+      const t = formatNum(effCost[c.id] ?? 0);
+      if (c.el.textContent !== t) c.el.textContent = t;
+    }
+    // Skill XP rows unhide live when their skill unlocks: unlocks fire
+    // mid-session with no UI rebuild (e.g. Basic Knowledge M3 revealing
+    // Odd Jobs Mastery on the Odd Jobs tooltip). Unlocks never reverse,
+    // so rows only ever appear, and the section follows suit.
+    if (ref.xpSec && typeof skillUnlocked === "function") {
+      let anyVisible = false;
+      const ex = (typeof effectiveXp === "function") ? effectiveXp(a) : (a.xp ?? {});
+      for (const x of ref.xpRows ?? []) {
+        const show = skillUnlocked(x.sid);
+        if (x.row.hidden === show) x.row.hidden = !show;
+        if (show) {
+          anyVisible = true;
+          // XP rows show the effective grant (base + improvement levels),
+          // so Research Scrolls reads 1.1 once improved.
+          if (x.el) {
+            const t = "+" + formatNum(ex[x.sid] ?? 0);
+            if (x.el.textContent !== t) x.el.textContent = t;
+          }
+        }
+      }
+      if (ref.xpSec.hidden === anyVisible) ref.xpSec.hidden = !anyVisible;
+    }
+    // Auto-written descriptions embed the base costs, so refresh them
+    // when discounts change the price. Custom descriptions stay as-is.
+    if (ref.autoDesc) {
+      const showCosts = Object.fromEntries(Object.entries(effCost).filter(([, n]) => n > 0));
+      const t = autoActionDescription({ tickSeconds: a.tickSeconds, costs: showCosts, gains: effectiveGains(a) });
+      if (ref.desc && ref.desc.textContent !== t) ref.desc.textContent = t;
+    }
+  }
+  // Gather odds refresh with the same section (tile moves and first-time
+  // finds both land here with no UI rebuild).
+  if (ref.gatherSec) refreshGatherSection(a, ref.gatherSec);
+  // Requirement section only shows while the tile requirement is unmet
+  // (off-store): standing on a matching tile hides it again.
+  if (ref.reqSec && typeof worldShopBlocked === "function") {
+    const met = !worldShopBlocked(a);
+    if (ref.reqSec.hidden !== met) ref.reqSec.hidden = met;
+  }
+  // Lock section only shows while the current tile's modifier bans this
+  // action (on town for Forage): anywhere else it hides again.
+  if (ref.lockSec && typeof worldActionLocked === "function") {
+    const locked = worldActionLocked(a);
+    if (ref.lockSec.hidden !== !locked) ref.lockSec.hidden = !locked;
+  }
+}
 // Action tips prefer opening upward (never grows the page/scroll area), but
 // flip downward when the actions column itself scrolls and there is no room
 // above the button (otherwise the tip would be cut off). Long tips also cap
@@ -194,7 +512,10 @@ function appendTipXpSection(tip, xp) {
 // blowing out the menu.
 function placeActionTip(btn) {
   const tip = btn.querySelector(".tip");
-  const ctn = document.getElementById("actionsCtn");
+  // Room is measured against the anchor's own list, so the up/down
+  // preference comes from the panel the button is actually in. (World
+  // mirrors don't come here - openTip detaches them via placeWorldTip.)
+  const ctn = (btn.closest && btn.closest("#worldActionsCtn")) || document.getElementById("actionsCtn");
   if (!tip || !ctn) return;
   const h = tip.offsetHeight;
   if (!h) return;
@@ -239,7 +560,43 @@ function tipCostsFor(action, costs) {
   return costs;
 }
 
+// Upgrade builds mirror paid action cycles: a paid build resumes for free
+// (and a running build continues on what it already paid), so its tip rows
+// must not glow red for a price that won't be charged again.
+function tipCostsForUpgrade(u) {
+  if (!u || typeof state === "undefined") return (u && u.cost) || {};
+  const b = state.builds ? state.builds[u.id] : null;
+  if ((b && b.paid === true) || state.activeBuildId === u.id) return {};
+  return u.cost ?? {};
+}
+
 let hoverTip = null; // { key, ref, costs } of the action/upgrade whose tip is open
+
+// Currency-ring ownership: exactly one hover owns the spend/gain rings at
+// a time. Rebuilds (buy/sell re-renders its card, buildUI wipes the panel)
+// can remove the hovered anchor without a mouseleave, stranding rings that
+// then stack with the next hover's. A fresh hover always starts clean, a
+// delayed leave from a previous anchor never kills the new hover's rings,
+// and rebuilds drop ownership outright.
+let hiOwnerKey = null;
+function clearAllHi() {
+  if (typeof document === "undefined") return;
+  for (const el of document.querySelectorAll(".spendHi,.gainHi")) el.classList.remove("spendHi", "gainHi");
+}
+function resetHi() {
+  hiOwnerKey = null;
+  clearAllHi();
+}
+// Newest hover wins (applies after clearing); a release only clears when
+// it still owns the rings, so a delayed leave can't kill a newer hover.
+function claimHi(key) {
+  clearAllHi();
+  hiOwnerKey = key;
+}
+function releaseHi(key) {
+  if (hiOwnerKey === key) { hiOwnerKey = null; clearAllHi(); return true; }
+  return hiOwnerKey === null;
+}
 
 // Tips are pointer-transparent (CSS pointer-events:none), so presses can
 // never land inside one: no swallow guard needed. Tips show purely via
@@ -258,7 +615,12 @@ function tintTip(ref, costs) {
 }
 
 function openTip(key, btn, hi, costs) {
-  placeActionTip(btn);
+  // World Action mirrors detach above the strip (full size, may overlap the
+  // Tile panel); everything else fits inside its own list.
+  if (key.startsWith("w:") && typeof placeWorldTip === "function") placeWorldTip(btn);
+  else placeActionTip(btn);
+  // Heal stranded rings (anchor removed mid-hover) before applying ours.
+  claimHi(key);
   hi(true);
   const ref = uiRefs.get(key);
   hoverTip = ref ? { key, ref, costs } : null;
@@ -267,8 +629,87 @@ function openTip(key, btn, hi, costs) {
 }
 
 function closeTip(key, hi) {
-  hi(false);
-  if (hoverTip && hoverTip.key === key) hoverTip = null;
+  // Only the current owner clears: a delayed leave from a previous anchor
+  // must not kill the new hover's rings. A leave with no owner (after a
+  // rebuild reset) still clears its own key's rings, harmlessly.
+  if (releaseHi(key)) hi(false);
+  if (hoverTip && hoverTip.key === key) {
+    // Detached world tips must drop their fixed pixels: a CSS-reshown tip
+    // would otherwise sit at stale viewport coords with no placer running.
+    if (key.startsWith("w:") && typeof clearWorldTip === "function" && hoverTip.ref && hoverTip.ref.root) {
+      const tip = hoverTip.ref.root.querySelector(":scope > .tip");
+      if (tip) clearWorldTip(tip);
+    }
+    hoverTip = null;
+  }
+}
+
+// Hover reconciliation: CSS :hover works where JS mouse events don't. Both
+// Chrome and Firefox retarget mouse events off disabled buttons, so hovering
+// a broke (disabled) action or upgrade shows its tip via CSS with no rings,
+// no placement, and no usable scrollbar - and a button that disables
+// mid-hover never fires the mouseleave that would clear its rings. This
+// runs off the real :hover state, so disabled anchors highlight exactly like
+// enabled ones and missed leaves heal. Keyboard hovers are focus-driven
+// (tabbing sets no :hover): an owned anchor that still holds focus keeps
+// its rings, so tabbing through buttons never flickers them.
+function hoverKeyForAnchor(el) {
+  if (!el || typeof uiRefs === "undefined") return null;
+  for (const [key, ref] of uiRefs) {
+    if (ref && ref.root === el && (key.startsWith("a:") || key.startsWith("w:") || key.startsWith("u:"))) return key;
+  }
+  return null;
+}
+function anchorHiFor(key) {
+  if (typeof getAction !== "function" || typeof getUpgrade !== "function") return null;
+  if (key.startsWith("u:")) {
+    const u = getUpgrade(key.slice(2));
+    if (!u) return null;
+    return { hi: (on) => hiResources({ costs: u.cost, gains: effectGains(u) }, on), costs: tipCostsForUpgrade(u) };
+  }
+  const a = getAction(key.slice(2));
+  if (!a) return null;
+  const eff = (typeof effectiveCosts === "function") ? effectiveCosts(a) : (a.costs ?? {});
+  return { hi: (on) => hiResources(a, on), costs: tipCostsFor(a, eff) };
+}
+// `found` is the CSS-hovered action/upgrade anchor (or null). Factored out
+// so probes can drive it directly (synthetic events never match :hover).
+function reconcileHoverTip(found) {
+  const key = hoverKeyForAnchor(found);
+  if (key) {
+    if (hoverTip && hoverTip.key === key) {
+      // Rebuilds (buy/sell re-renders, buildUI wipes the panels, timed
+      // builds completing) can replace the anchor mid-hover: the cursor is
+      // already over the new node, so no fresh mouseenter fires and the tip
+      // would sit at its natural spot forever - clipped to a nub inside the
+      // narrow World Actions strip. Re-run the open path on the current node
+      // when the owner is gone (or a different node), so placement + rings
+      // heal instead of sticking broken.
+      const ownerEl = hoverTip.ref && hoverTip.ref.root;
+      if (ownerEl && ownerEl.isConnected && ownerEl === found) return;
+    }
+    const h = anchorHiFor(key);
+    if (!h) return;
+    const ref = uiRefs.get(key);
+    openTip(key, (ref && ref.root) || found, h.hi, h.costs);
+    return;
+  }
+  if (!hoverTip) return;
+  if (!(hoverTip.key.startsWith("a:") || hoverTip.key.startsWith("w:") || hoverTip.key.startsWith("u:"))) return;
+  const ownerEl = hoverTip.ref && hoverTip.ref.root;
+  if (!ownerEl || !ownerEl.isConnected) return;
+  // Still genuinely hovered or keyboard-focused: leave it alone.
+  if (ownerEl.matches(":hover") || ownerEl.matches(":focus-visible") ||
+      (document.activeElement && (ownerEl === document.activeElement || ownerEl.contains(document.activeElement)))) return;
+  const h = anchorHiFor(hoverTip.key);
+  closeTip(hoverTip.key, h ? h.hi : () => {});
+}
+let lastHoverPoll = 0;
+function pollHoverTip() {
+  const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
+  if (now - lastHoverPoll < 150) return;
+  lastHoverPoll = now;
+  reconcileHoverTip(document.querySelector(".actionBtn:hover, .shopBtn:hover"));
 }
 
 // Pointer policy: only scrollbar tips take the pointer. A tip whose content
@@ -313,4 +754,3 @@ document.addEventListener("click", (e) => {
     tipPress = false;
   }
 }, true);
-
