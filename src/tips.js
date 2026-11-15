@@ -210,7 +210,7 @@ function appendTileRequirementSection(tip, item) {
   if (typeof tileRequirementTags !== "function") return null;
   if (!tileRequirementTags(item).length) return null;
   const sec = document.createElement("div");
-  sec.className = "tip-sec";
+  sec.className = "tip-sec tip-req";
   const lab = document.createElement("div");
   lab.className = "tip-sec-label";
   lab.textContent = "Requires";
@@ -230,7 +230,7 @@ function appendTileRequirementSection(tip, item) {
 // Action mirrors, so both tooltips always agree. Returns the tip node
 // plus the live refs render() refreshes (counts, payouts, XP rows,
 // requirement visibility).
-// Tile-lock tooltip section ("Locked: Small Town"), shared the same
+// Tile-lock tooltip section ("Locked: Hamlet"), shared the same
 // way. Built for any action some modifier can lock; render() shows it
 // only while the CURRENT tile bans this action.
 function appendTileLockSection(tip, item) {
@@ -258,6 +258,14 @@ function appendTileLockSection(tip, item) {
   return sec;
 }
 
+// Cycle-time line under the tooltip header (e.g. "Time: 6s per cycle").
+// Reads the effective tick so Pillows/skill-milestone speedups show live;
+// renderActionTipLive refreshes it (Work buttons and World mirrors alike).
+function actionTimeText(a) {
+  const t = (typeof getEffectiveTick === "function") ? getEffectiveTick(a) : (a.tickSeconds ?? 1);
+  return "Time: " + formatDuration(t, (s) => formatNum(s) + "s") + " per cycle";
+}
+
 function buildActionTipBody(a) {
   const tip = document.createElement("span");
   tip.className = "tip";
@@ -273,6 +281,10 @@ function buildActionTipBody(a) {
   tip.appendChild(head);
   const headTags = buildTipTags(a);
   if (headTags) tip.appendChild(headTags);
+  const timeRow = document.createElement("div");
+  timeRow.className = "tip-time";
+  timeRow.textContent = actionTimeText(a);
+  tip.appendChild(timeRow);
   const desc = document.createElement("div");
   desc.className = "tip-desc";
   desc.textContent = a.description ?? autoActionDescription({ tickSeconds: a.tickSeconds ?? 1, costs: a.costs ?? {}, gains: a.gains ?? {} });
@@ -342,7 +354,7 @@ function buildActionTipBody(a) {
   let foot = null;
   if (a.improvements) {
     foot = document.createElement("div");
-    foot.className = "tip-flavor";
+    foot.className = "tip-flavor tip-teal";
     foot.textContent = improvementFooter(a);
     tip.appendChild(foot);
   }
@@ -354,7 +366,7 @@ function buildActionTipBody(a) {
     flavor.textContent = a.flavor;
     tip.appendChild(flavor);
   }
-  return { tip, refs: { title, tc: count, desc, autoDesc: !!a._autoDesc, costs: costRefs, gains: gainRefs, impMax: impMaxRow, foot, xpSec: xpBuilt ? xpBuilt.sec : null, xpRows: xpBuilt ? xpBuilt.rows : null, gatherSec, reqSec, lockSec } };
+  return { tip, refs: { title, tc: count, tipTime: timeRow, desc, autoDesc: !!a._autoDesc, costs: costRefs, gains: gainRefs, impMax: impMaxRow, foot, xpSec: xpBuilt ? xpBuilt.sec : null, xpRows: xpBuilt ? xpBuilt.rows : null, gatherSec, reqSec, lockSec } };
 }
 
 // Gather-odds section for gather actions: one row per loot-table entry
@@ -432,6 +444,11 @@ function renderActionTipLive(a, ref) {
   if (!a || !ref) return;
   const count = state.stats.actions[a.id] ?? 0;
   if (ref.tc && ref.tc.textContent !== String(count)) ref.tc.textContent = count;
+  // Effective cycle time (discounts land mid-session with no UI rebuild).
+  if (ref.tipTime) {
+    const timeText = actionTimeText(a);
+    if (ref.tipTime.textContent !== timeText) ref.tipTime.textContent = timeText;
+  }
   if (a.improvements) {
     const titleText = "[Lvl. " + actionLevel(a) + "] " + a.name;
     if (ref.title && ref.title.textContent !== titleText) ref.title.textContent = titleText;

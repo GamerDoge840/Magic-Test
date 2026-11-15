@@ -58,7 +58,7 @@ setInterval(() => {
   // unpaid cycle comes due off its tile - a paid cycle picked up mid-bar
   // still finishes. Progress is kept like an out-of-funds stop, so
   // walking back onto the tile resumes it.
-  // Tile locks (e.g. Small Town banning Forage) stop the same way, with
+  // Tile locks (e.g. Hamlet banning Forage) stop the same way, with
   // their own message.
   const tileStop = (typeof worldShopBlocked === "function") && worldShopBlocked(current);
   const lockStop = (typeof worldActionLocked === "function") && worldActionLocked(current);

@@ -1,6 +1,6 @@
 // Labor Game inventory: item grid, rarity filters, consuming.
 const RARITY_COLORS = {
-  garbage: "#9aa3b5",
+  junk: "#9aa3b5",
   common: "#f5f5f5",
   uncommon: "#7fd97f",
   rare: "#7fc9ff",
@@ -14,7 +14,7 @@ const RARITY_COLORS = {
 // mode). Unknown rarities fall back to common, matching validation.
 function itemRarityClass(def) {
   const r = (def && def.rarity) || "common";
-  return "rar-" + (((typeof RARITY_ORDER !== "undefined" && RARITY_ORDER.includes(r)) || ["garbage", "common", "uncommon", "rare", "exotic", "legendary"].includes(r)) ? r : "common");
+  return "rar-" + (((typeof RARITY_ORDER !== "undefined" && RARITY_ORDER.includes(r)) || ["junk", "common", "uncommon", "rare", "exotic", "legendary"].includes(r)) ? r : "common");
 }
 
 function itemRarityName(rid) {
@@ -68,8 +68,7 @@ function invTypeChipLabel(t, n) {
 }
 
 // Type filter (by tag): single-select inline row under the header -
-// "All" plus one chip per discovered item type tag (currently Food and
-// Herb once found). A tag is a *type* only when it doesn't cover every
+// "All" plus one chip per discovered item type tag. A tag is a *type* only when it doesn't cover every
 // defined item ("Foraged" is on everything; the "consumable" mechanic
 // tag is not a type) - and of those, only tags with at least one
 // all-time obtained item show, so advanced categories stay hidden until
@@ -212,7 +211,7 @@ function buildInventoryCell(it) {
     btn.type = "button";
     btn.className = "invConsumeBtn";
     btn.textContent = (it.consume && it.consume.button) || "Consume";
-    btn.addEventListener("click", () => consumeItem(it.id));
+    btn.addEventListener("click", (e) => consumeItem(it.id, !!(e && e.shiftKey)));
     cell.appendChild(btn);
     uiRefs.set("i:" + it.id, { root: cell, name: nm, count, consume: btn, tipCount: null, tip: null });
   } else {
@@ -266,6 +265,21 @@ function buildInventoryCell(it) {
     sec.appendChild(row);
     tip.appendChild(sec);
   }
+  if (typeof it.fuel === "number" && isFinite(it.fuel) && it.fuel > 0) {
+    const sec = document.createElement("div");
+    sec.className = "tip-sec";
+    const lab = document.createElement("div");
+    lab.className = "tip-sec-label";
+    lab.textContent = "Fuel";
+    sec.appendChild(lab);
+    const row = document.createElement("div");
+    row.className = "tip-row";
+    const s = document.createElement("span");
+    s.textContent = "Fuel value: " + formatNum(it.fuel);
+    row.appendChild(s);
+    sec.appendChild(row);
+    tip.appendChild(sec);
+  }
   if (itemEdible(it)) appendTipSection(tip, "Consuming grants", it.consume.gains ?? {});
   let sellWarn = null;
   if (itemSellable(it)) {
@@ -274,7 +288,7 @@ function buildInventoryCell(it) {
     // ("Selling 3 would destroy 1.5 Coins over the cap."). Refreshed on
     // hover/focus and on renders; hidden while nothing would overflow.
     sellWarn = document.createElement("div");
-    sellWarn.className = "tip-flavor tip-overflow";
+    sellWarn.className = "tip-flavor tip-overflow tip-teal";
     sellWarn.hidden = true;
     tip.appendChild(sellWarn);
   }
@@ -432,7 +446,7 @@ function gainDisplayColor(rid) {
 
 function logConsume(base, gains, mergeKey) {
   const entries = Object.entries(gains ?? {}).filter(([, n]) => n > 0);
-  if (!entries.length) { log(base, "system", mergeKey); return; }
+  if (!entries.length) { log(base, "consume", mergeKey); return; }
   const label = ([rid, n]) => {
     const def = (typeof getResource === "function") ? getResource(rid) : null;
     return "+" + formatNum(n) + " " + (def ? displayName(def, n) : rid);
@@ -452,8 +466,8 @@ function logConsume(base, gains, mergeKey) {
     });
     line.appendChild(document.createTextNode(")"));
   };
-  if (typeof logRich === "function") logRich(plain, "system", fill, mergeKey);
-  else log(plain, "system", mergeKey);
+  if (typeof logRich === "function") logRich(plain, "consume", fill, mergeKey);
+  else log(plain, "consume", mergeKey);
 }
 
 // Repeat eats and repeat sells accumulate into ONE rewritten line -
@@ -475,7 +489,7 @@ function accAdd(dst, src) {
   }
 }
 
-function consumeItem(id) {
+function consumeItem(id, maxEat) {
   const it = (typeof getItem === "function") ? getItem(id) : null;
   if (!it || !itemEdible(it)) return;
   if ((state.amounts[id] ?? 0) <= 0) {
@@ -488,7 +502,47 @@ function consumeItem(id) {
     render();
     return;
   }
-  state.amounts[id] -= 1;
+  // Shift-click max-eats: enough units to fill every capped gain target
+  // (never more than owned). The per-unit loop below re-checks the cap
+  // each bite, so fractional headroom never overshoots into waste.
+  let n = 1;
+  if (maxEat) n = Math.max(1, maxEatCount(it));
+  for (let i = 0; i < n; i++) {
+    if ((state.amounts[id] ?? 0) <= 0) break;
+    if (consumeFullyCapped(it)) break;
+    eatOneUnit(it);
+  }
+  render();
+}
+
+// Max-eat units for an edible item: the fewest units filling every
+// capped gain target (ceil of headroom per unit), bounded by what's
+// held. Items with no capped gains (pure uncapped bundles) eat the
+// whole stack. Callers guarantee at least one target has room (or no
+// caps at all), so this always returns 1+.
+function maxEatCount(it) {
+  const owned = Math.floor(state.amounts[it.id] ?? 0);
+  if (owned <= 0) return 0;
+  const gains = (it.consume && it.consume.gains) || {};
+  let need = Infinity, hasCap = false;
+  for (const [rid, n] of Object.entries(gains)) {
+    if (!(n > 0)) continue;
+    const max = (typeof getEffectiveMax === "function") ? getEffectiveMax(rid) : Infinity;
+    if (max === Infinity) continue;
+    hasCap = true;
+    const room = max - (state.amounts[rid] ?? 0);
+    if (room <= 0) continue;
+    need = Math.min(need, Math.ceil(room / n));
+  }
+  if (!hasCap) return owned;
+  if (!Number.isFinite(need)) return 0;
+  return Math.max(1, Math.min(owned, need));
+}
+
+// One bite: consumes a unit and logs it. Repeat bites merge into one
+// rewritten line via the consumeAcc chain (see below).
+function eatOneUnit(it) {
+  state.amounts[it.id] -= 1;
   const gains = (it.consume && it.consume.gains) || {};
   for (const [rid, n] of Object.entries(gains)) {
     const max = (typeof getEffectiveMax === "function") ? getEffectiveMax(rid) : Infinity;
@@ -503,18 +557,17 @@ function consumeItem(id) {
       }
     }
   }
-  const key = "consume:" + id;
-  if (logChainAlive(consumeAcc) && consumeAcc.id === id) {
+  const key = "consume:" + it.id;
+  if (logChainAlive(consumeAcc) && consumeAcc.id === it.id) {
     // Back-to-back eats of the same item rewrite one line with running
     // totals ("You consume 2 Apples. (+2 Stamina)") instead of "(x2)".
     consumeAcc.n += 1;
     accAdd(consumeAcc.gains, gains);
     logConsume("You consume " + formatNum(consumeAcc.n) + " " + displayName(it, consumeAcc.n) + ".", consumeAcc.gains, key);
   } else {
-    consumeAcc = { key, id, n: 1, gains: { ...gains } };
+    consumeAcc = { key, id: it.id, n: 1, gains: { ...gains } };
     logConsume((it.consume && it.consume.log) || ("You consume " + it.name + "."), gains, key);
   }
-  render();
 }
 
 // Selling Mode (inventory): the panel's Sell button arms it (button flips
@@ -636,8 +689,8 @@ function logSell(base, gains, mergeKey) {
     });
     line.appendChild(document.createTextNode(")"));
   };
-  if (typeof logRich === "function") logRich(plain, "system", fill, mergeKey);
-  else log(plain, "system", mergeKey);
+  if (typeof logRich === "function") logRich(plain, "sell", fill, mergeKey);
+  else log(plain, "sell", mergeKey);
 }
 
 // Item-tip overflow warning ("Selling 3 would destroy 1.5 Coins over the
@@ -810,8 +863,7 @@ function renderInventory() {
       if (ref.consume) {
         ref.consume.disabled = owned <= 0 || capped;
         ref.consume.textContent = (it.consume && it.consume.button) || "Consume";
-        if (capped && owned > 0) ref.consume.title = "Already full - eating this would waste it.";
-        else ref.consume.removeAttribute("title");
+        ref.consume.removeAttribute("title");
       }
     }
     // Outside the sig gate: coin/cap/sellQty changes don't alter the sig,

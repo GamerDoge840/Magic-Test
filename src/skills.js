@@ -4,7 +4,37 @@
 // 0 -> 1 always costs 1 XP, 1 -> 2 costs baseXp, later levels multiply by
 // scaling each time. Milestone effects apply while attained (see SKILLS).
 
-// XP to rise from `level` to `level + 1`.
+// Float-dust guard: some XP grants have no exact binary form (Rest pays
+// 0.1 Sleeping XP per cycle), so repeated adds accumulate error - e.g. 80
+// rests sum to 7.999999999999991 instead of 8, which formatNum displays as
+// "8 / 8" while the >= threshold check fails, leaving the skill looking
+// stuck. All skill-XP math is snapped to 9dp and threshold checks allow
+// 1e-9 of slack, so earned thresholds always fire.
+const SKILL_XP_SNAP = 1e9;
+const SKILL_XP_EPS = 1e-9;
+function snapSkillXp(x) {
+  if (!Number.isFinite(x)) return 0;
+  const s = Math.round(x * SKILL_XP_SNAP) / SKILL_XP_SNAP;
+  return s === 0 ? 0 : s;
+}
+
+// One earned level: log line, milestone balloon, improvement-cap baseline.
+// Shared by gainSkillXp and settleSkillLevels so both paths announce alike.
+function awardSkillLevel(skill, st) {
+  st.level++;
+  log("[Skill Level Up] Attained Level " + st.level + " in " + skill.name + ".", "skillup");
+  for (const m of skill.milestones ?? []) {
+    if (m.level === st.level) {
+      balloon("New " + skill.name + " Milestone!", m.text, "skillMilestone");
+      if (!state.impBase) state.impBase = {};
+      for (const e of m.effects ?? []) {
+        if (e.type === "improvementCap" && e.action && state.impBase[e.action] === undefined) {
+          state.impBase[e.action] = state.stats.actions[e.action] ?? 0;
+        }
+      }
+    }
+  }
+}
 function xpForSkillLevel(skill, level) {
   if (level <= 0) return 1;
   return skill.baseXp * Math.pow(skill.scaling, level - 1);
@@ -63,24 +93,35 @@ function gainSkillXp(sid, amount) {
   if (!skillUnlocked(sid)) return;
   const st = skillState(sid);
   if (st.level >= skill.maxLevel) return;
-  st.xp += amount;
-  while (st.level < skill.maxLevel && st.xp >= xpForSkillLevel(skill, st.level)) {
-    st.xp -= xpForSkillLevel(skill, st.level);
-    st.level++;
-    log("[Skill Level Up] Attained Level " + st.level + " in " + skill.name + ".", "skillup");
-    for (const m of skill.milestones ?? []) {
-      if (m.level === st.level) {
-        balloon("New " + skill.name + " Milestone!", m.text, "skillMilestone");
-        if (!state.impBase) state.impBase = {};
-        for (const e of m.effects ?? []) {
-          if (e.type === "improvementCap" && e.action && state.impBase[e.action] === undefined) {
-            state.impBase[e.action] = state.stats.actions[e.action] ?? 0;
-          }
-        }
-      }
-    }
+  st.xp = snapSkillXp(st.xp + amount);
+  while (st.level < skill.maxLevel && st.xp + SKILL_XP_EPS >= xpForSkillLevel(skill, st.level)) {
+    const need = xpForSkillLevel(skill, st.level);
+    st.xp = snapSkillXp(st.xp - need);
+    if (st.xp < 0) st.xp = 0; // epsilon overshoot never carries negative
+    awardSkillLevel(skill, st);
   }
   renderSkills();
+}
+
+// Dust settlement for stored XP: snaps every skill's XP and fires any
+// level-ups the float error was suppressing (e.g. a save holding
+// 7.999999999999991/8). Runs at the end of every save load (see
+// applySaveData) so old saves heal immediately with the normal log +
+// balloon; future gains can't re-dust thanks to the snapped math above.
+function settleSkillLevels() {
+  if (typeof SKILLS === "undefined" || !state || !state.skills) return;
+  for (const skill of SKILLS) {
+    const st = state.skills[skill.id];
+    if (!st || typeof st.xp !== "number" || typeof st.level !== "number") continue;
+    st.xp = snapSkillXp(st.xp);
+    while (st.level < skill.maxLevel && st.xp + SKILL_XP_EPS >= xpForSkillLevel(skill, st.level)) {
+      const need = xpForSkillLevel(skill, st.level);
+      st.xp = snapSkillXp(st.xp - need);
+      if (st.xp < 0) st.xp = 0;
+      awardSkillLevel(skill, st);
+    }
+  }
+  if (typeof renderSkills === "function") renderSkills();
 }
 
 // Skill XP multipliers from attained milestones: every attained "xpMult"
@@ -109,13 +150,17 @@ function getEffectiveStat(statId) {
 
 // Skill-milestone cost discounts: every attained "cost" effect whose
 // action + resource match shaves its amount off that action's cycle cost
-// (floored at zero, stacking across milestones). Read through
-// effectiveCosts so all checks, payments, and tooltips agree.
+// (floored at zero, stacking across milestones). A skill-scoped effect
+// ({ skill }) discounts every action granting that skill's XP. Read
+// through effectiveCosts so all checks, payments, and tooltips agree.
 function costReductionFor(actionId, resourceId) {
   let cut = 0;
+  const def = (typeof getAction === "function") ? getAction(actionId) : null;
   for (const x of attainedSkillMilestoneEffects()) {
     const e = x.effect;
-    if (e.type === "cost" && e.action === actionId && e.resource === resourceId) cut += e.amount;
+    if (!e || e.type !== "cost" || e.resource !== resourceId) continue;
+    if (e.action !== undefined && e.action === actionId) cut += e.amount;
+    else if (e.skill !== undefined && def && def.xp && def.xp[e.skill] !== undefined) cut += e.amount;
   }
   return cut;
 }
@@ -123,6 +168,11 @@ function costReductionFor(actionId, resourceId) {
 // One cycle's true price: base costs minus attained skill discounts.
 function effectiveCosts(action) {
   const out = { ...(action.costs ?? {}) };
+  // Per-biome cost override for the current tile (e.g. Forage costs 2.5
+  // Stamina on forest tiles): biome entries win per resource, other
+  // resources keep their base cost. Discounts apply to the result.
+  const bb = (typeof currentBiomeId === "function") ? currentBiomeId() : null;
+  if (bb && action.costsByBiome && action.costsByBiome[bb]) for (const [id, n] of Object.entries(action.costsByBiome[bb])) out[id] = n;
   for (const id of Object.keys(out)) {
     out[id] = Math.max(0, out[id] - costReductionFor(action.id, id));
   }

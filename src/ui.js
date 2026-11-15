@@ -66,6 +66,7 @@ function buildUI() {
   stopIfFullChk.checked = state.options.stopIfFull !== false;
   if (typeof hideEmptyInvChk !== "undefined" && hideEmptyInvChk) hideEmptyInvChk.checked = state.options.hideEmptyInv !== false;
   if (typeof sellWarnChk !== "undefined" && sellWarnChk) sellWarnChk.checked = state.options.sellWarn !== false;
+  if (typeof showActionTimeChk !== "undefined" && showActionTimeChk) showActionTimeChk.checked = state.options.showActionTime !== false;
   if (typeof autosaveChk !== "undefined" && autosaveChk) autosaveChk.checked = !!state.options.autosave;
   if (typeof autosaveEverySel !== "undefined" && autosaveEverySel) autosaveEverySel.value = String(normalizeAutosaveEvery(state.options.autosaveEvery));
   if (typeof autosaveLogChk !== "undefined" && autosaveLogChk) autosaveLogChk.checked = state.options.logAutosaves !== false;
@@ -216,6 +217,8 @@ logFilterBtn.addEventListener("click", () => {
 logSkillUpsChk.checked = state.options.logSkillUps !== false;
   logImprovementsChk.checked = state.options.logImprovements !== false;
   if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.checked = state.options.logGathering !== false;
+  if (typeof logSellingChk !== "undefined" && logSellingChk) logSellingChk.checked = state.options.logSelling !== false;
+  if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
   logFilterModal.hidden = false;
 });
 // Home-tab Work Log mirror: same modal, same clear - every copy stays synced.
@@ -227,6 +230,8 @@ if (typeof logFilterBtnHome !== "undefined" && logFilterBtnHome) logFilterBtnHom
   logSkillUpsChk.checked = state.options.logSkillUps !== false;
   logImprovementsChk.checked = state.options.logImprovements !== false;
   if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.checked = state.options.logGathering !== false;
+  if (typeof logSellingChk !== "undefined" && logSellingChk) logSellingChk.checked = state.options.logSelling !== false;
+  if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
   logFilterModal.hidden = false;
 });
 // Inventory-tab Work Log mirror: same modal - every copy stays synced.
@@ -238,6 +243,8 @@ if (typeof logFilterBtnInv !== "undefined" && logFilterBtnInv) logFilterBtnInv.a
   logSkillUpsChk.checked = state.options.logSkillUps !== false;
   logImprovementsChk.checked = state.options.logImprovements !== false;
   if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.checked = state.options.logGathering !== false;
+  if (typeof logSellingChk !== "undefined" && logSellingChk) logSellingChk.checked = state.options.logSelling !== false;
+  if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
   logFilterModal.hidden = false;
 });
 // World-tab Work Log mirror: same modal - every copy stays synced.
@@ -249,6 +256,8 @@ if (typeof logFilterBtnWorld !== "undefined" && logFilterBtnWorld) logFilterBtnW
   logSkillUpsChk.checked = state.options.logSkillUps !== false;
   logImprovementsChk.checked = state.options.logImprovements !== false;
   if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.checked = state.options.logGathering !== false;
+  if (typeof logSellingChk !== "undefined" && logSellingChk) logSellingChk.checked = state.options.logSelling !== false;
+  if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
   logFilterModal.hidden = false;
 });
 logFilterCloseBtn.addEventListener("click", () => { logFilterModal.hidden = true; });
@@ -260,6 +269,8 @@ logUnlocksChk.addEventListener("change", () => { state.options.logUnlocks = logU
 logSkillUpsChk.addEventListener("change", () => { state.options.logSkillUps = logSkillUpsChk.checked; applyLogFilters(); });
 logImprovementsChk.addEventListener("change", () => { state.options.logImprovements = logImprovementsChk.checked; applyLogFilters(); });
 if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.addEventListener("change", () => { state.options.logGathering = logGatheringChk.checked; applyLogFilters(); });
+if (typeof logSellingChk !== "undefined" && logSellingChk) logSellingChk.addEventListener("change", () => { state.options.logSelling = logSellingChk.checked; applyLogFilters(); });
+if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.addEventListener("change", () => { state.options.logConsuming = logConsumingChk.checked; applyLogFilters(); });
 // Inventory rarity filters live in their own modal, like the Log Filters.
 // The chips sync their highlight live (see renderInventory), so the modal
 // needs no per-open sync - opening and closing is all it does.

@@ -293,7 +293,7 @@ function buildFurnitureCard(f) {
   stip.appendChild(shead);
   appendTipSection(stip, "Refund", f.cost ?? {});
   const snotice = document.createElement("div");
-  snotice.className = "tip-flavor tip-overflow";
+  snotice.className = "tip-flavor tip-overflow tip-teal";
   snotice.hidden = true;
   stip.appendChild(snotice);
   sell.appendChild(stip);
@@ -501,7 +501,7 @@ function buildHomeList() {
     }
     if (!fits) {
       const note = document.createElement("div");
-      note.className = "tip-flavor";
+      note.className = "tip-flavor tip-teal";
       note.textContent = "Free up " + (used - h.space) + " more Floor Space to move here.";
       tip.appendChild(note);
     }

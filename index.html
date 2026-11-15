@@ -48,6 +48,7 @@
   .worldTile.is-player { outline: 2px solid #fff; outline-offset: -2px; }
   .worldTile.is-target { outline: 2px dashed #fff; outline-offset: -2px; }
   .worldTile:not(.is-adj):not(.is-player) { opacity: 0.75; }
+  .worldTile.worldOut { visibility: hidden; }
   #worldTravelWrap { margin-top: auto; flex: none; display: flex; gap: 8px; align-items: center; }
   #worldTravelProg { position: relative; height: 18px; background: rgba(0, 0, 0, 0.15); border-radius: 999px; overflow: hidden; flex: 1; }
   #worldTravelBtn { background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 2px 10px; flex: none; }
@@ -107,7 +108,7 @@
   /* Item rarity colors (shared by inventory cells, item tooltips, and
      gather-log bullets - applied as classes, not inline styles, so the
      light-mode block below can re-tone them for white backgrounds). */
-  .rar-garbage { color: #9aa3b5; }
+  .rar-junk { color: #9aa3b5; }
   .rar-common { color: #f5f5f5; }
   .rar-uncommon { color: #7fd97f; }
   .rar-rare { color: #7fc9ff; }
@@ -116,7 +117,7 @@
   /* Rarity filter chips wear their rarity's color - same palette as .rar-*,
      but scoped to beat the .furnSortRow button color. "All" is no rarity
      and keeps the default button color. */
-  #invFilterRow button.rar-garbage { color: #9aa3b5; }
+  #invFilterRow button.rar-junk { color: #9aa3b5; }
   #invFilterRow button.rar-common { color: #f5f5f5; }
   #invFilterRow button.rar-uncommon { color: #7fd97f; }
   #invFilterRow button.rar-rare { color: #7fc9ff; }
@@ -199,6 +200,13 @@
   .taskGroup > summary::before { content: "▸ "; opacity: 0.7; }
   .taskGroup[open] > summary::before { content: "▾ "; }
   .taskBtns { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px; }
+  /* Work-tab buttons share one uniform grid (names wrap instead of
+     resizing the button); World mirrors keep the old flow layout. */
+  #actionsCtn .taskBtns { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #actionsCtn .actionBtn, #actionsCtn .shopBtn { min-width: 0; }
+  #actionsCtn .action-label { overflow-wrap: anywhere; }
+  @media (max-width: 700px) { #actionsCtn .taskBtns { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 420px) { #actionsCtn .taskBtns { grid-template-columns: 1fr; } }
   .taskBtns.stack { flex-direction: column; flex-wrap: nowrap; gap: 0; }
   .taskBtns.stack > :last-child { margin-bottom: 0; }
   /* Group headers: a titled section holding one or more groups
@@ -215,7 +223,7 @@
   #currenciesCtn .taskHeader, #vitalsCtn .taskHeader, .js-currencies .taskHeader, .js-vitals .taskHeader { margin-bottom: 10px; }
   /* Action / upgrade cards: full-width rows with a hover lift and a green
      running edge. Upgrades read as cards too, with a green owned edge. */
-  .actionBtn, .shopBtn { position: relative; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 8px; padding: 10px 12px; text-align: left; transition: transform 0.08s ease, border-color 0.08s ease, background 0.08s ease; }
+  .actionBtn, .shopBtn { position: relative; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 8px; padding: 10px 12px; text-align: center; transition: transform 0.08s ease, border-color 0.08s ease, background 0.08s ease; }
   .actionBtn:hover:not(:disabled), .shopBtn:hover:not(:disabled) { background: #343945; border-color: #6b7484; transform: translateY(-1px); }
   .actionBtn .action-label, .shopBtn .action-label { position: relative; z-index: 1; font-weight: bold; }
   .actionBtn { transition: padding-bottom 0.15s ease; }
@@ -302,6 +310,8 @@
   .tip-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin: 6px 0 2px; }
   .tip-tag { font-size: 0.72em; font-weight: normal; background: #2c313b; border: 1px solid #454b58; border-radius: 999px; padding: 1px 8px; opacity: 0.9; white-space: nowrap; }
   .tip-desc { margin: 6px 0 2px; text-align: center; color: #b9bec7; }
+  .tip-time { margin: 6px 0 2px; padding-top: 6px; border-top: 1px solid #3a3f4b; text-align: center; font-size: 0.92em; color: #9aa3b5; }
+  .hide-action-time .tip-time { display: none; }
   .tip-sec { border-top: 1px solid #3a3f4b; margin-top: 8px; padding-top: 6px; }
   .tip-sec-label { display: table-caption; caption-side: top; font-style: normal; font-size: 0.82em; letter-spacing: 1px; text-transform: uppercase; text-align: center; opacity: 0.85; color: #8b93a3; margin-bottom: 2px; }
   .tip-row { display: flex; justify-content: space-between; gap: 12px; }
@@ -310,6 +320,7 @@
   .tip-row.short { color: #d93636; }
   .tip-row.short span:last-child { font-weight: bold; }
   .tip-row.capped { color: #d97a00; }
+  .tip-sec.tip-req > .tip-sec-label, .tip-sec.tip-req > .tip-row { color: #d93636; }
   /* Compact rows: each section shrink-wraps to its content like a table, so
      short rows read "Stamina: 1" instead of stretching the value to the far
      edge. Labels share one column, values right-align in the next - the
@@ -320,7 +331,8 @@
   .tip-sec > .tip-row > span { display: table-cell; }
   .tip-sec > .tip-row > span + span { text-align: right; padding-left: 10px; }
   .tip-sec > .tip-row[hidden] { display: none; }
-  .tip-flavor { font-style: italic; text-align: center; color: #8fd6ff; opacity: 0.9; margin-top: 8px; padding-top: 6px; border-top: 1px solid #3a3f4b; }
+  .tip-flavor { font-style: italic; text-align: center; color: #9aa3b5; opacity: 0.9; margin-top: 8px; padding-top: 6px; border-top: 1px solid #3a3f4b; }
+  .tip-teal { color: #8fd6ff; }
   /* Action tooltips open upward so they never stretch the scroll area. */
   #actionsCtn .actionBtn .tip { bottom: calc(100% - 2px); top: auto; left: 0; transform: none; }
   #actionsCtn .shopBtn .tip { bottom: calc(100% - 2px); top: auto; left: 0; transform: none; }
@@ -485,6 +497,10 @@
   .filterGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; margin-top: 10px; }
   .filterItem { min-width: 0; }
   .filterItem .modalSub { margin-top: 2px; }
+  /* Full-width divider between filter groups (grid is 2 columns). */
+  .filterDiv { grid-column: 1 / -1; border-top: 1px solid #3a3f4b; }
+  /* Divider between option clusters in the Options tab. */
+  .optionDiv { border-top: 1px solid #3a3f4b; margin: 8px 2px 4px; }
   .modalSub { font-size: 0.8em; opacity: 0.65; margin-left: 22px; }
   .modalSubHead { margin: 12px 0 2px; font-size: 0.9em; font-weight: bold; opacity: 0.85; }
   .modalNote { margin: 10px 0 0; }
@@ -513,9 +529,11 @@
     .tip-head { border-bottom-color: #ccc; }
     .tip-count { color: #555; }
     .tip-desc { color: #333; }
+    .tip-time { color: #555; border-top-color: #ccc; }
     .tip-sec { border-color: #ccc; }
     .tip-sec-label { color: #555; }
-    .tip-flavor { color: #0b6e99; border-top-color: #ccc; }
+    .tip-flavor { color: #555; border-top-color: #ccc; }
+    .tip-teal { color: #0b6e99; border-top-color: #ccc; }
     .panel h2.hasBtn .hbtns button { background: #e4e4e4; color: #222; border-color: #aaa; }
     .panel h2.hasBtn .hbtns button.on { background: #fff; border-color: #666; color: #111; box-shadow: 0 0 8px rgba(0,0,0,0.25); }
     #playerNameEditBtn { background: #e4e4e4; color: #222; border-color: #999; }
@@ -532,6 +550,8 @@
     .tip-sec { border-color: #999; }
     .tip-tag { background: #e4e4e4; border-color: #aaa; }
     .modalBox { background: #fff; color: #111; border-color: #bbb; }
+    .filterDiv { border-top-color: #bbb; }
+    .optionDiv { border-top-color: #bbb; }
     .skillRow { background: #f5f5f5; color: #111; border-color: #999; }
     .skillRow:hover:not(:disabled) { background: #e8e8e8; }
     .skillXbar { background: rgba(0, 0, 0, 0.12); }
@@ -561,13 +581,13 @@
        re-tone them for light backgrounds. The legendary gradient keeps
        its shape, darkened; resource-gain spans in consume lines get the
        same brightness treatment as currency/resource values above. */
-    .rar-garbage { color: #5b6478; }
+    .rar-junk { color: #5b6478; }
     .rar-common { color: #4a4a4a; }
     .rar-uncommon { color: #1e7d1e; }
     .rar-rare { color: #0b6e99; }
     .rar-exotic { color: #7a3fd1; }
     .rar-legendary { background: linear-gradient(180deg, #b8860b, #7a5c00); -webkit-background-clip: text; background-clip: text; color: transparent; }
-    #invFilterRow button.rar-garbage { color: #5b6478; }
+    #invFilterRow button.rar-junk { color: #5b6478; }
     #invFilterRow button.rar-common { color: #4a4a4a; }
     #invFilterRow button.rar-uncommon { color: #1e7d1e; }
     #invFilterRow button.rar-rare { color: #0b6e99; }
@@ -745,6 +765,7 @@
         <label><input id="logStopChk" type="checkbox"> Action stop and fullLog text</label>
         <div class="modalSub">Stop messages and orange completion text.</div>
       </div>
+      <div class="filterDiv"></div>
       <div class="filterItem">
         <label><input id="logUpgradesChk" type="checkbox"> Upgrade buy text</label>
         <div class="modalSub">Logs appearing when buying upgrades.</div>
@@ -761,9 +782,18 @@
         <label><input id="logImprovementsChk" type="checkbox"> Action improvements</label>
         <div class="modalSub">Logs notifying of action improvements.</div>
       </div>
+      <div class="filterDiv"></div>
       <div class="filterItem">
         <label><input id="logGatheringChk" type="checkbox"> Gathering results</label>
-        <div class="modalSub">Teal bulletins listing what Forage finds.</div>
+        <div class="modalSub">Gathering-related log messages.</div>
+      </div>
+      <div class="filterItem">
+        <label><input id="logSellingChk" type="checkbox"> Item sell text</label>
+        <div class="modalSub">Messages when items are sold.</div>
+      </div>
+      <div class="filterItem">
+        <label><input id="logConsumingChk" type="checkbox"> Item consume text</label>
+        <div class="modalSub">Messages when items are consumed.</div>
       </div>
     </div>
     <div class="modalSub modalNote">(Note: Some system messages are always visible in the log regardless of filters.)</div>
@@ -829,10 +859,12 @@
       <summary>Saving</summary>
       <div style="padding: 6px 10px 10px;">
     <div class="optionRow"><button id="manualSaveBtn" type="button">Save Game</button><span>Save progress in this browser.</span></div>
-    <div class="optionRow"><button id="manualLoadBtn" type="button">Load Saved Game</button><span>Load the browser save (also loads on start).</span></div>
-    <div class="optionRow"><label style="white-space:nowrap"><input id="autosaveChk" type="checkbox"> Enable autosave</label><span>Automatically save progress in this browser on a timer. Off by default.</span></div>
-    <div class="optionRow"><label>Autosave every <select id="autosaveEverySel"><option value="1">1 minute</option><option value="5">5 minutes</option><option value="10">10 minutes</option></select></label><span>How often the autosave fires while enabled.</span></div>
+    <div class="optionRow"><button id="manualLoadBtn" type="button">Load Saved Game</button><span>Load the last saved file.</span></div>
+    <div class="optionDiv"></div>
+    <div class="optionRow"><label style="white-space:nowrap"><input id="autosaveChk" type="checkbox"> Enable autosave</label><span>Automatically saves progress.</span></div>
+    <div class="optionRow"><label>Autosave every <select id="autosaveEverySel"><option value="1">1 minute</option><option value="5">5 minutes</option><option value="10">10 minutes</option></select></label><span>How often Autosaves trigger.</span></div>
     <div class="optionRow"><label style="white-space:nowrap"><input id="autosaveLogChk" type="checkbox"> Log autosaves</label><span>Show "Game Autosaved." in the log each time.</span></div>
+    <div class="optionDiv"></div>
     <div class="optionRow"><button id="exportBtn" type="button">Export Save (File)</button><span>Download progress as a file.</span></div>
     <div class="optionRow"><button id="importBtn" type="button">Import Save (File)</button><span>Load progress from a file.</span></div>
     <div class="optionRow"><button id="exportClipBtn" type="button">Export Save (Clipboard)</button><span>Copy progress as text.</span></div>
@@ -841,6 +873,7 @@
       <textarea id="clipArea" rows="6" spellcheck="false"></textarea>
       <div class="optionRow"><button id="clipLoadBtn" type="button">Load Pasted Save</button></div>
     </div>
+    <div class="optionDiv"></div>
     <div class="optionRow"><button id="resetBtn" type="button">Hard Reset</button><span>Erase all progress and start over.</span></div>
       </div>
     </details>
@@ -849,16 +882,25 @@
       <div style="padding: 6px 10px 10px;">
     <div class="optionRow"><label><input id="showMaxedChk" type="checkbox"> Show maxed-out Work upgrades</label></div>
     <div class="optionRow"><label style="white-space:nowrap"><input id="stopIfFullChk" type="checkbox"> Stop if Full</label><span>Actions automatically stop when one of their currency outputs reaches its cap. A stopped-full action shows an orange border — click it to run anyway.</span></div>
-    <div class="optionRow"><label style="white-space:nowrap"><input id="hideEmptyInvChk" type="checkbox"> Hide empty inventory items</label><span>Inventory hides items you own 0 of instead of showing them grayed-out. Items you never obtained stay hidden either way.</span></div>
-    <div class="optionRow"><label style="white-space:nowrap"><input id="sellWarnChk" type="checkbox"> Warn before over-cap sales</label><span>Item tooltips warn when selling the current amount would overflow a cap ("Selling 3 would destroy 1.5 Coins over the cap."). On by default.</span></div>
-    <div class="optionRow"><label>Log Entry Cap <input id="logLimitInput" type="number" min="10" max="1000" step="1" style="width: 80px;"></label><span>Older entries beyond this number are removed (10–1000, default 200).</span></div>
+    <div class="optionRow"><label style="white-space:nowrap"><input id="showActionTimeChk" type="checkbox"> Show action times</label><span>Action and upgrade tooltips show how long they take. On by default.</span></div>
+    <div class="optionDiv"></div>
+    <div class="optionRow"><label style="white-space:nowrap"><input id="hideEmptyInvChk" type="checkbox"> Hide empty inventory items</label><span>Inventory hides items you own 0 of instead of showing them grayed-out.</span></div>
+    <div class="optionRow"><label style="white-space:nowrap"><input id="sellWarnChk" type="checkbox"> Warn before over-cap sales</label><span>Item tooltips warn when selling the current amount would overflow a cap. On by default.</span></div>
+    <div class="optionDiv"></div>
+    <div class="optionRow"><label>Log Entry Cap <input id="logLimitInput" type="number" min="10" max="1000" step="1" style="width: 80px;"></label><span>Older entries beyond this number are removed (10–1000).</span></div>
     <div class="optionRow"><button id="balloonFilterBtn" type="button">Notification Balloons</button><span>Choose which balloon notifications pop up.</span></div>
       </div>
     </details>
     <input id="importInput" type="file" accept=".txt,text/plain,.json,application/json" hidden>
   </div>
 </div>
-<script src="src/config.js"></script>
+<script src="src/config/vitalsConfig.js"></script>
+<script src="src/config/itemsConfig.js"></script>
+<script src="src/config/actionsConfig.js"></script>
+<script src="src/config/upgradesConfig.js"></script>
+<script src="src/config/furnitureConfig.js"></script>
+<script src="src/config/skillsConfig.js"></script>
+<script src="src/config/worldConfig.js"></script>
 <script src="src/core.js"></script>
 <script src="src/save.js"></script>
 <script src="src/log.js"></script>
@@ -879,7 +921,7 @@
 // in a local copy), say so visibly instead of showing empty panels.
 if (typeof buildUI !== "function" || typeof RESOURCES === "undefined") {
   document.getElementById("statusEl").textContent = "Game files failed to load.";
-  document.getElementById("logEl").innerHTML = "<div>This file expects a folder named src next to it, containing: config.js, core.js, save.js, log.js, actions.js, tips.js, resources.js, groups.js, upgrades.js, furniture.js, skills.js, inventory.js, world.js, render.js, ui.js, main.js.</div>";
+  document.getElementById("logEl").innerHTML = "<div>This file expects a folder named src next to it, containing: config/vitalsConfig.js, config/itemsConfig.js, config/actionsConfig.js, config/upgradesConfig.js, config/furnitureConfig.js, config/skillsConfig.js, config/worldConfig.js, core.js, save.js, log.js, actions.js, tips.js, resources.js, groups.js, upgrades.js, furniture.js, skills.js, inventory.js, world.js, render.js, ui.js, main.js.</div>";
 }
 </script>
 </body>

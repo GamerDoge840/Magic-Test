@@ -9,12 +9,13 @@ function render() {
     const val = state.amounts[r.id] ?? 0;
     // Discovery: holding a currency marks it seen (covers every present
     // and future gain path, even ones without an explicit mark call).
-    // Vitals always show; currencies hide until seen.
+    // Vitals always show unless gated by `unlock`; currencies hide
+    // until seen.
     if (isCurrency(r) && val > 0 && !state.seen?.[r.id]) {
       if (!state.seen) state.seen = {};
       state.seen[r.id] = true;
     }
-    const discovered = currencySeen(r);
+    const discovered = currencySeen(r) && resourceUnlocked(r);
     // Net gain per second from the running action (gains minus costs).
     // Always through effectiveGains AND the effective tick time: base
     // payout plus every boost (improvement levels, furniture, current-home
@@ -75,11 +76,17 @@ function render() {
     // DOM writes below are skipped while nothing changed.
     // User hiding is ignored in hiding mode so struck actions show.
     const isActive = state.currentActionId === a.id;
-    // Tile-modifier locks (e.g. Small Town banning Forage) hide the
+    // Tile-modifier locks (e.g. Hamlet banning Forage) hide the
     // action outright instead of a red star. A running action stays
     // visible until the next tick stops it.
     const lockHide = ((typeof worldActionLocked === "function") ? worldActionLocked(a) : false) && !isActive;
-    const hidden = !unlockMet(a, "a") || (!hidingMode.actions && itemHidden("a:" + a.id)) || lockHide;
+    // hideWhenOffTile (e.g. Explore Plains): an unmet tile requirement
+    // hides the action outright instead of a red star, exactly like a
+    // lock. A running action stays visible until the next tick stops
+    // it. Before the World unlocks every requirement counts as met, so
+    // the action still shows in town.
+    const offTileHide = !!a.hideWhenOffTile && !isActive && (((typeof worldShopBlocked === "function") ? worldShopBlocked(a) : false));
+    const hidden = !unlockMet(a, "a") || (!hidingMode.actions && itemHidden("a:" + a.id)) || lockHide || offTileHide;
     const count = state.stats.actions[a.id] ?? 0;
     // Skill milestones can discount the price (Scroll Frugality): every
     // affordability check, cap check, and label below reads the effective
@@ -104,7 +111,7 @@ function render() {
     // Tile requirement: gated actions (e.g. Buy Scrolls) only start on
     // a matching tile. A paid cycle picked up mid-bar resumes anywhere,
     // exactly like upgrades and timed builds.
-    // Tile-modifier locks (e.g. Small Town banning Forage) block the
+    // Tile-modifier locks (e.g. Hamlet banning Forage) block the
     // same way.
     const shopBlock = (typeof worldShopBlocked === "function") ? worldShopBlocked(a) : false;
     const lockBlock = (typeof worldActionLocked === "function") ? worldActionLocked(a) : false;
@@ -131,7 +138,7 @@ function render() {
     // Gather odds reveal on first-time finds without any new completions,
     // so the table + seen state joins the sig too (like the XP unlock sig).
     const gatherSig = (typeof gatherTipSig === "function") ? gatherTipSig(a) : "";
-    const sig = (hidden ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + (isActive ? 1 : 0) + "|" + pkey + "|" + count + "|" + (overMax ? 1 : 0) + "|" + (itemHidden("a:" + a.id) ? 1 : 0) + "|" + impCap + "|" + xpSig + "|" + costSig + "|" + (curFull ? 1 : 0) + "|" + (ovr ? 1 : 0) + "|" + (tileBlocked ? 1 : 0) + "|" + gatherSig;
+    const sig = (hidden ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + (isActive ? 1 : 0) + "|" + pkey + "|" + count + "|" + (overMax ? 1 : 0) + "|" + (itemHidden("a:" + a.id) ? 1 : 0) + "|" + impCap + "|" + xpSig + "|" + costSig + "|" + (curFull ? 1 : 0) + "|" + (ovr ? 1 : 0) + "|" + (tileBlocked ? 1 : 0) + "|" + gatherSig + "|" + tick.toFixed(3);
     if (ref._sig === sig) continue;
     ref._sig = sig;
     btn.hidden = hidden;
@@ -340,6 +347,9 @@ function render() {
     statusEl.textContent = current.runtext ?? (current.name + "...");
   }
 
+  // Tooltip time lines hide outright while the option is off (on by
+  // default): a body class beats rebuilding every tooltip.
+  document.body.classList.toggle("hide-action-time", state.options.showActionTime === false);
   const nowCard = document.getElementById("nowCard");
   const nowCancelBtn = document.getElementById("nowCancelBtn");
   if (nowCard) nowCard.classList.toggle("busy", !!state.currentActionId);
@@ -415,6 +425,10 @@ if (typeof hideEmptyInvChk !== "undefined" && hideEmptyInvChk) hideEmptyInvChk.a
 });
 if (typeof sellWarnChk !== "undefined" && sellWarnChk) sellWarnChk.addEventListener("change", () => {
   state.options.sellWarn = sellWarnChk.checked;
+  render();
+});
+if (typeof showActionTimeChk !== "undefined" && showActionTimeChk) showActionTimeChk.addEventListener("change", () => {
+  state.options.showActionTime = showActionTimeChk.checked;
   render();
 });
 if (logLimitInput) logLimitInput.addEventListener("change", () => {

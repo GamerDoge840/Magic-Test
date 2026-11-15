@@ -52,7 +52,7 @@ function setAction(id, stopMsg, stopCategory = "stop") {  const prev = state.cur
       render();
       return;
     }
-    // Tile locks: a modifier (e.g. Small Town) bans some actions on its
+    // Tile locks: a modifier (e.g. Hamlet) bans some actions on its
     // tile outright - walk elsewhere. Same paid-resume rule as above.
     if (!cyc.paid && (typeof worldActionLocked === "function") && worldActionLocked(action)) {
       log(worldLockMessage(action));
@@ -125,7 +125,7 @@ function buildActionBtn(a) {
   // Shared tip body (same tree the World mirror builds, so both agree).
   const built = buildActionTipBody(a);
   btn.appendChild(built.tip);
-  const { title, tc: count, desc, autoDesc, costs: costRefs, gains: gainRefs, impMax: impMaxRow, foot, xpSec, xpRows, reqSec, lockSec } = built.refs;
+  const { title, tc: count, tipTime, desc, autoDesc, costs: costRefs, gains: gainRefs, impMax: impMaxRow, foot, xpSec, xpRows, reqSec, lockSec } = built.refs;
 
   const progress = document.createElement("div");
   progress.className = "action-progress";
@@ -137,7 +137,7 @@ function buildActionBtn(a) {
   time.className = "action-time";
   progress.appendChild(time);
   btn.appendChild(progress);
-  uiRefs.set("a:" + a.id, { root: btn, label, title, foot, desc, autoDesc, costs: costRefs, gains: gainRefs, fill, prog: progress, time, tc: count, impMax: impMaxRow, xpSec, xpRows, gatherSec: built.refs.gatherSec, reqSec, lockSec });
+  uiRefs.set("a:" + a.id, { root: btn, label, title, tipTime, foot, desc, autoDesc, costs: costRefs, gains: gainRefs, fill, prog: progress, time, tc: count, impMax: impMaxRow, xpSec, xpRows, gatherSec: built.refs.gatherSec, reqSec, lockSec });
 
   btn.addEventListener("click", () => {
     // Hiding mode: clicking strikes the action hidden instead of running it.

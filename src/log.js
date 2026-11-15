@@ -26,6 +26,8 @@ function log(msg, category = "system", mergeKey) {
   if (category === "skillup" && state.options.logSkillUps === false) return;
   if (category === "improvement" && state.options.logImprovements === false) return;
   if (category === "gather" && state.options.logGathering === false) return;
+  if (category === "sell" && state.options.logSelling === false) return;
+  if (category === "consume" && state.options.logConsuming === false) return;
   // Back-to-back repeats merge: "You feel rested.", "You feel rested."
   // shows once as "You feel rested. (x2)" - in every visible copy.
   {
@@ -60,6 +62,8 @@ function log(msg, category = "system", mergeKey) {
     : category === "skillup" ? "logSkillup"
     : category === "specialMessage" ? "logSpecialMessage"
     : category === "gather" ? "logGather"
+    : category === "sell" ? "logSell"
+    : category === "consume" ? "logConsume"
     : category === "improvement" ? "logImprovement" : "";
  for (const el of allLogEls()) {
    const line = document.createElement("div");
@@ -84,6 +88,8 @@ function logRich(plain, category = "system", fill, mergeKey) {
   if (category === "skillup" && state.options.logSkillUps === false) return;
   if (category === "improvement" && state.options.logImprovements === false) return;
   if (category === "gather" && state.options.logGathering === false) return;
+  if (category === "sell" && state.options.logSelling === false) return;
+  if (category === "consume" && state.options.logConsuming === false) return;
   {
     const els = allLogEls();
     const primary = els[0];
@@ -122,6 +128,8 @@ function logRich(plain, category = "system", fill, mergeKey) {
     : category === "skillup" ? "logSkillup"
     : category === "specialMessage" ? "logSpecialMessage"
     : category === "gather" ? "logGather"
+    : category === "sell" ? "logSell"
+    : category === "consume" ? "logConsume"
     : category === "improvement" ? "logImprovement" : "";
   for (const el of allLogEls()) {
     const line = document.createElement("div");
@@ -254,7 +262,9 @@ function applyLogFilters() {
       || (c.contains("logUnlock") && state.options.logUnlocks === false)
       || (c.contains("logSkillup") && state.options.logSkillUps === false)
       || (c.contains("logImprovement") && state.options.logImprovements === false)
-      || (c.contains("logGather") && state.options.logGathering === false);
+      || (c.contains("logGather") && state.options.logGathering === false)
+      || (c.contains("logSell") && state.options.logSelling === false)
+      || (c.contains("logConsume") && state.options.logConsuming === false);
     // StartLog-hosted gather bullets hide with the Gathering filter while
     // the start text itself stays (governed by its own filter).
     for (const b of line.querySelectorAll(".gather-bullets")) b.hidden = state.options.logGathering === false;

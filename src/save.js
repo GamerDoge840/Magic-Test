@@ -188,6 +188,7 @@ function applySaveData(data) {
   const unlocked = {};
   for (const a of ACTIONS) if (savedUnlocked["a:" + a.id]) unlocked["a:" + a.id] = true;
   for (const u of UPGRADES) if (savedUnlocked["u:" + u.id]) unlocked["u:" + u.id] = true;
+  for (const r of RESOURCES) if (savedUnlocked["r:" + r.id]) unlocked["r:" + r.id] = true;
   state.unlocked = unlocked;
   const savedStats = (data.stats && typeof data.stats === "object" && data.stats.actions && typeof data.stats.actions === "object") ? data.stats.actions : {};
   const actions = {};
@@ -264,6 +265,8 @@ function applySaveData(data) {
     logSkillUps: !data.options || data.options.logSkillUps !== false,
     logImprovements: !data.options || data.options.logImprovements !== false,
     logGathering: !data.options || data.options.logGathering !== false,
+    logSelling: !data.options || data.options.logSelling !== false,
+    logConsuming: !data.options || data.options.logConsuming !== false,
     balloonSkillMilestones: !data.options || data.options.balloonSkillMilestones !== false,
     logLimit: normalizeLogLimit(data.options && data.options.logLimit),
     // Inventory rarity + type filters (ids stay valid via the render gates).
@@ -275,6 +278,8 @@ function applySaveData(data) {
     hideEmptyInv: !data.options || data.options.hideEmptyInv !== false,
     // Item-tip over-cap sale warning (on by default).
     sellWarn: !data.options || data.options.sellWarn !== false,
+    // Action/upgrade tooltip time lines (on by default).
+    showActionTime: !data.options || data.options.showActionTime !== false,
     // Autosave (off by default): timer save to the browser slot, every
     // 1/5/10 minutes, with its own log toggle (on by default).
     autosave: !!(data.options && data.options.autosave),
@@ -386,6 +391,11 @@ function applySaveData(data) {
   // only the armed mode itself is forced off.
   for (const k of Object.keys(hidingMode)) hidingMode[k] = false;
   if (typeof syncHideButtons === "function") syncHideButtons();
+  // Heal float-dust XP (e.g. Sleeping 7.999999999999991/8): snaps stored
+  // values and fires any suppressed level-ups with the normal log +
+  // balloon. Import paths clearLog() afterwards (state still correct);
+  // the boot path keeps the announcement in the log.
+  if (typeof settleSkillLevels === "function") settleSkillLevels();
   lastTime = performance.now();
 }
 

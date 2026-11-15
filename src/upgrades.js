@@ -132,6 +132,17 @@ function buildUpgradeBtn(u) {
   tip.appendChild(head);
   const headTags = buildTipTags(u);
   if (headTags) tip.appendChild(headTags);
+  // Timed upgrades print their build time under the header (e.g. "Time:
+  // 30s to finish"), so custom descriptions don't hide the duration.
+  // buildTime is immutable (no effect type modifies it), so static text
+  // stays truthful without a live refresh.
+  let tipTime = null;
+  if (u.buildTime) {
+    tipTime = document.createElement("div");
+    tipTime.className = "tip-time";
+    tipTime.textContent = "Time: " + formatDuration(u.buildTime, (s) => formatNum(s) + "s") + " to finish";
+    tip.appendChild(tipTime);
+  }
   const desc = document.createElement("div");
   desc.className = "tip-desc";
   desc.textContent = u.description ?? autoUpgradeDescription({ cost: u.cost ?? {}, effects: u.effects ?? [], buildTime: u.buildTime });
@@ -183,7 +194,7 @@ function buildUpgradeBtn(u) {
     if (hidingMode.actions) { toggleItemHidden("u:" + u.id); return; }
     buyUpgrade(u.id);
   });
-  uiRefs.set("u:" + u.id, { root: btn, label, costs: costRefs, tc: count, fill, prog: progress, time, reqSec });
+  uiRefs.set("u:" + u.id, { root: btn, label, tipTime, costs: costRefs, tc: count, fill, prog: progress, time, reqSec });
   const hi = (on) => hiResources({ costs: u.cost, gains: effectGains(u) }, on);
   // A paid build resumes (and a running build continues) for free, so its
   // tip rows tint against the free resume price (see tipCostsForUpgrade),
