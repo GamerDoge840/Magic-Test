@@ -6,7 +6,10 @@ function doTick(action) {
   for (const [id, n] of Object.entries(eff)) {
     const max = getEffectiveMax(id);
     const cur = state.amounts[id] ?? 0;
-    state.amounts[id] = max === Infinity ? cur + n : Math.min(max, cur + n);
+    // Meal overheal parks Stamina past its cap: a capped grant (e.g. Rest
+    // while hurt) must never drain the buffer back to the cap.
+    if (id === "stamina" && cur > max) state.amounts[id] = Math.max(cur, Math.min(max, cur + n));
+    else state.amounts[id] = max === Infinity ? cur + n : Math.min(max, cur + n);
     if (n > 0) {
       markCurrencySeen(id);
       // Inventory discovery: first-time items appear from here on.

@@ -37,6 +37,10 @@ setInterval(() => {
   // Stamina mid-trip (the trip simply pauses at 0 Stamina).
   if (typeof worldTick === "function") worldTick(dt);
 
+  // Crafting runs on its own clock too (no Stamina cost): loaded plans
+  // keep working while actions run, you travel, or tabs sit idle.
+  if (typeof craftTick === "function") craftTick(dt);
+
   const current = state.currentActionId ? getAction(state.currentActionId) : null;
   if (!current) { render(); return; }
   const eff = effectiveGains(current);
@@ -118,12 +122,13 @@ render();
 // A browser Manual Save autoloads here (the Save/Load buttons live in
 // Options). Fresh players get the intro line instead.
 loadManualSave().then((loaded) => {
-  if (loaded) {
+  if (loaded === true) {
     buildUI();
     render();
     log("Save loaded.");
   } else {
     logIntro();
+    if (loaded === "corrupt") log("Saved game was corrupt and could not be loaded.");
   }
 });
 for (const w of configWarnings) {

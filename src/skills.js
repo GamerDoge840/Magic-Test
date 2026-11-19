@@ -93,6 +93,7 @@ function gainSkillXp(sid, amount) {
   if (!skillUnlocked(sid)) return;
   const st = skillState(sid);
   if (st.level >= skill.maxLevel) return;
+  const lvlBefore = st.level;
   st.xp = snapSkillXp(st.xp + amount);
   while (st.level < skill.maxLevel && st.xp + SKILL_XP_EPS >= xpForSkillLevel(skill, st.level)) {
     const need = xpForSkillLevel(skill, st.level);
@@ -100,7 +101,68 @@ function gainSkillXp(sid, amount) {
     if (st.xp < 0) st.xp = 0; // epsilon overshoot never carries negative
     awardSkillLevel(skill, st);
   }
+  // XP receipt ("+1.1 Foraging XP (1.6/4.5 to next level)") under its own
+  // filter, off by default - per-cycle grants would spam otherwise. Skills
+  // at max level log nothing (a just-maxed grant only shows the
+  // "[Skill Level Up]" line above). Back-to-back receipts for the same
+  // skill rewrite ONE line with running totals. The chain tolerates craft
+  // finish lines, recipe discoveries, and skill level-ups (and craft chains
+  // tolerate these back), so background crafts, unlocks, and level-ups
+  // stack side by side instead of splitting each other - any other log
+  // line still breaks the chain. The progress fraction
+  // always reflects the live remainder, so a merged line like "+0.5
+  // Resting XP (10.3/16 to next level)" stays truthful. Runtime-only,
+  // never saved.
+  if (st.level >= skill.maxLevel) {
+    if (skillXpAcc && skillXpAcc.sid === sid) skillXpAcc = null;
+    renderSkills();
+    return;
+  }
+  if (state.options.logSkillXp !== true) {
+    if (skillXpAcc && skillXpAcc.sid === sid) skillXpAcc = null;
+    renderSkills();
+    return;
+  }
+  const key = "skillxp:" + sid;
+  const alive = !!skillXpAcc && skillXpAcc.sid === sid && skillXpChainAlive();
+  // A level attained in this very grant restarts the running total (the
+  // receipt stays single-level truthful: "+0.5 Cooking XP (0/2 to next
+  // level)"), while the line itself keeps stacking in place.
+  const leveled = st.level > lvlBefore;
+  const total = snapSkillXp((alive && !leveled ? skillXpAcc.total : 0) + amount);
+  const msg = "+" + formatNum(total) + " " + skill.name + " XP (" + formatNum(st.xp) + "/" + formatNum(xpForSkillLevel(skill, st.level)) + " to next level)";
+  if (alive) {
+    // Rewrite our own (possibly no-longer-newest) line in place, so
+    // interleaved craft lines keep stacking too instead of splitting us.
+    for (const line of skillXpAcc.lines) line.textContent = msg;
+    skillXpAcc.total = total;
+    lastLogMsg = msg;
+    lastLogCount = 1;
+    lastLogMergeKey = key;
+    skillXpAcc.seq = stampLogWrite("skillxp");
+  } else {
+    log(msg, "skillxp", key);
+    skillXpAcc = { key, sid, total, seq: (typeof logSeq !== "undefined" ? logSeq : 0), lines: (typeof captureLogLines === "function" ? captureLogLines() : []) };
+  }
   renderSkills();
+}
+
+// Repeat XP receipts accumulate into ONE rewritten line ("+0.5 Resting XP
+// (10.3/16 to next level)"). The chain survives consecutive same-skill
+// grants, and - unlike every other chain - craft finishes, recipe
+// discoveries, and skill level-ups too (see logWritesSince in log.js):
+// the receipt kinds stack side by side, each rewriting its own line in
+// place. Anything else (system text, stops, ...) starts a fresh total,
+// and a level attained in the grant itself restarts the running total
+// (keeping the receipt single-level truthful) without splitting the line.
+let skillXpAcc = null; // { key, sid, total, seq, lines }
+function skillXpChainAlive() {
+  if (!skillXpAcc) return false;
+  if (lastLogMergeKey === skillXpAcc.key) return (typeof logLinesAlive !== "function" || logLinesAlive(skillXpAcc.lines));
+  if (typeof logWritesSince === "function" && typeof logLinesAlive === "function") {
+    return !logWritesSince(skillXpAcc.seq, ["skillxp", "craft", "unlock", "skillup", "discovery"]) && logLinesAlive(skillXpAcc.lines);
+  }
+  return false;
 }
 
 // Dust settlement for stored XP: snaps every skill's XP and fires any
@@ -166,13 +228,18 @@ function costReductionFor(actionId, resourceId) {
 }
 
 // One cycle's true price: base costs minus attained skill discounts.
+// Per-biome cost override for the current tile (e.g. Forage costs 2.5
+// Stamina on forest tiles): biome entries win per resource, other
+// resources keep their base cost. A per-tag override (e.g. 4 Stamina on
+// Cabbage Fields) wins over the biome one. Discounts apply to the result.
 function effectiveCosts(action) {
   const out = { ...(action.costs ?? {}) };
-  // Per-biome cost override for the current tile (e.g. Forage costs 2.5
-  // Stamina on forest tiles): biome entries win per resource, other
-  // resources keep their base cost. Discounts apply to the result.
   const bb = (typeof currentBiomeId === "function") ? currentBiomeId() : null;
   if (bb && action.costsByBiome && action.costsByBiome[bb]) for (const [id, n] of Object.entries(action.costsByBiome[bb])) out[id] = n;
+  if (action.costsByTag && typeof tileTagOverride === "function") {
+    const tv = tileTagOverride(action.costsByTag);
+    if (tv && typeof tv === "object") for (const [id, n] of Object.entries(tv)) out[id] = n;
+  }
   for (const id of Object.keys(out)) {
     out[id] = Math.max(0, out[id] - costReductionFor(action.id, id));
   }

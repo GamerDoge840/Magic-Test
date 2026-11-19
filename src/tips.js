@@ -1,24 +1,39 @@
 // Labor Game tooltips: builders, placement, hover highlights, row tints.
+// Full-bleed section dividers: .tip-sec is a full-width block whose
+// border-top spans the whole tooltip (negative margins over the tip's
+// padding), while .tip-sec-body keeps the old shrink-wrapped table
+// layout - so every label and row stays exactly where it was.
+function makeTipSection(labelText, extraClass) {
+  const sec = document.createElement("div");
+  sec.className = "tip-sec" + (extraClass ? " " + extraClass : "");
+  const body = document.createElement("div");
+  body.className = "tip-sec-body";
+  const lab = document.createElement("div");
+  lab.className = "tip-sec-label";
+  lab.textContent = labelText;
+  body.appendChild(lab);
+  sec.appendChild(body);
+  return { sec, body, lab };
+}
+
 function appendTipSection(tip, label, entries, valueRefs) {
   const rows = Object.entries(entries ?? {});
   if (!rows.length) return;
-  const sec = document.createElement("div");
-  sec.className = "tip-sec";
-  const lab = document.createElement("div");
-  lab.className = "tip-sec-label";
-  lab.textContent = label;
-  sec.appendChild(lab);
+  const { sec, body } = makeTipSection(label);
   for (const [id, n] of rows) {
     const def = getResource(id);
+    // "tag:" recipe inputs have no item def: show the tag instead.
+    const tagLabel = ((typeof isTagInputKey === "function") && isTagInputKey(id))
+      ? tagInputTag(id).charAt(0).toUpperCase() + tagInputTag(id).slice(1) + " (any)" : id;
     const row = document.createElement("div");
     row.className = "tip-row";
     const k = document.createElement("span");
-    k.textContent = (def ? def.name : id) + ":";
+    k.textContent = (def ? def.name : tagLabel) + ":";
     const v = document.createElement("span");
     v.textContent = formatNum(n);
     row.appendChild(k);
     row.appendChild(v);
-    sec.appendChild(row);
+    body.appendChild(row);
     // Optional live refs: improved actions update these rows every frame
     // so Results always shows the leveled-up payout, not the base gains.
     if (valueRefs) valueRefs.push({ id, el: v });
@@ -173,12 +188,7 @@ function fitTip(tip, anchor, prefer) {
 function appendTipXpSection(tip, xp) {
   const rows = Object.entries(xp ?? {});
   if (!rows.length) return null;
-  const sec = document.createElement("div");
-  sec.className = "tip-sec";
-  const lab = document.createElement("div");
-  lab.className = "tip-sec-label";
-  lab.textContent = "Skill XP";
-  sec.appendChild(lab);
+  const { sec, body } = makeTipSection("Skill XP");
   const refs = [];
   let anyVisible = false;
   for (const [sid, n] of rows) {
@@ -194,7 +204,7 @@ function appendTipXpSection(tip, xp) {
     v.textContent = "+" + formatNum(n);
     row.appendChild(k);
     row.appendChild(v);
-    sec.appendChild(row);
+    body.appendChild(row);
     refs.push({ sid, row, el: v });
   }
   sec.hidden = !anyVisible;
@@ -209,18 +219,13 @@ function appendTipXpSection(tip, xp) {
 function appendTileRequirementSection(tip, item) {
   if (typeof tileRequirementTags !== "function") return null;
   if (!tileRequirementTags(item).length) return null;
-  const sec = document.createElement("div");
-  sec.className = "tip-sec tip-req";
-  const lab = document.createElement("div");
-  lab.className = "tip-sec-label";
-  lab.textContent = "Requires";
-  sec.appendChild(lab);
+  const { sec, body } = makeTipSection("Requires", "tip-req");
   const row = document.createElement("div");
   row.className = "tip-row";
   const s = document.createElement("span");
   s.textContent = tileRequirementLabel(item);
   row.appendChild(s);
-  sec.appendChild(row);
+  body.appendChild(row);
   tip.appendChild(sec);
   return sec;
 }
@@ -241,18 +246,13 @@ function appendTileLockSection(tip, item) {
     return locks.some(l => typeof l === "string" && l.toLowerCase() === String(item.id).toLowerCase());
   });
   if (!lockers.length) return null;
-  const sec = document.createElement("div");
-  sec.className = "tip-sec";
-  const lab = document.createElement("div");
-  lab.className = "tip-sec-label";
-  lab.textContent = "Locked";
-  sec.appendChild(lab);
+  const { sec, body } = makeTipSection("Locked");
   const row = document.createElement("div");
   row.className = "tip-row";
   const s = document.createElement("span");
   s.textContent = lockers.map(m => m.name).join(" or ");
   row.appendChild(s);
-  sec.appendChild(row);
+  body.appendChild(row);
   sec.hidden = true;
   tip.appendChild(sec);
   return sec;
@@ -264,6 +264,123 @@ function appendTileLockSection(tip, item) {
 function actionTimeText(a) {
   const t = (typeof getEffectiveTick === "function") ? getEffectiveTick(a) : (a.tickSeconds ?? 1);
   return "Time: " + formatDuration(t, (s) => formatNum(s) + "s") + " per cycle";
+}
+
+// Unlock-requirements section for action, upgrade, plan, and furniture
+// tooltips: every gate that had to be met before the item appeared, so
+// the player can see how they got it. Sits right before the Cost section
+// (before the Fuel/Recipes block on plan tips, which have no Cost).
+// Items with no gates show a single "none" row. Static config text - no
+// live refs.
+// Visibility is option-gated (Options > Actions, off by default): the
+// section is always built and render() hides it with a body class, the
+// same pattern as the action Time line.
+function unlockRequirementLines(item, stationTag) {
+  const lines = [];
+  // Plan station gate (e.g. "Cooking Station" furniture): buying station
+  // furniture is what unlocks the plan, so it reads as a requirement.
+  if (typeof stationTag === "string" && stationTag) lines.push("Own " + stationTag + " furniture");
+  // Furniture-only gates: requiresHome (ANY listed home opens it) and
+  // requiresSeenTag (ANY listed tag seen on any item) - each reads as one
+  // "or" row, unlike the AND-stacked unlock gates below.
+  if (item && (item.requiresHome !== undefined || item.requiresSeenTag !== undefined)) {
+    if (item.requiresHome !== undefined) {
+      const ids = Array.isArray(item.requiresHome) ? item.requiresHome : [item.requiresHome];
+      const names = ids.map(id => {
+        const h = (typeof getHome === "function") ? getHome(id) : null;
+        return h ? h.name : id;
+      });
+      if (names.length === 1) lines.push("Own " + names[0]);
+      else if (names.length) {
+        // Short form: when every option shares words ("Small Tent",
+        // "Medium Tent", "Survivalist's Tent"), collapse the lengthy
+        // "Own A or B or C" to "Own any Tent".
+        const words = names.map(n => String(n).split(/\s+/));
+        const common = words[0].filter(w => words.every(ws => ws.some(x => x.toLowerCase() === w.toLowerCase())));
+        lines.push(common.length ? "Own any " + common.join(" ") : "Own " + names.join(" or "));
+      }
+    }
+    if (item.requiresSeenTag !== undefined) {
+      const tags = Array.isArray(item.requiresSeenTag) ? item.requiresSeenTag : [item.requiresSeenTag];
+      if (tags.length) lines.push("Discover a " + tags.join(" or ") + " item");
+    }
+  }
+  const u = item ? item.unlock : null;
+  if (u && typeof u === "object" && !Array.isArray(u)) {
+    // Currency gates: legacy { resource, amount } plus the canonical map.
+    const res = {};
+    if (typeof u.resource === "string" && typeof u.amount === "number" && Number.isFinite(u.amount) && u.amount > 0) res[u.resource] = Math.max(res[u.resource] ?? 0, u.amount);
+    if (u.resources && typeof u.resources === "object" && !Array.isArray(u.resources)) {
+      for (const [id, n] of Object.entries(u.resources)) {
+        if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) continue;
+        res[id] = Math.max(res[id] ?? 0, n);
+      }
+    }
+    for (const [id, n] of Object.entries(res)) {
+      const d = (typeof getResource === "function") ? getResource(id) : null;
+      lines.push("Hold " + formatNum(n) + " " + (d ? displayName(d, n) : id));
+    }
+    // Home gates: legacy `home` plus canonical `homes` (EVERY one needed).
+    const homes = [];
+    for (const hk of ["home", "homes"]) {
+      const v = u[hk];
+      if (v === undefined) continue;
+      for (const id of (Array.isArray(v) ? v : [v])) if (typeof id === "string" && !homes.includes(id)) homes.push(id);
+    }
+    for (const id of homes) {
+      const h = (typeof getHome === "function") ? getHome(id) : null;
+      lines.push("Own " + (h ? h.name : id));
+    }
+    // Skill gates: legacy { skill, skillLevel } plus the plural map.
+    const skills = {};
+    if (typeof u.skill === "string" && u.skill) {
+      const sl = u.skillLevel ?? 1;
+      if (Number.isInteger(sl) && sl >= 1) skills[u.skill] = Math.max(skills[u.skill] ?? 0, sl);
+    }
+    if (u.skills && typeof u.skills === "object" && !Array.isArray(u.skills)) {
+      for (const [sid, sl] of Object.entries(u.skills)) {
+        if (!Number.isInteger(sl) || sl < 1) continue;
+        skills[sid] = Math.max(skills[sid] ?? 0, sl);
+      }
+    }
+    for (const [sid, sl] of Object.entries(skills)) {
+      const s = (typeof getSkill === "function") ? getSkill(sid) : null;
+      lines.push("Reach " + (s ? s.name : sid) + " Level " + sl);
+    }
+    // Upgrade-ownership gates: legacy { upgrade, upgradeCount } plus map.
+    const ups = {};
+    if (typeof u.upgrade === "string" && u.upgrade) {
+      const uc = u.upgradeCount ?? 1;
+      if (Number.isInteger(uc) && uc >= 1) ups[u.upgrade] = Math.max(ups[u.upgrade] ?? 0, uc);
+    }
+    if (u.upgrades && typeof u.upgrades === "object" && !Array.isArray(u.upgrades)) {
+      for (const [uid, uc] of Object.entries(u.upgrades)) {
+        if (!Number.isInteger(uc) || uc < 1) continue;
+        ups[uid] = Math.max(ups[uid] ?? 0, uc);
+      }
+    }
+    for (const [uid, uc] of Object.entries(ups)) {
+      const ug = (typeof getUpgrade === "function") ? getUpgrade(uid) : null;
+      lines.push("Own " + (ug ? ug.name : uid) + (uc > 1 ? " ×" + uc : ""));
+    }
+  }
+  return lines;
+}
+
+function appendUnlockSection(tip, item, stationTag) {
+  const { sec, body } = makeTipSection("Unlock requirements", "tip-unlock");
+  const lines = unlockRequirementLines(item, stationTag);
+  if (!lines.length) lines.push("none");
+  for (const t of lines) {
+    const row = document.createElement("div");
+    row.className = "tip-row";
+    const s = document.createElement("span");
+    s.textContent = t;
+    row.appendChild(s);
+    body.appendChild(row);
+  }
+  tip.appendChild(sec);
+  return sec;
 }
 
 function buildActionTipBody(a) {
@@ -289,6 +406,7 @@ function buildActionTipBody(a) {
   desc.className = "tip-desc";
   desc.textContent = a.description ?? autoActionDescription({ tickSeconds: a.tickSeconds ?? 1, costs: a.costs ?? {}, gains: a.gains ?? {} });
   tip.appendChild(desc);
+  appendUnlockSection(tip, a);
   const costRefs = [];
   appendTipSection(tip, "Cost", a.costs ?? {}, costRefs);
   // Results rows are live for improved actions (payout grows per level):
@@ -315,8 +433,18 @@ function buildActionTipBody(a) {
       if (e.type === "gain" && e.action === a.id && e.resource && !(e.resource in gainBase)) gainBase[e.resource] = 0;
     }
   }
+  // Rest's wound-knitting (+2% of max Health per cycle, added in
+  // effectiveGains) gets a Results row even while Health itself is still
+  // locked: the payout is real from the first rest, so the tooltip shows
+  // it instead of hiding it until the vital unlocks. The value reads
+  // live like every other row - as a share of max ("2% of Max"), since
+  // the grant is defined as a percent (see pctOfMaxText).
+  if (a.id === "rest" && !("health" in gainBase)) gainBase.health = 0;
   const gainRefs = [];
   appendTipSection(tip, "Results", gainBase, gainRefs);
+  // Cap-based vital restoration (currently only Rest's Health) displays
+  // as a percentage of max, not an absolute payout.
+  for (const g of gainRefs) if (a.id === "rest" && g.id === "health") g.pctOfMax = true;
   // Skill XP the action grants per cycle (e.g. Research Scrolls -> Basic
   // Knowledge). Listed right after Results so no payout goes unmentioned.
   // Rows for locked skills build hidden and unhide live in render().
@@ -330,12 +458,7 @@ function buildActionTipBody(a) {
   // keep its row: render() refreshes the text whenever the cap moves.
   let impMaxRow = null;
   if (a.improvements) {
-    const impSec = document.createElement("div");
-    impSec.className = "tip-sec";
-    const impLab = document.createElement("div");
-    impLab.className = "tip-sec-label";
-    impLab.textContent = "Improvement";
-    impSec.appendChild(impLab);
+    const { sec: impSec, body: impBody } = makeTipSection("Improvement");
     const impMax = (typeof getEffectiveImpMax === "function") ? getEffectiveImpMax(a) : a.improvements.maxLevel;
     const impLines = ["Level up every " + a.improvements.every + " actions.", "Max level: " + (impMax === Infinity ? "none" : impMax) + "."];
     const impBonus = describeCost(a.improvements.bonus);
@@ -344,7 +467,7 @@ function buildActionTipBody(a) {
       const row = document.createElement("div");
       row.className = "tip-row";
       row.textContent = t;
-      impSec.appendChild(row);
+      impBody.appendChild(row);
       if (i === 1) impMaxRow = row;
     });
     tip.appendChild(impSec);
@@ -377,14 +500,9 @@ function buildActionTipBody(a) {
 // refresh, or null for non-gather actions.
 function appendGatherSection(tip, a) {
   if (!a || a.gather !== true) return null;
-  const sec = document.createElement("div");
-  sec.className = "tip-sec";
-  const lab = document.createElement("div");
-  lab.className = "tip-sec-label";
-  lab.textContent = "Gather";
-  sec.appendChild(lab);
+  const { sec, body: inner } = makeTipSection("Gather");
   const body = document.createElement("div");
-  sec.appendChild(body);
+  inner.appendChild(body);
   tip.appendChild(sec);
   const ref = { sec, body, sig: null };
   refreshGatherSection(a, ref);
@@ -437,6 +555,15 @@ function refreshGatherSection(a, ref) {
 }
 
 // Live refresh for an action tip (Work button or World mirror): leveled
+// Cap-based vital restoration as a share of max ("2% of Max"): the grant
+// itself is defined as a percent, so an absolute number would lie as max
+// grows. Falls back to the absolute payout when max is infinite or zero.
+function pctOfMaxText(id, v) {
+  const max = (typeof getEffectiveMax === "function") ? getEffectiveMax(id) : Infinity;
+  if (!Number.isFinite(max) || max <= 0) return formatNum(v);
+  return formatNum(v / max * 100) + "% of Max";
+}
+
 // header/footer/max line, effective Results/Cost rows, XP-row unlocks,
 // auto-description. Every write is a no-op when unchanged, so calling it
 // on every render is cheap.
@@ -463,11 +590,14 @@ function renderActionTipLive(a, ref) {
   // Results rows always show the effective payout (base + improvement
   // levels + furniture/home boosts), so tooltips stay truthful for every
   // action - e.g. Rest shows 1.25 Stamina once Blankets are owned.
+  // Cap-based vital restoration (Rest's Health, flagged pctOfMax at
+  // build time) reads as a share of max ("2% of Max") instead.
   {
     const effCost = (typeof effectiveCosts === "function") ? effectiveCosts(a) : { ...(a.costs ?? {}) };
     const eff = effectiveGains(a);
     for (const g of ref.gains ?? []) {
-      const t = formatNum(eff[g.id] ?? 0);
+      const v = eff[g.id] ?? 0;
+      const t = g.pctOfMax ? pctOfMaxText(g.id, v) : formatNum(v);
       if (g.el.textContent !== t) g.el.textContent = t;
     }
     // Cost rows are live for the same reason: a fresh discount changes

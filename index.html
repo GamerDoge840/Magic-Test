@@ -89,12 +89,72 @@
     #invLogPanel { max-height: 34vh; }
   }
   @media (max-width: 700px) {
-    #invGrid { grid-template-columns: 1fr; grid-template-areas: "inv" "invv" "invlog"; }
-    #invLogPanel { max-height: 44vh; }
+    #invGrid { grid-template-columns: 1fr; grid-template-areas: "inv" "invv" "invlog"; grid-template-rows: none; flex: none; }
+    #invLogPanel { max-height: 38vh; }
   }
+  /* Crafting tab: side rail (plans) | workbench | slim log on the
+     right (Options pattern; stacked on narrow screens). */
+  #tabCrafting { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #craftGrid { display: grid; grid-template-columns: 240px minmax(0, 1fr) 240px; grid-template-areas: "cside cmain clog"; gap: 10px; margin-bottom: 0; text-align: left; align-items: stretch; flex: 1; min-height: 0; }
+  #craftGrid .panel { overflow: hidden; display: flex; flex-direction: column; min-height: 0; text-align: left; }
+  #craftSideCol { grid-area: cside; }
+  #craftMainPanel { grid-area: cmain; overflow-y: auto; }
+  #craftLogPanel { grid-area: clog; }
+  /* Tabular digits so the per-tick decimal readouts (progress
+     countdown, fuel left, slot/material counts) never wobble in
+     width as their digits change. */
+  .craftProgText, .craftSlotSub, .craftMat, .craftSlotText { font-variant-numeric: tabular-nums; }
+  @media (max-width: 700px) {
+    #craftGrid { grid-template-columns: 1fr; grid-template-areas: "cside" "cmain" "clog"; flex: none; }
+    #craftLogPanel { max-height: 38vh; }
+  }
+  /* Craft-type subtabs: small row just below the main tabs. */
+  .craftTypeRow { flex-wrap: wrap; flex: none; margin-bottom: 10px; justify-content: center; }
+  .craftTypeRow button.on { background: #4a5160; border-color: #9aa3b5; color: #fff; font-weight: bold; box-shadow: 0 0 8px rgba(255,255,255,0.25); }
+  #craftPlansCtn { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
+  .craftPlanRow { position: relative; text-align: left; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 6px 10px; }
+  .craftPlanRow.on { background: #4a5160; border-color: #9aa3b5; color: #fff; font-weight: bold; }
+  .craftPlanRow:disabled { opacity: 0.55; cursor: default; }
+  .craftSecLabel { font-size: 0.72em; text-transform: uppercase; letter-spacing: 1.5px; color: #9aa3b5; margin: 10px 0 6px; flex: none; }
+  /* Materials strip: one horizontally scrolling row (like the
+     inventory type row), so high counts never wrap into a tall grid. */
+  #craftMatsCtn { display: flex; flex-wrap: nowrap; gap: 8px; overflow-x: auto; overflow-y: hidden; min-height: 0; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; flex: none; padding-bottom: 8px; border-bottom: 1px solid #333842; }
+  .craftMat { background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 6px 10px; cursor: grab; flex: none; white-space: nowrap; }
+  .craftMat:hover:not(:disabled) { border-color: #7fd97f; }
+  .craftMat:active { cursor: grabbing; }
+  #craftPlanCtn { margin-top: 6px; flex: none; padding-bottom: 8px; border-bottom: 1px solid #333842; }
+  .craftSlotsRow { display: flex; gap: 12px; }
+  .craftSlotBox { flex: 1; min-width: 0; }
+  .craftSlotLabel { font-size: 0.72em; text-transform: uppercase; letter-spacing: 1.5px; color: #9aa3b5; margin-bottom: 4px; }
+  .craftSlot { position: relative; overflow: hidden; min-height: 88px; border: 2px dashed #4a4f5c; border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 6px 10px; cursor: pointer; }
+  .craftSlot.dragOver { border-color: #7fd97f; background: rgba(127, 217, 127, 0.08); border-style: solid; box-shadow: 0 0 8px rgba(127, 217, 127, 0.6); }
+  .craftSlotText { position: relative; z-index: 1; font-weight: bold; }
+  /* Fuel bar merged into the Fuel Slot: a background fill behind the text. */
+  .craftFuelSlot .craftFuelFill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: rgba(224, 72, 72, 0.45); }
+  /* Divider between the item slots and the progress bar. */
+  .craftDiv { border-top: 1px solid #333842; margin-top: 10px; }
+  .craftBar { height: 14px; background: rgba(0, 0, 0, 0.25); border-radius: 999px; overflow: hidden; margin-top: 6px; }
+  .craftFill { height: 100%; width: 0%; }
+  .craftProgBar { position: relative; }
+  /* Live status sits inside the time bar (World-trip style). */
+  .craftProgText { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 0.72em; font-weight: bold; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); white-space: nowrap; overflow: hidden; padding: 0 8px; }
+  .craftProgBar .craftFill { background: #7fd97f; }
+  .craftSlotSub { font-size: 0.85em; opacity: 0.8; margin-top: 4px; }
+  .craftStatus { font-weight: bold; margin-top: 8px; }
+  .craftRecipeBtn { position: relative; display: flex; align-items: center; justify-content: center; min-height: 64px; width: 100%; box-sizing: border-box; text-align: center; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+  .craftRecipeBtn:hover:not(:disabled) { border-color: #7fd97f; }
+  .craftRecipeBtn.on { background: #4a5160; border-color: #9aa3b5; color: #fff; font-weight: bold; }
+  /* Recipes as a grid of compact square-ish buttons (Work-action
+     style): names only, details live in the tooltips. */
+  #craftRecipesCtn { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; align-content: start; overflow-y: auto; min-height: 120px; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
+  #craftRecipesCtn > .emptyNote { grid-column: 1 / -1; }
   #invFilterRow { flex-wrap: wrap; }
   #invTypeRow { flex-wrap: nowrap; overflow-x: auto; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #333842; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
-  #invTypeRow:empty, #invTypeRow[hidden] { display: none; }
+  #invTypeSubRow { flex-wrap: nowrap; overflow-x: auto; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #333842; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
+  #invTypeSubRow button.sub { font-size: 0.9em; }
+  #invTypeRow button.in-cat { border-color: #7fd97f; }
+  #invSearchRow { padding-bottom: 8px; border-bottom: 1px solid #333842; }
+  #invTypeRow:empty, #invTypeRow[hidden], #invTypeSubRow:empty, #invTypeSubRow[hidden] { display: none; }
   #invGridCtn { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; align-content: start; flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; padding: 2px; }
   /* Selling Mode: armed cells take a pointer and glow green on hover. */
   #invGridCtn.selling .invCell { cursor: pointer; }
@@ -102,6 +162,9 @@
   #invSellRow { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #333842; flex-wrap: wrap; }
   #furnSortRow { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #333842; }
   #invSellRow:empty, #invSellRow[hidden] { display: none; }
+  /* Inventory search: static row above the type chips (never rebuilt,
+     so typing never loses focus); AND-combined with the other filters. */
+  #invSearchRow input { flex: 0 1 50%; min-width: 120px; background: #22262f; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 4px 8px; font-size: 0.95em; }
   .invCell { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; background: #1b1f26; border: 1px solid #333842; border-radius: 8px; padding: 8px 6px; text-align: center; }
   .invCell.invEmpty { opacity: 0.45; }
   .invName { font-weight: bold; font-size: 0.9em; overflow-wrap: anywhere; }
@@ -231,15 +294,26 @@
   .actionBtn.fullstop { border-color: #ffa500; }
   .shopBtn.building { padding-bottom: 26px; border-color: #7fd97f; }
   .actionBtn .action-progress, .shopBtn .action-progress { position: absolute; left: 6px; right: 6px; bottom: 4px; height: 16px; background: rgba(0, 0, 0, 0.15); border-radius: 999px; overflow: hidden; z-index: 2; pointer-events: none; }
-  .actionBtn .action-fill, .shopBtn .action-fill { height: 100%; width: 0%; background: #333; }
+  .actionBtn .action-fill, .shopBtn .action-fill { height: 100%; width: 0%; background: #333; transition: width 50ms linear; }
+  /* Very fast cycles (4+ fills/sec) show a full-width flowing striped bar
+     instead of a discrete fill (render toggles .flowing): the stripes
+     slide toward the running edge. */
+  .actionBtn .action-progress.flowing .action-fill, .shopBtn .action-progress.flowing .action-fill { width: 100%; background: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.9) 0 10px, rgba(255, 255, 255, 0.3) 10px 20px); transition: none; animation: actionFlow 0.6s linear infinite; }
+  /* The per-tick countdown is unreadable flicker at flowing speeds. */
+  .actionBtn .action-progress.flowing .action-time, .shopBtn .action-progress.flowing .action-time { display: none; }
+  /* Flowing bars darken their own track so the white stripes read on light
+     themes too (dark mode keeps its own track: that override wins). */
+  .actionBtn .action-progress.flowing, .shopBtn .action-progress.flowing { background: rgba(0, 0, 0, 0.35); }
+  /* One stripe period along the horizontal (20px bands at 45deg = 20√2 px), so the loop is seamless. */
+  @keyframes actionFlow { from { background-position: 0 0; } to { background-position: 28.2843px 0; } }
   .actionBtn .action-time, .shopBtn .action-time { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3; font-size: 0.68em; font-weight: bold; line-height: 1; background: rgba(0, 0, 0, 0.55); color: #fff; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
   @media (prefers-color-scheme: dark) {
-    .actionBtn .action-progress, .shopBtn .action-progress { background: rgba(255, 255, 255, 0.2); }
-    .actionBtn .action-fill, .shopBtn .action-fill { background: #eee; }
+    body:not(.force-light) .actionBtn .action-progress, body:not(.force-light) .shopBtn .action-progress { background: rgba(255, 255, 255, 0.2); }
+    body:not(.force-light) .actionBtn .action-fill, body:not(.force-light) .shopBtn .action-fill { background: #eee; }
   }
   .shopBtn.owned { outline: 2px solid #7fd97f; }
   .shopBtn.maxed { border-style: dashed; }
-  .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip, .furnCard .tip, .homeRow .tip, .skillRow .tip {
+  .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip, .furnCard .tip, .homeRow .tip, .skillRow .tip, .craftPlanRow .tip, .craftRecipeBtn .tip {
     display: none;
     position: absolute;
     bottom: calc(100% - 2px);
@@ -283,7 +357,9 @@
   .shopBtn:hover .tip, .shopBtn:focus-visible .tip,
   .currency:hover .tip, .currency:focus-visible .tip,
   .res:hover .tip, .res:focus-visible .tip,
-  .skillRow:hover .tip, .skillRow:focus-visible .tip { display: block; }
+  .skillRow:hover .tip, .skillRow:focus-visible .tip,
+  .craftPlanRow:hover .tip, .craftPlanRow:focus-visible .tip,
+  .craftRecipeBtn:hover .tip, .craftRecipeBtn:focus-visible .tip { display: block; }
   /* Hovered/focused tip anchors rise above later siblings. The hover lift
      (translateY) turns the anchor into a stacking context, which would
      otherwise trap its tip (z-index 10) underneath buttons further down
@@ -294,7 +370,9 @@
   .shopBtn:hover, .shopBtn:focus-visible,
   .currency:hover, .currency:focus-visible,
   .res:hover, .res:focus-visible,
-  .homeRow:hover, .homeRow:focus-visible { z-index: 11; }
+  .homeRow:hover, .homeRow:focus-visible,
+  .craftPlanRow:hover, .craftPlanRow:focus-visible,
+  .craftRecipeBtn:hover, .craftRecipeBtn:focus-visible { z-index: 11; }
   /* Resource tooltips open downward so they never collide with panel headers. */
   .currency .tip, .res .tip { bottom: auto; top: calc(100% - 2px); }
   /* ...and size to the row (not the content): unlike action buttons, rows
@@ -305,14 +383,17 @@
   /* Tooltip content (Kittens-style): header row, centered description,
      divider-separated sections with centered small-cap labels,
      name-left/value-right rows, centered flavor line. */
-  .tip-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-weight: bold; font-size: 1.08em; padding-bottom: 6px; border-bottom: 1px solid #3a3f4b; }
+  .tip-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-weight: bold; font-size: 1.08em; margin: 0 -12px; padding: 0 12px 6px; border-bottom: 1px solid #3a3f4b; }
   .tip-count { font-weight: bold; white-space: nowrap; font-size: 0.85em; color: #9aa3b5; }
   .tip-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin: 6px 0 2px; }
   .tip-tag { font-size: 0.72em; font-weight: normal; background: #2c313b; border: 1px solid #454b58; border-radius: 999px; padding: 1px 8px; opacity: 0.9; white-space: nowrap; }
   .tip-desc { margin: 6px 0 2px; text-align: center; color: #b9bec7; }
-  .tip-time { margin: 6px 0 2px; padding-top: 6px; border-top: 1px solid #3a3f4b; text-align: center; font-size: 0.92em; color: #9aa3b5; }
+  .tip-time { margin: 6px -12px 2px; padding: 6px 12px 0; border-top: 1px solid #3a3f4b; text-align: center; font-size: 0.92em; color: #9aa3b5; }
   .hide-action-time .tip-time { display: none; }
-  .tip-sec { border-top: 1px solid #3a3f4b; margin-top: 8px; padding-top: 6px; }
+  .hide-unlock-reqs .tip-unlock { display: none; }
+  /* Unlock rows breathe: one requirement per line with a clear gap. */
+  .tip-unlock .tip-sec-body { border-spacing: 0 6px; }
+  .tip-sec { border-top: 1px solid #3a3f4b; margin: 8px -12px 0; padding: 6px 12px 0; }
   .tip-sec-label { display: table-caption; caption-side: top; font-style: normal; font-size: 0.82em; letter-spacing: 1px; text-transform: uppercase; text-align: center; opacity: 0.85; color: #8b93a3; margin-bottom: 2px; }
   .tip-row { display: flex; justify-content: space-between; gap: 12px; }
   .tip-row[hidden] { display: none; }
@@ -320,18 +401,19 @@
   .tip-row.short { color: #d93636; }
   .tip-row.short span:last-child { font-weight: bold; }
   .tip-row.capped { color: #d97a00; }
-  .tip-sec.tip-req > .tip-sec-label, .tip-sec.tip-req > .tip-row { color: #d93636; }
+  .tip-sec.tip-req .tip-sec-label, .tip-sec.tip-req .tip-row { color: #d93636; }
   /* Compact rows: each section shrink-wraps to its content like a table, so
      short rows read "Stamina: 1" instead of stretching the value to the far
      edge. Labels share one column, values right-align in the next - the
      Kittens look, with no dead space. Table (not grid) rows keep the
      short/capped color tints inheriting onto the value spans. */
-  .tip-sec { display: table; width: fit-content; max-width: 100%; }
-  .tip-sec > .tip-row { display: table-row; }
-  .tip-sec > .tip-row > span { display: table-cell; }
-  .tip-sec > .tip-row > span + span { text-align: right; padding-left: 10px; }
-  .tip-sec > .tip-row[hidden] { display: none; }
-  .tip-flavor { font-style: italic; text-align: center; color: #9aa3b5; opacity: 0.9; margin-top: 8px; padding-top: 6px; border-top: 1px solid #3a3f4b; }
+  .tip-sec { display: block; }
+  .tip-sec-body { display: table; width: fit-content; max-width: 100%; }
+  .tip-sec-body > .tip-row { display: table-row; }
+  .tip-sec-body > .tip-row > span { display: table-cell; }
+  .tip-sec-body > .tip-row > span + span { text-align: right; padding-left: 10px; }
+  .tip-sec-body > .tip-row[hidden] { display: none; }
+  .tip-flavor { font-style: italic; text-align: center; color: #9aa3b5; opacity: 0.9; margin: 8px -12px 0; padding: 6px 12px 0; border-top: 1px solid #3a3f4b; }
   .tip-teal { color: #8fd6ff; }
   /* Action tooltips open upward so they never stretch the scroll area. */
   #actionsCtn .actionBtn .tip { bottom: calc(100% - 2px); top: auto; left: 0; transform: none; }
@@ -342,6 +424,13 @@
   .optionRow { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
   .optionRow span { font-size: 0.9em; opacity: 0.8; }
   #tabOptions .panel { max-width: 620px; margin: 0 auto; text-align: left; width: 100%; box-sizing: border-box; }
+  /* Options tab: menu + slim log side by side (stacked on narrow screens).
+     The log is capped so a long history scrolls internally. */
+  #optionsGrid { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 10px; margin-bottom: 0; text-align: left; align-items: stretch; max-width: 900px; margin-left: auto; margin-right: auto; }
+  #optionsSubTabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  #optionsLogPanel { overflow: hidden; display: flex; flex-direction: column; min-height: 0; max-height: 80vh; }
+  #logElOptions { flex: 1; min-height: 0; }
+  @media (max-width: 700px) { #optionsGrid { grid-template-columns: 1fr; } #optionsLogPanel { display: block; } #logElOptions { flex: none; min-height: 120px; max-height: 30vh; } }
   #tabPlayer { display: flex; flex-direction: column; align-items: center; }
   #tabPlayer .panel { max-width: 620px; margin: 0 auto; text-align: left; width: 100%; box-sizing: border-box; }
   .playerNameRow { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
@@ -350,9 +439,9 @@
   #playerNameEditBtn { padding: 2px 10px; font-size: 0.9em; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
   #playerNameEditBtn:hover { background: #343945; }
   .playerStatsHead { text-align: center; text-decoration: none; text-transform: uppercase; letter-spacing: 1.5px; font-size: 0.8em; color: #cfd3dc; margin: 4px 0 10px; border-bottom: 1px solid #333842; padding-bottom: 8px; }
-  #playerStatsCtn { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  @media (max-width: 700px) { #playerStatsCtn { grid-template-columns: repeat(2, 1fr); } }
-  @media (max-width: 420px) { #playerStatsCtn { grid-template-columns: 1fr; } }
+  #playerStatsCtn, #craftStatsCtn { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  @media (max-width: 700px) { #playerStatsCtn, #craftStatsCtn { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 420px) { #playerStatsCtn, #craftStatsCtn { grid-template-columns: 1fr; } }
   /* Home tab grid: Currencies | Furniture | Log.
      NOTE: unlike Work, home panels have NO overflow/max-height caps - caps
      clipped the furniture tooltips and made the mirrored lists short. Panels
@@ -367,7 +456,7 @@
   @media (max-width: 520px) { #homeListCtn { grid-template-columns: 1fr; } }
   .homeLabel { font-size: 0.85em; opacity: 0.8; align-self: center; }
   .homeMetaRow { display: flex; justify-content: flex-end; margin-bottom: 8px; font-size: 0.9em; font-weight: bold; }
-  .homeFullNote { font-style: italic; opacity: 0.8; margin-bottom: 8px; text-align: center; }
+  .homeFullNote { font-style: italic; opacity: 0.8; margin-bottom: 8px; text-align: center; color: orange; }
   .furnSortRow { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 0.9em; }
   .furnSortRow > span { opacity: 0.8; }
   .furnSortRow button { padding: 2px 10px; font-size: 0.85em; white-space: nowrap; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
@@ -423,6 +512,16 @@
   /* User-hidden milestones: struck-through while the mode reveals them. */
   .mileRow.userHidden .mileHead, .mileRow.userHidden .mileBody { text-decoration: line-through; }
   .mileRow.userHidden { opacity: 0.75; }
+  /* Crafting-tab hiding: plan rail + per-plan recipe buttons. */
+  .craftPlanRow.userHidden .craftPlanLabel, .craftRecipeBtn.userHidden .craftRecipeLabel { text-decoration: line-through; }
+  .craftPlanRow.userHidden, .craftRecipeBtn.userHidden { opacity: 0.75; }
+  body.hiding .craftPlanRow, body.hiding .craftRecipeBtn { cursor: pointer; }
+  /* The recipes Hide button lives in a section label, not a panel header. */
+  .craftSecLabel.hasBtn { display: flex; align-items: center; gap: 6px; }
+  .craftSecLabel.hasBtn .hbtns { margin-left: auto; display: flex; gap: 6px; }
+  .craftSecLabel.hasBtn .hbtns button { padding: 2px 10px; font-size: 0.85em; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; white-space: nowrap; cursor: pointer; }
+  .craftSecLabel.hasBtn .hbtns button:hover:not(:disabled) { background: #343945; }
+  .craftSecLabel.hasBtn .hbtns button.on { background: #4a5160; border-color: #9aa3b5; color: #fff; font-weight: bold; box-shadow: 0 0 8px rgba(255,255,255,0.25); }
   #milesCtn .emptyNote { opacity: 0.6; font-size: 0.9em; }
   /* Skills tab: list + milestones merged into one box (headers stay). */
   /* Skills panels clip at their borders like Work/Home panels, and each
@@ -477,16 +576,18 @@
   .balloon-x { background: transparent; border: 1px solid #4a4f5c; color: inherit; border-radius: 6px; cursor: pointer; padding: 0 8px; font-size: 0.85em; }
   .balloon-x:hover { background: #343945; }
   .balloon-body { font-size: 0.9em; }
-  @media (prefers-reduced-motion: reduce) { .balloon { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .balloon { animation: none; } .actionBtn .action-fill, .shopBtn .action-fill { transition: none; } .actionBtn .action-progress.flowing .action-fill, .shopBtn .action-progress.flowing .action-fill { animation: none; } }
   #logEl, #logElHome, .js-log { text-align: left; border-top: none; padding-top: 0; font-size: 0.85em; flex: 1; min-height: 120px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
   #logEl div, #logElHome div, .js-log div { margin: 0; padding: 5px 6px; opacity: 0.92; border-bottom: 1px solid #262b34; }
   #logEl div:first-child, #logElHome div:first-child, .js-log div:first-child { background: #22262f; border-radius: 4px; }
   /* Unlock announcements stand out in pale green. */
-  #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement, #logEl div.logSkillup, #logElHome div.logSkillup, .js-log div.logSkillup { color: #D9FFC7; }
+  #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement, #logEl div.logSkillup, #logElHome div.logSkillup, .js-log div.logSkillup, #logEl div.logDiscovery, #logElHome div.logDiscovery, .js-log div.logDiscovery { color: #D9FFC7; }
   /* Action completions (fullLog) stand out in orange; start/stop lines stay default. */
   #logEl div.logFull, #logElHome div.logFull, .js-log div.logFull { color: orange; }
   /* One-time special messages stand out in pale yellow. */
   #logEl div.logSpecialMessage, #logElHome div.logSpecialMessage, .js-log div.logSpecialMessage { color: #FFFFA1; }
+  /* Skill XP receipts stand out in pale cyan. */
+  #logEl div.logSkillxp, #logElHome div.logSkillxp, .js-log div.logSkillxp { color: #CFFFF6; }
  /* Log + Furniture + Balloon filter + Select Home modals: fixed overlay + dialog box. */
   #logFilterModal, #furnFilterModal, #homeModal, #balloonFilterModal, #invFilterModal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
   .modalBox { background: #1b1f26; border: 1px solid #4a4f5c; border-radius: 10px; padding: 14px 18px; width: 460px; max-width: calc(100vw - 32px); text-align: left; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6); }
@@ -507,94 +608,202 @@
   @media (max-width: 520px) { .modalBox { width: 300px; } .filterGrid { grid-template-columns: 1fr; } }
 .modalBtns { margin-top: 14px; text-align: center; }
   /* Thin scrollbars on dark scroll areas. */
-  #currenciesCtn::-webkit-scrollbar, #vitalsCtn::-webkit-scrollbar, #actionsCtn::-webkit-scrollbar, #furnitureCtn::-webkit-scrollbar, #worldTileCtn::-webkit-scrollbar, #worldActionsCtn::-webkit-scrollbar, #invGridCtn::-webkit-scrollbar,
+  #currenciesCtn::-webkit-scrollbar, #vitalsCtn::-webkit-scrollbar, #actionsCtn::-webkit-scrollbar, #furnitureCtn::-webkit-scrollbar, #worldTileCtn::-webkit-scrollbar, #worldActionsCtn::-webkit-scrollbar, #invGridCtn::-webkit-scrollbar, #craftPlansCtn::-webkit-scrollbar, #craftMatsCtn::-webkit-scrollbar, #craftRecipesCtn::-webkit-scrollbar, #craftMainPanel::-webkit-scrollbar,
   #logEl::-webkit-scrollbar, #logElHome::-webkit-scrollbar, .js-log::-webkit-scrollbar { width: 8px; }
-  #currenciesCtn::-webkit-scrollbar-thumb, #vitalsCtn::-webkit-scrollbar-thumb, #actionsCtn::-webkit-scrollbar-thumb, #furnitureCtn::-webkit-scrollbar-thumb, #worldTileCtn::-webkit-scrollbar-thumb, #worldActionsCtn::-webkit-scrollbar-thumb, #invGridCtn::-webkit-scrollbar-thumb,
+  #currenciesCtn::-webkit-scrollbar-thumb, #vitalsCtn::-webkit-scrollbar-thumb, #actionsCtn::-webkit-scrollbar-thumb, #furnitureCtn::-webkit-scrollbar-thumb, #worldTileCtn::-webkit-scrollbar-thumb, #worldActionsCtn::-webkit-scrollbar-thumb, #invGridCtn::-webkit-scrollbar-thumb, #craftPlansCtn::-webkit-scrollbar-thumb, #craftMatsCtn::-webkit-scrollbar-thumb, #craftRecipesCtn::-webkit-scrollbar-thumb, #craftMainPanel::-webkit-scrollbar-thumb,
   #logEl::-webkit-scrollbar-thumb, #logElHome::-webkit-scrollbar-thumb, .js-log::-webkit-scrollbar-thumb { background: #4a4f5c; border-radius: 4px; }
-  #invTypeRow::-webkit-scrollbar { height: 8px; }
-  #invTypeRow::-webkit-scrollbar-thumb { background: #4a4f5c; border-radius: 4px; }
+  #invTypeRow::-webkit-scrollbar, #invTypeSubRow::-webkit-scrollbar, #craftMatsCtn::-webkit-scrollbar { height: 8px; }
+  #invTypeRow::-webkit-scrollbar-thumb, #invTypeSubRow::-webkit-scrollbar-thumb, #craftMatsCtn::-webkit-scrollbar-thumb { background: #4a4f5c; border-radius: 4px; }
   @media (prefers-color-scheme: light) {
-    body { background: #f2f2f2; color: #111; }
-    .panel { background: #fff; border-color: #bbb; }
-    .currency, #nowCard { background: #eee; }
-    .tab { background: #e4e4e4; color: #222; border-color: #aaa; }
-    .tab.active { background: #333; color: #fff; border-color: #333; border-bottom-color: #2e7d32; }
-    .taskGroup > summary, .taskHeader-title { background: #e0e0e0; color: #111; }
-    .taskGroup, .taskHeader { background: #fff; border-color: #bbb; }
-    .taskHeader .taskGroup { border-top-color: #bbb; }
-    .panel h2 { background: #e8e8e8; color: #222; border-bottom-color: #bbb; }
-    .actionBtn, .shopBtn { background: #f5f5f5; color: #111; border-color: #999; }
-    .actionBtn:hover:not(:disabled), .shopBtn:hover:not(:disabled) { background: #e8e8e8; }
-    .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip, .furnCard .tip, .homeRow .tip, .skillRow .tip, .invCell .tip { background: #fff; color: #000; border-color: #999; }
-    .tip-head { border-bottom-color: #ccc; }
-    .tip-count { color: #555; }
-    .tip-desc { color: #333; }
-    .tip-time { color: #555; border-top-color: #ccc; }
-    .tip-sec { border-color: #ccc; }
-    .tip-sec-label { color: #555; }
-    .tip-flavor { color: #555; border-top-color: #ccc; }
-    .tip-teal { color: #0b6e99; border-top-color: #ccc; }
-    .panel h2.hasBtn .hbtns button { background: #e4e4e4; color: #222; border-color: #aaa; }
-    .panel h2.hasBtn .hbtns button.on { background: #fff; border-color: #666; color: #111; box-shadow: 0 0 8px rgba(0,0,0,0.25); }
-    #playerNameEditBtn { background: #e4e4e4; color: #222; border-color: #999; }
-    #playerNameInput { background: #fff; color: #000; border-color: #999; }
-    .furnCard { background: #f5f5f5; border-color: #999; }
-    .furnSortRow button, .furnBtns button, .homeRow { background: #f5f5f5; color: #111; border-color: #999; }
-    .furnSortRow button:hover:not(:disabled), .furnBtns button:hover:not(:disabled), .homeRow:hover:not(:disabled) { background: #e8e8e8; }
-    .furnSortRow button.active { background: #333; color: #fff; border-color: #333; }
-    .invCell { background: #f5f5f5; border-color: #999; }
-    #invTypeRow, #invSellRow { border-bottom-color: #bbb; }
-    #furnSortRow { border-bottom-color: #bbb; }
-    .invConsumeBtn { background: #e4e4e4; color: #222; border-color: #999; }
-    .invConsumeBtn:hover:not(:disabled) { background: #e8e8e8; }
-    .tip-sec { border-color: #999; }
-    .tip-tag { background: #e4e4e4; border-color: #aaa; }
-    .modalBox { background: #fff; color: #111; border-color: #bbb; }
-    .filterDiv { border-top-color: #bbb; }
-    .optionDiv { border-top-color: #bbb; }
-    .skillRow { background: #f5f5f5; color: #111; border-color: #999; }
-    .skillRow:hover:not(:disabled) { background: #e8e8e8; }
-    .skillXbar { background: rgba(0, 0, 0, 0.12); }
-    .mileRow { background: #f5f5f5; color: #111; border-color: #999; }
-    .mileRow.attained { background: #C2FF5E; border-color: #9fd63f; color: #111; }
-    .balloon { background: #fff; color: #111; border-color: #2e7d32; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); }
-    .balloon-head { color: #2e7d32; }
-    .balloon-x { border-color: #999; }
-    .balloon-x:hover { background: #e8e8e8; }
-    .playerStatsHead { color: #666; border-bottom-color: #ccc; }
-    .optionRow button { background: #e4e4e4; color: #222; border: 1px solid #aaa; border-radius: 6px; }
-    .optionRow input { background: #fff; color: #000; border: 1px solid #999; border-radius: 6px; }
-    #sellQtyInput { background: #fff; color: #000; border: 1px solid #999; }
-    #worldTierRow select { background: #fff; color: #000; border: 1px solid #999; border-radius: 6px; }
-    .worldTile { border-color: #999; }
+    body:not(.force-dark) { background: #f2f2f2; color: #111; }
+    body:not(.force-dark) .panel { background: #fff; border-color: #bbb; }
+    body:not(.force-dark) .currency, body:not(.force-dark) #nowCard { background: #eee; }
+    body:not(.force-dark) .tab { background: #e4e4e4; color: #222; border-color: #aaa; }
+    body:not(.force-dark) .tab.active { background: #333; color: #fff; border-color: #333; border-bottom-color: #2e7d32; }
+    body:not(.force-dark) .taskGroup > summary, body:not(.force-dark) .taskHeader-title { background: #e0e0e0; color: #111; }
+    body:not(.force-dark) .taskGroup, body:not(.force-dark) .taskHeader { background: #fff; border-color: #bbb; }
+    body:not(.force-dark) .taskHeader .taskGroup { border-top-color: #bbb; }
+    body:not(.force-dark) .panel h2 { background: #e8e8e8; color: #222; border-bottom-color: #bbb; }
+    body:not(.force-dark) .actionBtn, body:not(.force-dark) .shopBtn { background: #f5f5f5; color: #111; border-color: #999; }
+    body:not(.force-dark) .actionBtn:hover:not(:disabled), body:not(.force-dark) .shopBtn:hover:not(:disabled) { background: #e8e8e8; }
+    body:not(.force-dark) .actionBtn .tip, body:not(.force-dark) .shopBtn .tip, body:not(.force-dark) .currency .tip, body:not(.force-dark) .res .tip, body:not(.force-dark) .furnCard .tip, body:not(.force-dark) .homeRow .tip, body:not(.force-dark) .skillRow .tip, body:not(.force-dark) .craftPlanRow .tip, body:not(.force-dark) .craftRecipeBtn .tip, body:not(.force-dark) .invCell .tip { background: #fff; color: #000; border-color: #999; }
+    body:not(.force-dark) .tip-head { border-bottom-color: #ccc; }
+    body:not(.force-dark) .tip-count { color: #555; }
+    body:not(.force-dark) .tip-desc { color: #333; }
+    body:not(.force-dark) .tip-time { color: #555; border-top-color: #ccc; }
+    body:not(.force-dark) .tip-sec { border-color: #ccc; }
+    body:not(.force-dark) .tip-sec-label { color: #555; }
+    body:not(.force-dark) .tip-flavor { color: #555; border-top-color: #ccc; }
+    body:not(.force-dark) .tip-teal { color: #0b6e99; border-top-color: #ccc; }
+    body:not(.force-dark) .panel h2.hasBtn .hbtns button { background: #e4e4e4; color: #222; border-color: #aaa; }
+    body:not(.force-dark) .panel h2.hasBtn .hbtns button.on { background: #fff; border-color: #666; color: #111; box-shadow: 0 0 8px rgba(0,0,0,0.25); }
+    body:not(.force-dark) .craftSecLabel.hasBtn .hbtns button { background: #e4e4e4; color: #222; border-color: #aaa; }
+    body:not(.force-dark) .craftSecLabel.hasBtn .hbtns button.on { background: #fff; border-color: #666; color: #111; box-shadow: 0 0 8px rgba(0,0,0,0.25); }
+    body:not(.force-dark) #playerNameEditBtn { background: #e4e4e4; color: #222; border-color: #999; }
+    body:not(.force-dark) #playerNameInput { background: #fff; color: #000; border-color: #999; }
+    body:not(.force-dark) .furnCard { background: #f5f5f5; border-color: #999; }
+    body:not(.force-dark) .furnSortRow button, body:not(.force-dark) .furnBtns button, body:not(.force-dark) .homeRow { background: #f5f5f5; color: #111; border-color: #999; }
+    body:not(.force-dark) .furnSortRow button:hover:not(:disabled), body:not(.force-dark) .furnBtns button:hover:not(:disabled), body:not(.force-dark) .homeRow:hover:not(:disabled) { background: #e8e8e8; }
+    body:not(.force-dark) .furnSortRow button.active { background: #333; color: #fff; border-color: #333; }
+    body:not(.force-dark) .craftTypeRow button.on { background: #fff; border-color: #666; color: #111; }
+    body:not(.force-dark) .craftPlanRow, body:not(.force-dark) .craftMat, body:not(.force-dark) .craftRecipeBtn { background: #f5f5f5; color: #111; border-color: #999; }
+    body:not(.force-dark) .craftPlanRow.on, body:not(.force-dark) .craftRecipeBtn.on { background: #333; color: #fff; border-color: #333; }
+    body:not(.force-dark) .craftSlot { border-color: #999; }
+    body:not(.force-dark) .craftSlot.dragOver { border-color: #2e7d32; background: rgba(46, 125, 50, 0.08); box-shadow: 0 0 8px rgba(46, 125, 50, 0.5); }
+    body:not(.force-dark) .craftBar { background: rgba(0, 0, 0, 0.12); }
+    body:not(.force-dark) .craftSecLabel, body:not(.force-dark) .craftSlotLabel { color: #555; }
+    body:not(.force-dark) .invCell { background: #f5f5f5; border-color: #999; }
+    body:not(.force-dark) #invTypeRow, body:not(.force-dark) #invTypeSubRow, body:not(.force-dark) #invSellRow, body:not(.force-dark) #invSearchRow { border-bottom-color: #bbb; }
+    body:not(.force-dark) #craftMatsCtn, body:not(.force-dark) #craftPlanCtn { border-bottom-color: #bbb; }
+    body:not(.force-dark) .craftDiv { border-top-color: #bbb; }
+    body:not(.force-dark) #furnSortRow { border-bottom-color: #bbb; }
+    body:not(.force-dark) .invConsumeBtn { background: #e4e4e4; color: #222; border-color: #999; }
+    body:not(.force-dark) .invConsumeBtn:hover:not(:disabled) { background: #e8e8e8; }
+    body:not(.force-dark) .tip-sec { border-color: #999; }
+    body:not(.force-dark) .tip-tag { background: #e4e4e4; border-color: #aaa; }
+    body:not(.force-dark) .modalBox { background: #fff; color: #111; border-color: #bbb; }
+    body:not(.force-dark) .filterDiv { border-top-color: #bbb; }
+    body:not(.force-dark) .optionDiv { border-top-color: #bbb; }
+    body:not(.force-dark) .skillRow { background: #f5f5f5; color: #111; border-color: #999; }
+    body:not(.force-dark) .skillRow:hover:not(:disabled) { background: #e8e8e8; }
+    body:not(.force-dark) .skillXbar { background: rgba(0, 0, 0, 0.12); }
+    body:not(.force-dark) .mileRow { background: #f5f5f5; color: #111; border-color: #999; }
+    body:not(.force-dark) .mileRow.attained { background: #C2FF5E; border-color: #9fd63f; color: #111; }
+    body:not(.force-dark) .balloon { background: #fff; color: #111; border-color: #2e7d32; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); }
+    body:not(.force-dark) .balloon-head { color: #2e7d32; }
+    body:not(.force-dark) .balloon-x { border-color: #999; }
+    body:not(.force-dark) .balloon-x:hover { background: #e8e8e8; }
+    body:not(.force-dark) .playerStatsHead { color: #666; border-bottom-color: #ccc; }
+    body:not(.force-dark) .optionRow button { background: #e4e4e4; color: #222; border: 1px solid #aaa; border-radius: 6px; }
+    body:not(.force-dark) .optionRow input { background: #fff; color: #000; border: 1px solid #999; border-radius: 6px; }
+    body:not(.force-dark) #sellQtyInput { background: #fff; color: #000; border: 1px solid #999; }
+    body:not(.force-dark) #invSearchRow input { background: #fff; color: #000; border-color: #999; }
+    body:not(.force-dark) #worldTierRow select { background: #fff; color: #000; border: 1px solid #999; border-radius: 6px; }
+    body:not(.force-dark) .worldTile { border-color: #999; }
     /* Dark-mode resource/log hues wash out on white: darken the config-driven
        inline colors (hue preserved via filter) and log accents for light mode. */
-    .currency .cur-name, .res .res-name { filter: brightness(0.55); }
-    .currency .cur-val, .res .res-val { filter: brightness(0.75); }
-    #logEl div:first-child, #logElHome div:first-child, .js-log div:first-child { background: #e2e2e2; }
-    #logEl div, #logElHome div, .js-log div { border-bottom-color: #ddd; }
-    #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement, #logEl div.logSkillup, #logElHome div.logSkillup, .js-log div.logSkillup { color: #1c7a1c; }
-    #logEl div.logFull, #logElHome div.logFull, .js-log div.logFull { color: #c96a00; }
-    #logEl div.logSpecialMessage, #logElHome div.logSpecialMessage, .js-log div.logSpecialMessage { color: #8a6d00; }
-    #worldTileCtn > * + * { border-top-color: #bbb; }
+    body:not(.force-dark) .currency .cur-name, body:not(.force-dark) .res .res-name { filter: brightness(0.55); }
+    body:not(.force-dark) .currency .cur-val, body:not(.force-dark) .res .res-val { filter: brightness(0.75); }
+    body:not(.force-dark) #logEl div:first-child, body:not(.force-dark) #logElHome div:first-child, body:not(.force-dark) .js-log div:first-child { background: #e2e2e2; }
+    body:not(.force-dark) #logEl div, body:not(.force-dark) #logElHome div, body:not(.force-dark) .js-log div { border-bottom-color: #ddd; }
+    body:not(.force-dark) #logEl div.logUnlock, body:not(.force-dark) #logEl div.logImprovement, body:not(.force-dark) #logElHome div.logUnlock, body:not(.force-dark) #logElHome div.logImprovement, body:not(.force-dark) .js-log div.logUnlock, body:not(.force-dark) .js-log div.logImprovement, body:not(.force-dark) #logEl div.logSkillup, body:not(.force-dark) #logElHome div.logSkillup, body:not(.force-dark) .js-log div.logSkillup, body:not(.force-dark) #logEl div.logDiscovery, body:not(.force-dark) #logElHome div.logDiscovery, body:not(.force-dark) .js-log div.logDiscovery { color: #1c7a1c; }
+    body:not(.force-dark) #logEl div.logFull, body:not(.force-dark) #logElHome div.logFull, body:not(.force-dark) .js-log div.logFull { color: #c96a00; }
+    body:not(.force-dark) #logEl div.logSpecialMessage, body:not(.force-dark) #logElHome div.logSpecialMessage, body:not(.force-dark) .js-log div.logSpecialMessage { color: #8a6d00; }
+    body:not(.force-dark) #logEl div.logSkillxp, body:not(.force-dark) #logElHome div.logSkillxp, body:not(.force-dark) .js-log div.logSkillxp { color: #0b6e99; }
+    body:not(.force-dark) #worldTileCtn > * + * { border-top-color: #bbb; }
     /* Dark-mode rarity hues wash out on white (common is near-white):
        re-tone them for light backgrounds. The legendary gradient keeps
        its shape, darkened; resource-gain spans in consume lines get the
        same brightness treatment as currency/resource values above. */
-    .rar-junk { color: #5b6478; }
-    .rar-common { color: #4a4a4a; }
-    .rar-uncommon { color: #1e7d1e; }
-    .rar-rare { color: #0b6e99; }
-    .rar-exotic { color: #7a3fd1; }
-    .rar-legendary { background: linear-gradient(180deg, #b8860b, #7a5c00); -webkit-background-clip: text; background-clip: text; color: transparent; }
-    #invFilterRow button.rar-junk { color: #5b6478; }
-    #invFilterRow button.rar-common { color: #4a4a4a; }
-    #invFilterRow button.rar-uncommon { color: #1e7d1e; }
-    #invFilterRow button.rar-rare { color: #0b6e99; }
-    #invFilterRow button.rar-exotic { color: #7a3fd1; }
-    #invFilterRow button.rar-legendary { background: linear-gradient(180deg, #b8860b, #7a5c00); -webkit-background-clip: text; background-clip: text; color: transparent; }
-    .gain-c { filter: brightness(0.55); }
+    body:not(.force-dark) .rar-junk { color: #5b6478; }
+    body:not(.force-dark) .rar-common { color: #4a4a4a; }
+    body:not(.force-dark) .rar-uncommon { color: #1e7d1e; }
+    body:not(.force-dark) .rar-rare { color: #0b6e99; }
+    body:not(.force-dark) .rar-exotic { color: #7a3fd1; }
+    body:not(.force-dark) .rar-legendary { background: linear-gradient(180deg, #b8860b, #7a5c00); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    body:not(.force-dark) #invFilterRow button.rar-junk { color: #5b6478; }
+    body:not(.force-dark) #invFilterRow button.rar-common { color: #4a4a4a; }
+    body:not(.force-dark) #invFilterRow button.rar-uncommon { color: #1e7d1e; }
+    body:not(.force-dark) #invFilterRow button.rar-rare { color: #0b6e99; }
+    body:not(.force-dark) #invFilterRow button.rar-exotic { color: #7a3fd1; }
+    body:not(.force-dark) #invFilterRow button.rar-legendary { background: linear-gradient(180deg, #b8860b, #7a5c00); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    body:not(.force-dark) .gain-c { filter: brightness(0.55); }
   }
+    body.force-light { background: #f2f2f2; color: #111; }
+    body.force-light .panel { background: #fff; border-color: #bbb; }
+    body.force-light .currency, body.force-light #nowCard { background: #eee; }
+    body.force-light .tab { background: #e4e4e4; color: #222; border-color: #aaa; }
+    body.force-light .tab.active { background: #333; color: #fff; border-color: #333; border-bottom-color: #2e7d32; }
+    body.force-light .taskGroup > summary, body.force-light .taskHeader-title { background: #e0e0e0; color: #111; }
+    body.force-light .taskGroup, body.force-light .taskHeader { background: #fff; border-color: #bbb; }
+    body.force-light .taskHeader .taskGroup { border-top-color: #bbb; }
+    body.force-light .panel h2 { background: #e8e8e8; color: #222; border-bottom-color: #bbb; }
+    body.force-light .actionBtn, body.force-light .shopBtn { background: #f5f5f5; color: #111; border-color: #999; }
+    body.force-light .actionBtn:hover:not(:disabled), body.force-light .shopBtn:hover:not(:disabled) { background: #e8e8e8; }
+    body.force-light .actionBtn .tip, body.force-light .shopBtn .tip, body.force-light .currency .tip, body.force-light .res .tip, body.force-light .furnCard .tip, body.force-light .homeRow .tip, body.force-light .skillRow .tip, body.force-light .craftPlanRow .tip, body.force-light .craftRecipeBtn .tip, body.force-light .invCell .tip { background: #fff; color: #000; border-color: #999; }
+    body.force-light .tip-head { border-bottom-color: #ccc; }
+    body.force-light .tip-count { color: #555; }
+    body.force-light .tip-desc { color: #333; }
+    body.force-light .tip-time { color: #555; border-top-color: #ccc; }
+    body.force-light .tip-sec { border-color: #ccc; }
+    body.force-light .tip-sec-label { color: #555; }
+    body.force-light .tip-flavor { color: #555; border-top-color: #ccc; }
+    body.force-light .tip-teal { color: #0b6e99; border-top-color: #ccc; }
+    body.force-light .panel h2.hasBtn .hbtns button { background: #e4e4e4; color: #222; border-color: #aaa; }
+    body.force-light .panel h2.hasBtn .hbtns button.on { background: #fff; border-color: #666; color: #111; box-shadow: 0 0 8px rgba(0,0,0,0.25); }
+    body.force-light .craftSecLabel.hasBtn .hbtns button { background: #e4e4e4; color: #222; border-color: #aaa; }
+    body.force-light .craftSecLabel.hasBtn .hbtns button.on { background: #fff; border-color: #666; color: #111; box-shadow: 0 0 8px rgba(0,0,0,0.25); }
+    body.force-light #playerNameEditBtn { background: #e4e4e4; color: #222; border-color: #999; }
+    body.force-light #playerNameInput { background: #fff; color: #000; border-color: #999; }
+    body.force-light .furnCard { background: #f5f5f5; border-color: #999; }
+    body.force-light .furnSortRow button, body.force-light .furnBtns button, body.force-light .homeRow { background: #f5f5f5; color: #111; border-color: #999; }
+    body.force-light .furnSortRow button:hover:not(:disabled), body.force-light .furnBtns button:hover:not(:disabled), body.force-light .homeRow:hover:not(:disabled) { background: #e8e8e8; }
+    body.force-light .furnSortRow button.active { background: #333; color: #fff; border-color: #333; }
+    body.force-light .craftTypeRow button.on { background: #fff; border-color: #666; color: #111; }
+    body.force-light .craftPlanRow, body.force-light .craftMat, body.force-light .craftRecipeBtn { background: #f5f5f5; color: #111; border-color: #999; }
+    body.force-light .craftPlanRow.on, body.force-light .craftRecipeBtn.on { background: #333; color: #fff; border-color: #333; }
+    body.force-light .craftSlot { border-color: #999; }
+    body.force-light .craftSlot.dragOver { border-color: #2e7d32; background: rgba(46, 125, 50, 0.08); box-shadow: 0 0 8px rgba(46, 125, 50, 0.5); }
+    body.force-light .craftBar { background: rgba(0, 0, 0, 0.12); }
+    body.force-light .craftSecLabel, body.force-light .craftSlotLabel { color: #555; }
+    body.force-light .invCell { background: #f5f5f5; border-color: #999; }
+    body.force-light #invTypeRow, body.force-light #invTypeSubRow, body.force-light #invSellRow, body.force-light #invSearchRow { border-bottom-color: #bbb; }
+    body.force-light #craftMatsCtn, body.force-light #craftPlanCtn { border-bottom-color: #bbb; }
+    body.force-light .craftDiv { border-top-color: #bbb; }
+    body.force-light #furnSortRow { border-bottom-color: #bbb; }
+    body.force-light .invConsumeBtn { background: #e4e4e4; color: #222; border-color: #999; }
+    body.force-light .invConsumeBtn:hover:not(:disabled) { background: #e8e8e8; }
+    body.force-light .tip-sec { border-color: #999; }
+    body.force-light .tip-tag { background: #e4e4e4; border-color: #aaa; }
+    body.force-light .modalBox { background: #fff; color: #111; border-color: #bbb; }
+    body.force-light .filterDiv { border-top-color: #bbb; }
+    body.force-light .optionDiv { border-top-color: #bbb; }
+    body.force-light .skillRow { background: #f5f5f5; color: #111; border-color: #999; }
+    body.force-light .skillRow:hover:not(:disabled) { background: #e8e8e8; }
+    body.force-light .skillXbar { background: rgba(0, 0, 0, 0.12); }
+    body.force-light .mileRow { background: #f5f5f5; color: #111; border-color: #999; }
+    body.force-light .mileRow.attained { background: #C2FF5E; border-color: #9fd63f; color: #111; }
+    body.force-light .balloon { background: #fff; color: #111; border-color: #2e7d32; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); }
+    body.force-light .balloon-head { color: #2e7d32; }
+    body.force-light .balloon-x { border-color: #999; }
+    body.force-light .balloon-x:hover { background: #e8e8e8; }
+    body.force-light .playerStatsHead { color: #666; border-bottom-color: #ccc; }
+    body.force-light .optionRow button { background: #e4e4e4; color: #222; border: 1px solid #aaa; border-radius: 6px; }
+    body.force-light .optionRow input { background: #fff; color: #000; border: 1px solid #999; border-radius: 6px; }
+    body.force-light #sellQtyInput { background: #fff; color: #000; border: 1px solid #999; }
+    body.force-light #invSearchRow input { background: #fff; color: #000; border-color: #999; }
+    body.force-light #worldTierRow select { background: #fff; color: #000; border: 1px solid #999; border-radius: 6px; }
+    body.force-light .worldTile { border-color: #999; }
+    /* Dark-mode resource/log hues wash out on white: darken the config-driven
+       inline colors (hue preserved via filter) and log accents for light mode. */
+    body.force-light .currency .cur-name, body.force-light .res .res-name { filter: brightness(0.55); }
+    body.force-light .currency .cur-val, body.force-light .res .res-val { filter: brightness(0.75); }
+    body.force-light #logEl div:first-child, body.force-light #logElHome div:first-child, body.force-light .js-log div:first-child { background: #e2e2e2; }
+    body.force-light #logEl div, body.force-light #logElHome div, body.force-light .js-log div { border-bottom-color: #ddd; }
+    body.force-light #logEl div.logUnlock, body.force-light #logEl div.logImprovement, body.force-light #logElHome div.logUnlock, body.force-light #logElHome div.logImprovement, body.force-light .js-log div.logUnlock, body.force-light .js-log div.logImprovement, body.force-light #logEl div.logSkillup, body.force-light #logElHome div.logSkillup, body.force-light .js-log div.logSkillup, body.force-light #logEl div.logDiscovery, body.force-light #logElHome div.logDiscovery, body.force-light .js-log div.logDiscovery { color: #1c7a1c; }
+    body.force-light #logEl div.logFull, body.force-light #logElHome div.logFull, body.force-light .js-log div.logFull { color: #c96a00; }
+    body.force-light #logEl div.logSpecialMessage, body.force-light #logElHome div.logSpecialMessage, body.force-light .js-log div.logSpecialMessage { color: #8a6d00; }
+    body.force-light #logEl div.logSkillxp, body.force-light #logElHome div.logSkillxp, body.force-light .js-log div.logSkillxp { color: #0b6e99; }
+    body.force-light #worldTileCtn > * + * { border-top-color: #bbb; }
+    /* Dark-mode rarity hues wash out on white (common is near-white):
+       re-tone them for light backgrounds. The legendary gradient keeps
+       its shape, darkened; resource-gain spans in consume lines get the
+       same brightness treatment as currency/resource values above. */
+    body.force-light .rar-junk { color: #5b6478; }
+    body.force-light .rar-common { color: #4a4a4a; }
+    body.force-light .rar-uncommon { color: #1e7d1e; }
+    body.force-light .rar-rare { color: #0b6e99; }
+    body.force-light .rar-exotic { color: #7a3fd1; }
+    body.force-light .rar-legendary { background: linear-gradient(180deg, #b8860b, #7a5c00); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    body.force-light #invFilterRow button.rar-junk { color: #5b6478; }
+    body.force-light #invFilterRow button.rar-common { color: #4a4a4a; }
+    body.force-light #invFilterRow button.rar-uncommon { color: #1e7d1e; }
+    body.force-light #invFilterRow button.rar-rare { color: #0b6e99; }
+    body.force-light #invFilterRow button.rar-exotic { color: #7a3fd1; }
+    body.force-light #invFilterRow button.rar-legendary { background: linear-gradient(180deg, #b8860b, #7a5c00); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    body.force-light .gain-c { filter: brightness(0.55); }
+    body.force-light { color-scheme: light; }
+    body.force-dark { color-scheme: dark; }
   html { color-scheme: light dark; }
 </style>
 </head>
@@ -606,11 +815,12 @@
   </div>
   <nav id="tabsBar" role="tablist" aria-label="Sections">
     <button id="tabWorkBtn" class="tab active" type="button" role="tab" aria-selected="true">Work</button>
+    <button id="tabWorldBtn" class="tab" type="button" role="tab" aria-selected="false" hidden>World</button>
     <button id="tabHomeBtn" class="tab" type="button" role="tab" aria-selected="false" hidden>Home</button>
     <button id="tabPlayerBtn" class="tab" type="button" role="tab" aria-selected="false">Player</button>
     <button id="tabSkillsBtn" class="tab" type="button" role="tab" aria-selected="false" hidden>Skills</button>
-    <button id="tabWorldBtn" class="tab" type="button" role="tab" aria-selected="false" hidden>World</button>
     <button id="tabInventoryBtn" class="tab" type="button" role="tab" aria-selected="false" hidden>Inventory</button>
+    <button id="tabCraftingBtn" class="tab" type="button" role="tab" aria-selected="false" hidden>Crafting</button>
     <button id="tabOptionsBtn" class="tab" type="button" role="tab" aria-selected="false">Options</button>
   </nav>
   <div id="nowCard">
@@ -677,6 +887,8 @@
       </div>
       <h3 class="playerStatsHead">Main Stats</h3>
       <div id="playerStatsCtn"></div>
+      <h3 class="playerStatsHead" id="craftStatsHead" hidden>Crafting Stats</h3>
+      <div id="craftStatsCtn"></div>
     </div>
   </div>
 
@@ -730,7 +942,9 @@
     <div id="invGrid">
       <section class="panel" id="invMainPanel" aria-label="Inventory">
         <h2 class="hasBtn"><span class="hbtns left"><button id="invFilterBtn" type="button">Rarity Filters</button><button id="invSellBtn" type="button" title="Sell items for Coins (General Store only)">Sell</button></span><span class="htitle">Inventory</span></h2>
+        <div class="furnSortRow" id="invSearchRow"><span>Search:</span><input id="invSearchInput" type="search" placeholder="Item name..." autocomplete="off"></div>
         <div class="furnSortRow" id="invTypeRow"></div>
+        <div class="furnSortRow" id="invTypeSubRow"></div>
         <div class="furnSortRow" id="invSellRow" hidden><span>Sell:</span><span id="invSellQtyBtns"></span><input id="sellQtyInput" type="number" min="1" max="99999" step="1" title="Custom amount - each click sells up to this many of the tapped item."></div>
         <div id="invGridCtn"></div>
       </section>
@@ -741,6 +955,30 @@
       <section class="panel" id="invLogPanel" aria-label="Log">
         <h2 class="hasBtn"><span class="hbtns left"><button id="logFilterBtnInv" type="button">Filters</button></span><span class="htitle">Log</span><span class="hbtns"><button id="clearLogBtnInv" type="button">Clear Log</button></span></h2>
         <div id="logElInv" class="js-log" aria-live="polite"></div>
+      </section>
+    </div>
+  </div>
+
+  <div id="tabCrafting" role="tabpanel" hidden>
+    <div class="furnSortRow craftTypeRow" id="craftGroupRow"></div>
+    <div id="craftGrid">
+      <div class="sideCol" id="craftSideCol">
+        <section class="panel" aria-label="Plans">
+          <h2 class="hasBtn"><span class="htitle">Plans</span><span class="hbtns"><button id="craftPlansHideBtn" type="button" title="Hide plans">⛒</button></span></h2>
+          <div id="craftPlansCtn"></div>
+        </section>
+      </div>
+      <section class="panel" id="craftMainPanel" aria-label="Plan">
+        <h2><span class="htitle" id="craftPlanTitle">Plan</span></h2>
+        <div class="craftSecLabel">Materials</div>
+        <div id="craftMatsCtn"></div>
+        <div id="craftPlanCtn"></div>
+        <div class="craftSecLabel hasBtn"><span>Discovered Recipes</span><span class="hbtns"><button id="craftRecipesHideBtn" type="button" title="Hide recipes">⛒</button></span></div>
+        <div id="craftRecipesCtn"></div>
+      </section>
+      <section class="panel" id="craftLogPanel" aria-label="Log">
+        <h2 class="hasBtn"><span class="hbtns left"><button id="logFilterBtnCraft" type="button">Filters</button></span><span class="htitle">Log</span><span class="hbtns"><button id="clearLogBtnCraft" type="button">Clear Log</button></span></h2>
+        <div id="logElCraft" class="js-log" aria-live="polite"></div>
       </section>
     </div>
   </div>
@@ -779,6 +1017,10 @@
         <div class="modalSub">Log text for skill level ups.</div>
       </div>
       <div class="filterItem">
+        <label><input id="logSkillXpChk" type="checkbox"> Skill XP gains</label>
+        <div class="modalSub">Log entries for Skill XP gain.</div>
+      </div>
+      <div class="filterItem">
         <label><input id="logImprovementsChk" type="checkbox"> Action improvements</label>
         <div class="modalSub">Logs notifying of action improvements.</div>
       </div>
@@ -786,6 +1028,14 @@
       <div class="filterItem">
         <label><input id="logGatheringChk" type="checkbox"> Gathering results</label>
         <div class="modalSub">Gathering-related log messages.</div>
+      </div>
+      <div class="filterItem">
+        <label><input id="logCraftingChk" type="checkbox"> Crafting results</label>
+        <div class="modalSub">Finished crafts and recipe loads.</div>
+      </div>
+      <div class="filterItem">
+        <label><input id="logDiscoveryChk" type="checkbox"> Recipe discoveries</label>
+        <div class="modalSub">Messages when recipes are discovered.</div>
       </div>
       <div class="filterItem">
         <label><input id="logSellingChk" type="checkbox"> Item sell text</label>
@@ -853,10 +1103,15 @@
 </div>
 
 <div id="tabOptions" role="tabpanel" hidden>
+  <div id="optionsGrid">
   <div class="panel">
     <h2>Options</h2>
-    <details class="taskGroup" open style="margin-bottom: 10px;">
-      <summary>Saving</summary>
+    <div id="optionsSubTabs" role="tablist" aria-label="Options sections">
+      <button id="optSubSavingBtn" class="tab active" type="button" role="tab" aria-selected="true">Saving</button>
+      <button id="optSubDisplayBtn" class="tab" type="button" role="tab" aria-selected="false">Display</button>
+      <button id="optSubActionsBtn" class="tab" type="button" role="tab" aria-selected="false">Actions</button>
+    </div>
+    <div id="optSaving" role="tabpanel">
       <div style="padding: 6px 10px 10px;">
     <div class="optionRow"><button id="manualSaveBtn" type="button">Save Game</button><span>Save progress in this browser.</span></div>
     <div class="optionRow"><button id="manualLoadBtn" type="button">Load Saved Game</button><span>Load the last saved file.</span></div>
@@ -876,13 +1131,18 @@
     <div class="optionDiv"></div>
     <div class="optionRow"><button id="resetBtn" type="button">Hard Reset</button><span>Erase all progress and start over.</span></div>
       </div>
-    </details>
-    <details class="taskGroup" open>
-      <summary>Actions</summary>
+    </div>
+    <div id="optDisplay" role="tabpanel" hidden>
+      <div style="padding: 6px 10px 10px;">
+    <div class="optionRow"><label>Theme <select id="themeSel"><option value="system">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select></label><span>Follow your device theme, or force Light/Dark mode.</span></div>
+      </div>
+    </div>
+    <div id="optActions" role="tabpanel" hidden>
       <div style="padding: 6px 10px 10px;">
     <div class="optionRow"><label><input id="showMaxedChk" type="checkbox"> Show maxed-out Work upgrades</label></div>
     <div class="optionRow"><label style="white-space:nowrap"><input id="stopIfFullChk" type="checkbox"> Stop if Full</label><span>Actions automatically stop when one of their currency outputs reaches its cap. A stopped-full action shows an orange border — click it to run anyway.</span></div>
     <div class="optionRow"><label style="white-space:nowrap"><input id="showActionTimeChk" type="checkbox"> Show action times</label><span>Action and upgrade tooltips show how long they take. On by default.</span></div>
+    <div class="optionRow"><label style="white-space:nowrap"><input id="showUnlockReqsChk" type="checkbox"> Show unlock requirements</label><span>Action, upgrade, plan, and furniture tooltips show every unlock requirement before the Cost section. Off by default to keep tooltips compact.</span></div>
     <div class="optionDiv"></div>
     <div class="optionRow"><label style="white-space:nowrap"><input id="hideEmptyInvChk" type="checkbox"> Hide empty inventory items</label><span>Inventory hides items you own 0 of instead of showing them grayed-out.</span></div>
     <div class="optionRow"><label style="white-space:nowrap"><input id="sellWarnChk" type="checkbox"> Warn before over-cap sales</label><span>Item tooltips warn when selling the current amount would overflow a cap. On by default.</span></div>
@@ -890,8 +1150,13 @@
     <div class="optionRow"><label>Log Entry Cap <input id="logLimitInput" type="number" min="10" max="1000" step="1" style="width: 80px;"></label><span>Older entries beyond this number are removed (10–1000).</span></div>
     <div class="optionRow"><button id="balloonFilterBtn" type="button">Notification Balloons</button><span>Choose which balloon notifications pop up.</span></div>
       </div>
-    </details>
+    </div>
     <input id="importInput" type="file" accept=".txt,text/plain,.json,application/json" hidden>
+  </div>
+  <section class="panel" id="optionsLogPanel" aria-label="Log">
+    <h2 class="hasBtn"><span class="hbtns left"><button id="logFilterBtnOptions" type="button">Filters</button></span><span class="htitle">Log</span><span class="hbtns"><button id="clearLogBtnOptions" type="button">Clear Log</button></span></h2>
+    <div id="logElOptions" class="js-log" aria-live="polite"></div>
+  </section>
   </div>
 </div>
 <script src="src/config/vitalsConfig.js"></script>
@@ -901,6 +1166,7 @@
 <script src="src/config/furnitureConfig.js"></script>
 <script src="src/config/skillsConfig.js"></script>
 <script src="src/config/worldConfig.js"></script>
+<script src="src/config/craftingConfig.js"></script>
 <script src="src/core.js"></script>
 <script src="src/save.js"></script>
 <script src="src/log.js"></script>
@@ -913,6 +1179,7 @@
 <script src="src/skills.js"></script>
 <script src="src/inventory.js"></script>
 <script src="src/world.js"></script>
+<script src="src/crafting.js"></script>
 <script src="src/render.js"></script>
 <script src="src/ui.js"></script>
 <script src="src/main.js"></script>
@@ -921,7 +1188,7 @@
 // in a local copy), say so visibly instead of showing empty panels.
 if (typeof buildUI !== "function" || typeof RESOURCES === "undefined") {
   document.getElementById("statusEl").textContent = "Game files failed to load.";
-  document.getElementById("logEl").innerHTML = "<div>This file expects a folder named src next to it, containing: config/vitalsConfig.js, config/itemsConfig.js, config/actionsConfig.js, config/upgradesConfig.js, config/furnitureConfig.js, config/skillsConfig.js, config/worldConfig.js, core.js, save.js, log.js, actions.js, tips.js, resources.js, groups.js, upgrades.js, furniture.js, skills.js, inventory.js, world.js, render.js, ui.js, main.js.</div>";
+  document.getElementById("logEl").innerHTML = "<div>This file expects a folder named src next to it, containing: config/vitalsConfig.js, config/itemsConfig.js, config/actionsConfig.js, config/upgradesConfig.js, config/furnitureConfig.js, config/skillsConfig.js, config/worldConfig.js, config/craftingConfig.js, core.js, save.js, log.js, actions.js, tips.js, resources.js, groups.js, upgrades.js, furniture.js, skills.js, inventory.js, world.js, crafting.js, render.js, ui.js, main.js.</div>";
 }
 </script>
 </body>

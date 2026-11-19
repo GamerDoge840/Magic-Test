@@ -147,22 +147,18 @@ function buildUpgradeBtn(u) {
   desc.className = "tip-desc";
   desc.textContent = u.description ?? autoUpgradeDescription({ cost: u.cost ?? {}, effects: u.effects ?? [], buildTime: u.buildTime });
   tip.appendChild(desc);
+  appendUnlockSection(tip, u);
   const costRefs = [];
   appendTipSection(tip, "Cost", u.cost ?? {}, costRefs);
   if (u.effects && u.effects.length) {
-    const sec = document.createElement("div");
-    sec.className = "tip-sec";
-    const lab = document.createElement("div");
-    lab.className = "tip-sec-label";
-    lab.textContent = (u.effects ?? []).length > 1 ? "Effects" : "Effect";
-    sec.appendChild(lab);
+    const { sec, body } = makeTipSection((u.effects ?? []).length > 1 ? "Effects" : "Effect");
     for (const e of u.effects) {
       const row = document.createElement("div");
       row.className = "tip-row";
       const s = document.createElement("span");
       s.textContent = describeEffect(e);
       row.appendChild(s);
-      sec.appendChild(row);
+      body.appendChild(row);
     }
     tip.appendChild(sec);
   }

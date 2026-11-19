@@ -110,6 +110,7 @@ const ACTIONS = [
     costs: { stamina: 1 },
     gains: { coin: 0.5 },
     xp: { oddJobsMastery: 0.25 },
+    requiresTile: "Village",
     description: "Help some people out and get some meagre pay.",
     startLog: ["You start to help someone get their cat out of a tree.", "You start helping an old man sweep his porch.", "You start helping someone move some storage boxes.", "You start helping a shopkeep restock their goods.", "You start helping someone deliver an envelope."],
     stopLog: "You stop helping.",
@@ -214,6 +215,7 @@ const ACTIONS = [
     costs: { stamina: 3 },
     xp: { forestNavigation: 0.5 },
     requiresTile: "Forest",
+    hideWhenOffTile: true,
     description: "Navigate the woods to map them out better.",
     startLog: "You set out into the woods.",
     stopLog: "You stop wandering through the forest.",
@@ -233,6 +235,12 @@ const ACTIONS = [
     tickByBiome: { forest: 5 },
     costsByBiome: { forest: { stamina: 2.5 } },
     xpByBiome: { forest: { foraging: 0.35 } },
+    // Tag-scoped overrides (matched against the tile's tags, modifier
+    // tags included - first config entry whose tag sits on the tile
+    // wins, beating biome overrides): the Cabbage Fields work slower
+    // and hungrier than open plains.
+    tickByTag: { "Cabbage Fields": 8 },
+    costsByTag: { "Cabbage Fields": { stamina: 4 } },
     requiresTile: ["Plains", "Forest"],
     description: "Forage in the wilderness for items and usable plants. Different biomes have different items.",
     startLog: "You start looking for stuff to gather off the ground...",

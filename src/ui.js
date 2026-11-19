@@ -67,6 +67,8 @@ function buildUI() {
   if (typeof hideEmptyInvChk !== "undefined" && hideEmptyInvChk) hideEmptyInvChk.checked = state.options.hideEmptyInv !== false;
   if (typeof sellWarnChk !== "undefined" && sellWarnChk) sellWarnChk.checked = state.options.sellWarn !== false;
   if (typeof showActionTimeChk !== "undefined" && showActionTimeChk) showActionTimeChk.checked = state.options.showActionTime !== false;
+  if (typeof showUnlockReqsChk !== "undefined" && showUnlockReqsChk) showUnlockReqsChk.checked = !!state.options.showUnlockReqs;
+  if (typeof themeSel !== "undefined" && themeSel) themeSel.value = normalizeTheme(state.options.theme);
   if (typeof autosaveChk !== "undefined" && autosaveChk) autosaveChk.checked = !!state.options.autosave;
   if (typeof autosaveEverySel !== "undefined" && autosaveEverySel) autosaveEverySel.value = String(normalizeAutosaveEvery(state.options.autosaveEvery));
   if (typeof autosaveLogChk !== "undefined" && autosaveLogChk) autosaveLogChk.checked = state.options.logAutosaves !== false;
@@ -76,6 +78,7 @@ function buildUI() {
  buildFurnitureCards();
  if (typeof buildWorldTab === "function") buildWorldTab();
   if (typeof buildInventoryTab === "function") buildInventoryTab();
+  if (typeof buildCraftingTab === "function") buildCraftingTab();
  updateSortButtons();
   syncFurnFilters();
   buildFurnTypeFilters();
@@ -132,7 +135,19 @@ function buildPlayerTab() {
   playerNameInput.hidden = true;
   playerNameEl.hidden = false;
   playerStatsCtn.innerHTML = "";
-  for (const s of PLAYER_STATS) playerStatsCtn.appendChild(buildPlayerStatEl(s));
+  // Crafting-tagged stats (e.g. Cooking Speed) live under their own
+  // header below (hidden until Cooking is unlocked - see render()).
+  for (const s of PLAYER_STATS) {
+    if (getTags(s).includes("Crafting")) continue;
+    playerStatsCtn.appendChild(buildPlayerStatEl(s));
+  }
+  if (typeof craftStatsCtn !== "undefined" && craftStatsCtn) {
+    craftStatsCtn.innerHTML = "";
+    for (const s of PLAYER_STATS) {
+      if (!getTags(s).includes("Crafting")) continue;
+      craftStatsCtn.appendChild(buildPlayerStatEl(s));
+    }
+  }
 }
 
 function buildPlayerStatTip(s) {
@@ -217,8 +232,11 @@ logFilterBtn.addEventListener("click", () => {
 logSkillUpsChk.checked = state.options.logSkillUps !== false;
   logImprovementsChk.checked = state.options.logImprovements !== false;
   if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.checked = state.options.logGathering !== false;
+  if (typeof logCraftingChk !== "undefined" && logCraftingChk) logCraftingChk.checked = state.options.logCrafting !== false;
   if (typeof logSellingChk !== "undefined" && logSellingChk) logSellingChk.checked = state.options.logSelling !== false;
   if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
+  if (typeof logSkillXpChk !== "undefined" && logSkillXpChk) logSkillXpChk.checked = state.options.logSkillXp === true;
+  if (typeof logDiscoveryChk !== "undefined" && logDiscoveryChk) logDiscoveryChk.checked = state.options.logDiscovery === true;
   logFilterModal.hidden = false;
 });
 // Home-tab Work Log mirror: same modal, same clear - every copy stays synced.
@@ -230,8 +248,11 @@ if (typeof logFilterBtnHome !== "undefined" && logFilterBtnHome) logFilterBtnHom
   logSkillUpsChk.checked = state.options.logSkillUps !== false;
   logImprovementsChk.checked = state.options.logImprovements !== false;
   if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.checked = state.options.logGathering !== false;
+  if (typeof logCraftingChk !== "undefined" && logCraftingChk) logCraftingChk.checked = state.options.logCrafting !== false;
   if (typeof logSellingChk !== "undefined" && logSellingChk) logSellingChk.checked = state.options.logSelling !== false;
   if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
+  if (typeof logSkillXpChk !== "undefined" && logSkillXpChk) logSkillXpChk.checked = state.options.logSkillXp === true;
+  if (typeof logDiscoveryChk !== "undefined" && logDiscoveryChk) logDiscoveryChk.checked = state.options.logDiscovery === true;
   logFilterModal.hidden = false;
 });
 // Inventory-tab Work Log mirror: same modal - every copy stays synced.
@@ -243,8 +264,11 @@ if (typeof logFilterBtnInv !== "undefined" && logFilterBtnInv) logFilterBtnInv.a
   logSkillUpsChk.checked = state.options.logSkillUps !== false;
   logImprovementsChk.checked = state.options.logImprovements !== false;
   if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.checked = state.options.logGathering !== false;
+  if (typeof logCraftingChk !== "undefined" && logCraftingChk) logCraftingChk.checked = state.options.logCrafting !== false;
   if (typeof logSellingChk !== "undefined" && logSellingChk) logSellingChk.checked = state.options.logSelling !== false;
   if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
+  if (typeof logSkillXpChk !== "undefined" && logSkillXpChk) logSkillXpChk.checked = state.options.logSkillXp === true;
+  if (typeof logDiscoveryChk !== "undefined" && logDiscoveryChk) logDiscoveryChk.checked = state.options.logDiscovery === true;
   logFilterModal.hidden = false;
 });
 // World-tab Work Log mirror: same modal - every copy stays synced.
@@ -256,10 +280,63 @@ if (typeof logFilterBtnWorld !== "undefined" && logFilterBtnWorld) logFilterBtnW
   logSkillUpsChk.checked = state.options.logSkillUps !== false;
   logImprovementsChk.checked = state.options.logImprovements !== false;
   if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.checked = state.options.logGathering !== false;
+  if (typeof logCraftingChk !== "undefined" && logCraftingChk) logCraftingChk.checked = state.options.logCrafting !== false;
   if (typeof logSellingChk !== "undefined" && logSellingChk) logSellingChk.checked = state.options.logSelling !== false;
   if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
+  if (typeof logSkillXpChk !== "undefined" && logSkillXpChk) logSkillXpChk.checked = state.options.logSkillXp === true;
+  if (typeof logDiscoveryChk !== "undefined" && logDiscoveryChk) logDiscoveryChk.checked = state.options.logDiscovery === true;
   logFilterModal.hidden = false;
 });
+// Crafting-tab Work Log mirror: same modal - every copy stays synced.
+if (typeof logFilterBtnCraft !== "undefined" && logFilterBtnCraft) logFilterBtnCraft.addEventListener("click", () => {
+  logBeginChk.checked = state.options.logActionBegin !== false;
+  logStopChk.checked = state.options.logActionStop !== false;
+  logUpgradesChk.checked = state.options.logUpgrades !== false;
+  logUnlocksChk.checked = state.options.logUnlocks !== false;
+  logSkillUpsChk.checked = state.options.logSkillUps !== false;
+  logImprovementsChk.checked = state.options.logImprovements !== false;
+  if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.checked = state.options.logGathering !== false;
+  if (typeof logCraftingChk !== "undefined" && logCraftingChk) logCraftingChk.checked = state.options.logCrafting !== false;
+  if (typeof logSellingChk !== "undefined" && logSellingChk) logSellingChk.checked = state.options.logSelling !== false;
+  if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
+  if (typeof logSkillXpChk !== "undefined" && logSkillXpChk) logSkillXpChk.checked = state.options.logSkillXp === true;
+  if (typeof logDiscoveryChk !== "undefined" && logDiscoveryChk) logDiscoveryChk.checked = state.options.logDiscovery === true;
+  logFilterModal.hidden = false;
+});
+// Options-tab Work Log mirror: same modal - every copy stays synced.
+if (typeof logFilterBtnOptions !== "undefined" && logFilterBtnOptions) logFilterBtnOptions.addEventListener("click", () => {
+  logBeginChk.checked = state.options.logActionBegin !== false;
+  logStopChk.checked = state.options.logActionStop !== false;
+  logUpgradesChk.checked = state.options.logUpgrades !== false;
+  logUnlocksChk.checked = state.options.logUnlocks !== false;
+  logSkillUpsChk.checked = state.options.logSkillUps !== false;
+  logImprovementsChk.checked = state.options.logImprovements !== false;
+  if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.checked = state.options.logGathering !== false;
+  if (typeof logCraftingChk !== "undefined" && logCraftingChk) logCraftingChk.checked = state.options.logCrafting !== false;
+  if (typeof logSellingChk !== "undefined" && logSellingChk) logSellingChk.checked = state.options.logSelling !== false;
+  if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
+  if (typeof logSkillXpChk !== "undefined" && logSkillXpChk) logSkillXpChk.checked = state.options.logSkillXp === true;
+  if (typeof logDiscoveryChk !== "undefined" && logDiscoveryChk) logDiscoveryChk.checked = state.options.logDiscovery === true;
+  logFilterModal.hidden = false;
+});
+// Options sub-tabs: Saving / Display / Actions show one section at a
+// time (session-only, defaults to Saving). Static markup, so plain
+// listeners - nothing rebuilds them.
+function showOptionsSub(which) {
+  const panels = { saving: "optSaving", display: "optDisplay", actions: "optActions" };
+  const btns = { saving: "optSubSavingBtn", display: "optSubDisplayBtn", actions: "optSubActionsBtn" };
+  if (!panels[which]) return;
+  for (const [k, id] of Object.entries(panels)) document.getElementById(id).hidden = (k !== which);
+  for (const [k, id] of Object.entries(btns)) {
+    const b = document.getElementById(id);
+    if (!b) continue;
+    b.classList.toggle("active", k === which);
+    b.setAttribute("aria-selected", k === which ? "true" : "false");
+  }
+}
+if (typeof optSubSavingBtn !== "undefined" && optSubSavingBtn) optSubSavingBtn.addEventListener("click", () => showOptionsSub("saving"));
+if (typeof optSubDisplayBtn !== "undefined" && optSubDisplayBtn) optSubDisplayBtn.addEventListener("click", () => showOptionsSub("display"));
+if (typeof optSubActionsBtn !== "undefined" && optSubActionsBtn) optSubActionsBtn.addEventListener("click", () => showOptionsSub("actions"));
 logFilterCloseBtn.addEventListener("click", () => { logFilterModal.hidden = true; });
 logFilterModal.addEventListener("click", (e) => { if (e.target === logFilterModal) logFilterModal.hidden = true; });
 logBeginChk.addEventListener("change", () => { state.options.logActionBegin = logBeginChk.checked; applyLogFilters(); });
@@ -269,8 +346,11 @@ logUnlocksChk.addEventListener("change", () => { state.options.logUnlocks = logU
 logSkillUpsChk.addEventListener("change", () => { state.options.logSkillUps = logSkillUpsChk.checked; applyLogFilters(); });
 logImprovementsChk.addEventListener("change", () => { state.options.logImprovements = logImprovementsChk.checked; applyLogFilters(); });
 if (typeof logGatheringChk !== "undefined" && logGatheringChk) logGatheringChk.addEventListener("change", () => { state.options.logGathering = logGatheringChk.checked; applyLogFilters(); });
+if (typeof logCraftingChk !== "undefined" && logCraftingChk) logCraftingChk.addEventListener("change", () => { state.options.logCrafting = logCraftingChk.checked; applyLogFilters(); });
 if (typeof logSellingChk !== "undefined" && logSellingChk) logSellingChk.addEventListener("change", () => { state.options.logSelling = logSellingChk.checked; applyLogFilters(); });
 if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.addEventListener("change", () => { state.options.logConsuming = logConsumingChk.checked; applyLogFilters(); });
+if (typeof logSkillXpChk !== "undefined" && logSkillXpChk) logSkillXpChk.addEventListener("change", () => { state.options.logSkillXp = logSkillXpChk.checked; applyLogFilters(); });
+if (typeof logDiscoveryChk !== "undefined" && logDiscoveryChk) logDiscoveryChk.addEventListener("change", () => { state.options.logDiscovery = logDiscoveryChk.checked; applyLogFilters(); });
 // Inventory rarity filters live in their own modal, like the Log Filters.
 // The chips sync their highlight live (see renderInventory), so the modal
 // needs no per-open sync - opening and closing is all it does.
@@ -323,6 +403,8 @@ function syncHideButtons() {
     [hidingMode.vitals, [vitalsHideBtn]],
     [hidingMode.actions, [actionsHideBtn]],
     [hidingMode.milestones, [milesHideBtn]],
+    [hidingMode.plans, [craftPlansHideBtn]],
+    [hidingMode.recipes, [craftRecipesHideBtn]],
   ];
   let any = false;
   for (const [on, btns] of pairs) {
@@ -347,6 +429,8 @@ if (currenciesHideBtnHome) currenciesHideBtnHome.addEventListener("click", () =>
 if (vitalsHideBtn) vitalsHideBtn.addEventListener("click", () => toggleHidingMode("vitals"));
 if (actionsHideBtn) actionsHideBtn.addEventListener("click", () => toggleHidingMode("actions"));
 if (milesHideBtn) milesHideBtn.addEventListener("click", () => toggleHidingMode("milestones"));
+if (typeof craftPlansHideBtn !== "undefined" && craftPlansHideBtn) craftPlansHideBtn.addEventListener("click", () => toggleHidingMode("plans"));
+if (typeof craftRecipesHideBtn !== "undefined" && craftRecipesHideBtn) craftRecipesHideBtn.addEventListener("click", () => toggleHidingMode("recipes"));
 // Escape closes any open modal (Filters, Select Home) and drops focus from
 // whatever it held, so keyboard users are never stuck in a dialog.
 document.addEventListener("keydown", (e) => {

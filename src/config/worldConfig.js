@@ -6,6 +6,8 @@
 //   WORLD_TIERS: one entry per selectable "World Tier" (the tab's dropdown
 //     lists these; picking one keeps your position per tier but every tier
 //     currently generates the same land, so the dropdown does nothing yet).
+//     Note: tiers won't change biome locations - in the future, tiers will
+//     change Gathering pools (what Forage can find) instead.
 //     - id:   short code (no spaces, e.g. "tier0")
 //     - name: label in the dropdown (e.g. "World Tier 0")
 //     - size: tiles per side, positive integer (6 = a 6x6 area)
@@ -43,7 +45,8 @@
 //     entry can also override the tile's biome instead (or as well):
 //     { tier, x, y, biome }. The Hamlet sits in the center of the Tier
 //     0 plains; a 2x2 forest patch grows in the far northwest corner
-//     (5 Manhattan tiles northwest of the Hamlet).
+//     (5 Manhattan tiles northwest of the Hamlet); a single Cabbage
+//     Fields tile sits just west of the Hamlet.
 //   WORLD_ACTIONS: action ids mirrored into the World Actions window
 //     (Rest for mid-travel recovery, Explore Plains for plains XP,
 //     Explore Forest for forest XP, Forage for gathering plants and
@@ -74,15 +77,17 @@ const WORLD_TIERS = [
 
 const WORLD_BIOMES = [
   { id: "plains", name: "Plains", travelTime: 5, terrainDifficulty: 0.5, color: "#8CD65A", description: "A stretch of land comprised of grass and not much else.", tags: ["Plains"] },
-  { id: "forest", name: "Forest", travelTime: 6, terrainDifficulty: 1, color: "#4A8F42", description: "Woodlands home to many creatures and plants.", tags: ["Forest"] },
+  { id: "forest", name: "Forest", travelTime: 6.5, terrainDifficulty: 1, color: "#4A8F42", description: "Woodlands home to many creatures and plants.", tags: ["Forest"] },
 ];
 
 const WORLD_MODIFIERS = [
-  { id: "hamlet", name: "Hamlet", short: "H", tags: ["General Store"], color: "#84240c", size: 0.75, travelTime: -3, terrainDifficulty: -1, locks: ["forage", "explorePlains", "exploreForest"], description: "A hamlet with a store to purchase goods from." },
+  { id: "hamlet", name: "Hamlet", short: "H", tags: ["General Store", "Village"], color: "#84240c", size: 0.75, travelTime: -3, terrainDifficulty: -1, locks: ["forage", "explorePlains", "exploreForest"], description: "A hamlet with a store to purchase goods from." },
+  { id: "cabbageFields", name: "Cabbage Fields", short: "CF", tags: ["Cabbage Fields"], color: "#B5E89B", size: 0.5, description: "A field full of wild cabbages." },
 ];
 
 const WORLD_SITES = [
   { tier: "tier0", x: 3, y: 3, modifier: "hamlet" },
+  { tier: "tier0", x: 2, y: 3, modifier: "cabbageFields" },
   { tier: "tier0", x: 0, y: 0, biome: "forest" },
   { tier: "tier0", x: 1, y: 0, biome: "forest" },
   { tier: "tier0", x: 0, y: 1, biome: "forest" },
@@ -100,6 +105,7 @@ const WORLD_ACTIONS = ["rest", "explorePlains", "exploreForest", "forage"];
 // relative - 60/40 = 60% Greenleaf). Tiles with no matching entry yield
 // nothing. Item ids must exist in ITEMS (validated with a warning).
 const FORAGE_TABLES = [
+  { tier: "tier0", tag: "Cabbage Fields", items: [{ item: "cabbage", weight: 80 }, { item: "greenleaf", weight: 20 }] },
   { tier: "tier0", biome: "plains", items: [{ item: "greenleaf", weight: 60 }, { item: "apples", weight: 40 }] },
-  { tier: "tier0", biome: "forest", items: [{ item: "twigs", weight: 55 }, { item: "woodBerries", weight: 30 }, { item: "apples", weight: 10 }, { item: "greenleaf", weight: 5 }] },
+  { tier: "tier0", biome: "forest", items: [{ item: "twigs", weight: 50 }, { item: "woodBerries", weight: 35 }, { item: "apples", weight: 10 }, { item: "greenleaf", weight: 5 }] },
 ];

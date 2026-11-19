@@ -93,6 +93,12 @@ function buyFurniture(id) {
   }
   payCosts(f.cost);
   state.furniture[id] = owned + 1;
+  // Crafting tab: buying any "Crafting"-tagged furniture reveals it
+  // permanently (sticky - selling everything afterwards keeps the tab).
+  if (getTags(f).includes("Crafting")) state.unlocked["tab:crafting"] = true;
+  // Station plans: the first furniture of a crafting station unlocks
+  // that group's starter plans (e.g. a Cooking Pot unlocks Roasting).
+  if (typeof unlockStarterPlans === "function") unlockStarterPlans(f);
   const capNow = getEffectiveFurnCap(f);
   const cap = capNow === Infinity ? "no limit" : formatNum(capNow);
   log((f.buyLog ?? "Bought: " + f.name) + " (" + state.furniture[id] + "/" + cap + ").", "upgrade");
@@ -111,7 +117,10 @@ function sellFurniture(id) {
   // case losing a "max" effect left amounts above their new caps.
   for (const [rid, n] of Object.entries(f.cost ?? {})) {
     const max = getEffectiveMax(rid);
-    state.amounts[rid] = max === Infinity ? (state.amounts[rid] ?? 0) + n : Math.min(max, (state.amounts[rid] ?? 0) + n);
+    // Same overheal guard as doTick: never drain a meal buffer with a refund.
+    const cur = state.amounts[rid] ?? 0;
+    if (rid === "stamina" && cur > max) state.amounts[rid] = Math.max(cur, Math.min(max, cur + n));
+    else state.amounts[rid] = max === Infinity ? cur + n : Math.min(max, cur + n);
     if (n > 0) {
       markCurrencySeen(rid);
       // Item refunds discover like any other find (see doTick).
@@ -258,6 +267,9 @@ function buildFurnitureCard(f) {
   const card = document.createElement("div");
   card.className = "furnCard";
   card.id = "furn-" + f.id;
+  // Hidden until the Home render pass says otherwise (no home yet on a
+  // fresh save means every card is gated, and that pass is skipped).
+  card.hidden = true;
   const top = document.createElement("div");
   top.className = "furnTop";
   const nm = document.createElement("span");
@@ -322,31 +334,22 @@ function buildFurnitureCard(f) {
     desc.textContent = f.description;
     tip.appendChild(desc);
   }
+  appendUnlockSection(tip, f);
   const costRefs = [];
   appendTipSection(tip, "Cost", f.cost ?? {}, costRefs);
   if (f.effects && f.effects.length) {
-    const sec = document.createElement("div");
-    sec.className = "tip-sec";
-    const lab = document.createElement("div");
-    lab.className = "tip-sec-label";
-    lab.textContent = f.effects.length > 1 ? "Effects" : "Effect";
-    sec.appendChild(lab);
+    const { sec, body } = makeTipSection(f.effects.length > 1 ? "Effects" : "Effect");
     for (const e of f.effects) {
       const row = document.createElement("div");
       row.className = "tip-row";
       const s = document.createElement("span");
       s.textContent = describeEffect(e);
       row.appendChild(s);
-      sec.appendChild(row);
+      body.appendChild(row);
     }
     tip.appendChild(sec);
   }
-  const hsec = document.createElement("div");
-  hsec.className = "tip-sec";
-  const hlab = document.createElement("div");
-  hlab.className = "tip-sec-label";
-  hlab.textContent = "Housing";
-  hsec.appendChild(hlab);
+  const { sec: hsec, body: hbody } = makeTipSection("Housing");
   const hrow = document.createElement("div");
   hrow.className = "tip-row";
   const hk = document.createElement("span");
@@ -355,7 +358,7 @@ function buildFurnitureCard(f) {
   hv.textContent = formatNum(f.space ?? 1);
   hrow.appendChild(hk);
   hrow.appendChild(hv);
-  hsec.appendChild(hrow);
+  hbody.appendChild(hrow);
   tip.appendChild(hsec);
   const rsec = (typeof appendTileRequirementSection === "function") ? appendTileRequirementSection(tip, f) : null;
   if (f.flavor) {
@@ -483,19 +486,14 @@ function buildHomeList() {
       tip.appendChild(desc);
     }
     if (h.effects && h.effects.length) {
-      const sec = document.createElement("div");
-      sec.className = "tip-sec";
-      const lab = document.createElement("div");
-      lab.className = "tip-sec-label";
-      lab.textContent = h.effects.length > 1 ? "Effects" : "Effect";
-      sec.appendChild(lab);
+      const { sec, body } = makeTipSection(h.effects.length > 1 ? "Effects" : "Effect");
       for (const e of h.effects) {
         const row = document.createElement("div");
         row.className = "tip-row";
         const s = document.createElement("span");
         s.textContent = describeEffect(e);
         row.appendChild(s);
-        sec.appendChild(row);
+        body.appendChild(row);
       }
       tip.appendChild(sec);
     }

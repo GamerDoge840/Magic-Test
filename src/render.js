@@ -1,6 +1,10 @@
 // Labor Game frame render: resources, actions, upgrades, status, open tooltip.
 function render() {
   const current = state.currentActionId ? getAction(state.currentActionId) : null;
+  // Per-tick invariants, hoisted out of the loops below: every resource
+  // row and action button reads the same running-action payout and speed.
+  const currentEff = current ? effectiveGains(current) : null;
+  const currentTick = current ? getEffectiveTick(current) : 1;
   for (const r of RESOURCES) {
     // Shared panels: same values written to every visible copy (Work +
     // Home + later tabs). Per-ref sig-skip keeps it cheap.
@@ -22,7 +26,7 @@ function render() {
     // effects), divided by the boosted cycle time - so the tooltip rate
     // automatically accounts for any boost (e.g. Pillows speeding Rest).
     let rate = 0;
-    if (current) rate = ((effectiveGains(current)[r.id] ?? 0) - (current.costs[r.id] ?? 0)) / getEffectiveTick(current);
+    if (current) rate = ((currentEff[r.id] ?? 0) - (current.costs[r.id] ?? 0)) / currentTick;
     const max = getEffectiveMax(r.id);
     // User hiding (per panel kind): ignored while that panel's hiding mode
     // is on, so struck items show for unhiding. Discovery always applies,
@@ -30,7 +34,9 @@ function render() {
     // the sig so mode flips and strike toggles always repaint.
     const hideRow = !discovered || (itemHidden("r:" + r.id) && !(isCurrency(r) ? hidingMode.currencies : hidingMode.vitals));
     const struck = itemHidden("r:" + r.id);
-    const sig = val + "|" + rate + "|" + (max === Infinity ? "i" : max) + "|" + (hideRow ? 1 : 0) + "|" + (struck ? 1 : 0) + "|" + (discovered ? 1 : 0);
+    // Meal overheal: Stamina past its cap grades the bar into pale green.
+    const overhealed = !isCurrency(r) && r.id === "stamina" && max !== Infinity && val > max + 1e-9;
+    const sig = val + "|" + rate + "|" + (max === Infinity ? "i" : max) + "|" + (hideRow ? 1 : 0) + "|" + (struck ? 1 : 0) + "|" + (discovered ? 1 : 0) + "|" + (overhealed ? 1 : 0);
     for (const ref of refs) {
     if (ref._sig === sig) continue;
     ref._sig = sig;
@@ -55,6 +61,9 @@ function render() {
       else ref.name.style.color = "";
       ref.val.textContent = formatNum(val) + " / " + formatNum(max);
       ref.fill.style.width = Math.max(0, Math.min(100, (val / max) * 100)) + "%";
+      // Overhealed Stamina glows: the fill grades from its usual color
+      // into pale green (#CBFFA3) until the buffer is spent.
+      ref.fill.style.background = overhealed ? ("linear-gradient(to right, " + (r.barColor || "#FFFCAD") + ", #CBFFA3)") : (r.barColor || "");
       if (ref.tipCount) ref.tipCount.textContent = formatNum(val) + " / " + formatNum(max);
       if (ref.tipRate) {
         ref.tipRate.textContent = rate ? formatNum(rate) + "/s" : "";
@@ -65,7 +74,7 @@ function render() {
   }
 
   // Collapse resource/skill groups emptied by hiding (all mirrors stay in sync).
-  for (const h of document.querySelectorAll(".js-currencies, .js-vitals")) hideEmptyGroups(h);
+  for (const h of resPanelHosts()) hideEmptyGroups(h);
   if (typeof skillsCtn !== "undefined" && skillsCtn) hideEmptyGroups(skillsCtn);
 
   for (const a of ACTIONS) {
@@ -76,16 +85,21 @@ function render() {
     // DOM writes below are skipped while nothing changed.
     // User hiding is ignored in hiding mode so struck actions show.
     const isActive = state.currentActionId === a.id;
+    // Tile gates, computed once per action per tick: the Work hide rules
+    // below and the start/stop rules share them instead of re-querying.
+    const shopBlock = (typeof worldShopBlocked === "function") ? worldShopBlocked(a) : false;
+    const lockBlock = (typeof worldActionLocked === "function") ? worldActionLocked(a) : false;
+    const tileBlocked = shopBlock || lockBlock;
     // Tile-modifier locks (e.g. Hamlet banning Forage) hide the
     // action outright instead of a red star. A running action stays
     // visible until the next tick stops it.
-    const lockHide = ((typeof worldActionLocked === "function") ? worldActionLocked(a) : false) && !isActive;
+    const lockHide = lockBlock && !isActive;
     // hideWhenOffTile (e.g. Explore Plains): an unmet tile requirement
     // hides the action outright instead of a red star, exactly like a
     // lock. A running action stays visible until the next tick stops
     // it. Before the World unlocks every requirement counts as met, so
     // the action still shows in town.
-    const offTileHide = !!a.hideWhenOffTile && !isActive && (((typeof worldShopBlocked === "function") ? worldShopBlocked(a) : false));
+    const offTileHide = !!a.hideWhenOffTile && !isActive && shopBlock;
     const hidden = !unlockMet(a, "a") || (!hidingMode.actions && itemHidden("a:" + a.id)) || lockHide || offTileHide;
     const count = state.stats.actions[a.id] ?? 0;
     // Skill milestones can discount the price (Scroll Frugality): every
@@ -97,25 +111,25 @@ function render() {
     // the button, so a half-finished action stays clickable when broke.
     const cyc = state.cycles[a.id];
     const paidResume = !isActive && !!cyc && cyc.paid === true;
+    // One payout read per action per tick: vitals-full, currency-full, and
+    // the override lapse below all share it.
+    const effGains = effectiveGains(a);
     // Currency-full never disables (only affordability does, besides
     // hiding mode): with "Stop if Full" on, a full action stays clickable
     // and shows the orange border so it can be force-started past the
     // cap. Vitals-full keeps the plain disabled look (nothing to gain).
-    const vitalsFull = gainsAreFull(effectiveGains(a));
+    const vitalsFull = gainsAreFull(effGains);
     const optFull = state.options.stopIfFull !== false;
-    const curFull = optFull && currencyGainsAreFull(effectiveGains(a));
+    const curFull = optFull && currencyGainsAreFull(effGains);
     // The override lapses the moment outputs drop back under cap: the
     // border goes away and auto-stop re-arms for the next fill-up.
-    if (state.fullOverride && state.fullOverride[a.id] && !currencyGainsAreFull(effectiveGains(a))) delete state.fullOverride[a.id];
+    if (state.fullOverride && state.fullOverride[a.id] && !currencyGainsAreFull(effGains)) delete state.fullOverride[a.id];
     const ovr = !!(state.fullOverride && state.fullOverride[a.id]);
     // Tile requirement: gated actions (e.g. Buy Scrolls) only start on
     // a matching tile. A paid cycle picked up mid-bar resumes anywhere,
     // exactly like upgrades and timed builds.
     // Tile-modifier locks (e.g. Hamlet banning Forage) block the
     // same way.
-    const shopBlock = (typeof worldShopBlocked === "function") ? worldShopBlocked(a) : false;
-    const lockBlock = (typeof worldActionLocked === "function") ? worldActionLocked(a) : false;
-    const tileBlocked = shopBlock || lockBlock;
     const tileStopped = tileBlocked && !paidResume;
     const disabled = hidingMode.actions ? false : (isActive ? false : ((!canAfford(effCost) && !paidResume) || vitalsFull || tileStopped));
     const prog = cyc ? cyc.progress : 0;
@@ -152,7 +166,11 @@ function render() {
     // full Stamina). Currency-full stays clickable so it can be
     // force-started past the cap (orange border).
     btn.disabled = disabled;
-    if (ref.fill) ref.fill.style.width = isActive ? Math.min(100, (prog / tick) * 100) + "%" : "0%";
+    // Very fast cycles (4+ fills/sec) would only jitter a discrete fill,
+    // so show a full-width flowing striped bar instead (see .flowing).
+    const flowing = isActive && tick <= FAST_BAR_TICK_SECONDS;
+    if (ref.prog) ref.prog.classList.toggle("flowing", flowing);
+    if (ref.fill) ref.fill.style.width = !isActive ? "0%" : (flowing ? "100%" : Math.min(100, (prog / tick) * 100) + "%");
     if (ref.prog) ref.prog.hidden = !isActive;
     if (ref.time) ref.time.textContent = isActive ? formatDuration(tick - prog, (s) => s.toFixed(2) + "s") : "";
     if (ref.tc) ref.tc.textContent = count;
@@ -216,7 +234,9 @@ function render() {
     btn.classList.toggle("maxed", maxed);
     btn.classList.toggle("building", building);
     btn.disabled = disabled;
-    if (u.buildTime && ref.fill) ref.fill.style.width = building ? Math.min(100, (bprog / u.buildTime) * 100) + "%" : "0%";
+    const buildingFast = building && u.buildTime <= FAST_BAR_TICK_SECONDS;
+    if (u.buildTime && ref.prog) ref.prog.classList.toggle("flowing", buildingFast);
+    if (u.buildTime && ref.fill) ref.fill.style.width = !building ? "0%" : (buildingFast ? "100%" : Math.min(100, (bprog / u.buildTime) * 100) + "%");
     if (u.buildTime && ref.prog) ref.prog.hidden = !building;
     if (u.buildTime && ref.time) ref.time.textContent = building ? formatDuration(u.buildTime - bprog, (s) => s.toFixed(1) + "s") : "";
     if (ref.tc) ref.tc.textContent = formatNum(owned) + "/" + (capNow === Infinity ? "no limit" : formatNum(capNow));
@@ -245,6 +265,14 @@ function render() {
     if (floorSpaceEl && floorSpaceEl.textContent !== spaceText) floorSpaceEl.textContent = spaceText;
     if (homeFullNote) homeFullNote.hidden = used < max;
     for (const f of FURNITURE) {
+      // One-time unlock message (see unlockLog in the config): fires the
+      // first frame the entry is visible, then never again - the flag is
+      // saved with the other unlocks, so imports that already qualify
+      // log it once on load like actions/upgrades do.
+      if (f.unlockLog && unlockFurniture(f) && !state.unlocked["f:" + f.id]) {
+        state.unlocked["f:" + f.id] = true;
+        log(f.unlockLog, "unlock");
+      }
       const ref = uiRefs.get("f:" + f.id);
       if (!ref || !ref.root.isConnected) continue;
       const owned = state.furniture[f.id] ?? 0;
@@ -304,15 +332,20 @@ function render() {
   }
 
   // Player stats: base values plus attained skill-milestone boosts (INT
-  // rises with Basic Knowledge). Rendered through the same sig-skip
-  // pattern so future effects just work.
+  // rises with Basic Knowledge). Crafting-tagged stats (Cooking Speed)
+  // hide with their section header until Cooking is unlocked. Rendered
+  // through the same sig-skip pattern so future effects just work.
+  const craftOpen = (typeof cookingUnlocked === "function") ? cookingUnlocked() : true;
+  if (typeof craftStatsHead !== "undefined" && craftStatsHead && craftStatsHead.hidden !== !craftOpen) craftStatsHead.hidden = !craftOpen;
   for (const s of PLAYER_STATS) {
     const ref = uiRefs.get("p:" + s.id);
     if (!ref) continue;
     const val = getEffectiveStat(s.id);
-    const sig = String(val);
+    const hidden = getTags(s).includes("Crafting") && !craftOpen;
+    const sig = String(val) + "|" + (hidden ? 1 : 0);
     if (ref._sig === sig) continue;
     ref._sig = sig;
+    ref.root.hidden = hidden;
     ref.val.textContent = formatNum(val);
     if (ref.tipCount) ref.tipCount.textContent = formatNum(val);
   }
@@ -335,6 +368,7 @@ function render() {
     if (!invOpen && typeof tabInventory !== "undefined" && tabInventory && !tabInventory.hidden) showTab("work");
   }
   if (typeof renderInventory === "function") renderInventory();
+  if (typeof renderCrafting === "function") renderCrafting();
 
   if (!current) {
     const stamina = state.amounts.stamina;
@@ -350,6 +384,13 @@ function render() {
   // Tooltip time lines hide outright while the option is off (on by
   // default): a body class beats rebuilding every tooltip.
   document.body.classList.toggle("hide-action-time", state.options.showActionTime === false);
+  // Unlock-requirement sections hide outright while the option is off
+  // (off by default, to keep tooltips compact): same body-class pattern.
+  document.body.classList.toggle("hide-unlock-reqs", state.options.showUnlockReqs !== true);
+  // Manual theme override (Options > Display): force light/dark via body
+  // classes, or follow the OS when "system" (the CSS media queries handle
+  // the auto case). Runs every render so loads and option changes apply.
+  applyTheme();
   const nowCard = document.getElementById("nowCard");
   const nowCancelBtn = document.getElementById("nowCancelBtn");
   if (nowCard) nowCard.classList.toggle("busy", !!state.currentActionId);
@@ -382,10 +423,22 @@ clearLogBtn.addEventListener("click", clearLog);
 if (typeof clearLogBtnHome !== "undefined" && clearLogBtnHome) clearLogBtnHome.addEventListener("click", clearLog);
 if (typeof clearLogBtnWorld !== "undefined" && clearLogBtnWorld) clearLogBtnWorld.addEventListener("click", clearLog);
 if (typeof clearLogBtnInv !== "undefined" && clearLogBtnInv) clearLogBtnInv.addEventListener("click", clearLog);
+if (typeof clearLogBtnCraft !== "undefined" && clearLogBtnCraft) clearLogBtnCraft.addEventListener("click", clearLog);
+if (typeof clearLogBtnOptions !== "undefined" && clearLogBtnOptions) clearLogBtnOptions.addEventListener("click", clearLog);
 resetBtn.addEventListener("click", () => {
   if (!confirm("Hard Reset will erase all progress. Are you sure?")) return;
   state = makeFreshState();
   try { localStorage.removeItem(MANUAL_SAVE_KEY); } catch (e) { /* storage unavailable */ }
+  for (const k of Object.keys(hidingMode)) hidingMode[k] = false;
+  if (typeof syncHideButtons === "function") syncHideButtons();
+  if (typeof invSelling !== "undefined" && invSelling) invSelling = false;
+  if (typeof sellQty !== "undefined") sellQty = 1;
+  if (typeof autosaveAcc !== "undefined") autosaveAcc = 0;
+  if (typeof consumeAcc !== "undefined") consumeAcc = null;
+  if (typeof sellAcc !== "undefined") sellAcc = null;
+  if (typeof skillXpAcc !== "undefined") skillXpAcc = null;
+  if (typeof craftAcc !== "undefined") craftAcc = null;
+  if (typeof selectedSkillId !== "undefined") selectedSkillId = null;
   buildUI();
   clearLog();
   log("Hard reset: progress erased.");
@@ -411,6 +464,7 @@ tabSkillsBtn.addEventListener("click", () => showTab("skills"));
 tabOptionsBtn.addEventListener("click", () => showTab("options"));
 if (typeof tabWorldBtn !== "undefined" && tabWorldBtn) tabWorldBtn.addEventListener("click", () => showTab("world"));
 if (typeof tabInventoryBtn !== "undefined" && tabInventoryBtn) tabInventoryBtn.addEventListener("click", () => showTab("inventory"));
+if (typeof tabCraftingBtn !== "undefined" && tabCraftingBtn) tabCraftingBtn.addEventListener("click", () => showTab("crafting"));
 showMaxedChk.addEventListener("change", () => {
   state.options.showMaxedUpgrades = showMaxedChk.checked;
   render();
@@ -429,6 +483,24 @@ if (typeof sellWarnChk !== "undefined" && sellWarnChk) sellWarnChk.addEventListe
 });
 if (typeof showActionTimeChk !== "undefined" && showActionTimeChk) showActionTimeChk.addEventListener("change", () => {
   state.options.showActionTime = showActionTimeChk.checked;
+  render();
+});
+if (typeof showUnlockReqsChk !== "undefined" && showUnlockReqsChk) showUnlockReqsChk.addEventListener("change", () => {
+  state.options.showUnlockReqs = showUnlockReqsChk.checked;
+  render();
+});
+// Theme override: "system" follows the OS, "light"/"dark" force that
+// scheme. Body classes beat the media-query blocks (see index.html);
+// documentElement colorScheme keeps native controls/scrollbars in sync.
+function applyTheme() {
+  const t = normalizeTheme(state.options && state.options.theme);
+  document.body.classList.toggle("force-light", t === "light");
+  document.body.classList.toggle("force-dark", t === "dark");
+  document.documentElement.style.colorScheme = t === "light" ? "light" : t === "dark" ? "dark" : "light dark";
+}
+if (typeof themeSel !== "undefined" && themeSel) themeSel.addEventListener("change", () => {
+  state.options.theme = normalizeTheme(themeSel.value);
+  themeSel.value = state.options.theme;
   render();
 });
 if (logLimitInput) logLimitInput.addEventListener("change", () => {

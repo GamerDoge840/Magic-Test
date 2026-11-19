@@ -10,7 +10,8 @@
 //   - plural: (optional) plural at != 1, e.g. Apples.
 //   - tags: (optional) identifying chips, e.g. ["Herb", "Food"].
 //     The "consumable" tag makes the item edible from the Inventory
-//     tab (see `consume` below).
+//     tab (see `consume` below). The "Fruit" tag marks fruit for
+//     "any fruit" recipe inputs (see "tag:" inputs in craftingConfig).
 //   - consume: (optional, needs the "consumable" tag) what eating one
 //     unit grants, e.g. consume: { button: "Eat", gains: { stamina: 1 } }.
 //     `button` (optional, default "Consume") is the button's text;
@@ -19,6 +20,13 @@
 //     base consume line (default "You consume <name>."). The gains always
 //     follow it as "(+N Name, ...)", each in its target's own color
 //     (Stamina's pale yellow for "+1 Stamina").
+//   - nutrition: (optional, needs the "consumable" tag) Stamina overheal
+//     multiplier for this food's own grants, e.g. nutrition: 1.1. Eating
+//     it can push Stamina past its cap, up to cap x nutrition (1.1 = up
+//     to 110% of max). While overhealed the Stamina bar grades from its
+//     usual color into pale green. Shown in the tooltip's Nutrition
+//     section. Must be a finite number above 1; anything else warns and
+//     is ignored (never blocks eating).
 //   - sellPrice: (optional) what Selling Mode pays per unit sold, e.g.
 //     sellPrice: { coin: 1 }. Same amount rules as costs (non-negative
 //     finite numbers, zeros dropped, unknown ids warn). An item without
@@ -46,9 +54,9 @@ const ITEMS = [
     name: "Apple",
     plural: "Apples",
     rarity: "common",
-    tags: ["Food", "Foraged", "consumable"],
+    tags: ["Food", "Foraged", "Fruit", "consumable"],
     description: "Common red fruit.",
-    consume: { button: "Eat", gains: { stamina: 1 }, log: "You eat an apple." },
+    consume: { button: "Eat", gains: { stamina: 1.25 }, log: "You eat an apple." },
     sellPrice: { coin: 1 },
   },
   {
@@ -58,7 +66,8 @@ const ITEMS = [
     rarity: "common",
     tags: ["Foraged", "Materials", "Fuel"],
     description: "A stick picked up off the ground. Could be used for a fire, in a pinch.",
-    fuel: 1,
+    fuel: 1.25,
+    sellPrice: { coin: 1 },
   },
   {
     id: "woodBerries",
@@ -67,7 +76,70 @@ const ITEMS = [
     rarity: "common",
     tags: ["Food", "Foraged", "consumable"],
     description: "Common berries from the woods. Has a bit of a crunchy texture.",
-    consume: { button: "Eat", gains: { stamina: 1.25 }, log: "You eat some wood berries." },
+    consume: { button: "Eat", gains: { stamina: 1 }, log: "You eat some wood berries." },
     sellPrice: { coin: 1 },
+  },
+  {
+    id: "cookedApple",
+    name: "Cooked Apple",
+    plural: "Cooked Apples",
+    rarity: "common",
+    tags: ["Food", "Roasted", "consumable"],
+    description: "A warm, cooked apple.",
+    consume: { button: "Eat", gains: { stamina: 3.75 }, log: "You eat a cooked apple." },
+    sellPrice: { coin: 2 },
+  },
+  {
+    id: "cookedWoodBerry",
+    name: "Cooked Wood Berry",
+    plural: "Cooked Wood Berries",
+    rarity: "common",
+    tags: ["Food", "Roasted", "consumable"],
+    description: "Roasted wood berries. Cooking them made them even crunchier.",
+    consume: { button: "Eat", gains: { stamina: 3 }, log: "You eat some cooked wood berries." },
+    sellPrice: { coin: 2 },
+  },
+  {
+    id: "cabbage",
+    name: "Cabbage",
+    plural: "Cabbages",
+    rarity: "common",
+    tags: ["Food", "Foraged", "consumable"],
+    description: "A common leafy vegetable used in cooking.",
+    consume: { button: "Eat", gains: { stamina: 1.5 }, log: "You eat a cabbage." },
+    sellPrice: { coin: 1 },
+  },
+  {
+    id: "boiledCabbage",
+    name: "Boiled Cabbage",
+    plural: "Boiled Cabbages",
+    rarity: "common",
+    tags: ["Food", "Roasted", "consumable"],
+    description: "A cabbage that has been boiled.",
+    nutrition: 1.08,
+    consume: { button: "Eat", gains: { stamina: 3.5 }, log: "You eat a boiled cabbage." },
+    sellPrice: { coin: 2 },
+  },
+  {
+    id: "plainSalad",
+    name: "Plain Salad",
+    plural: "Plain Salads",
+    rarity: "common",
+    tags: ["Food", "Meal", "consumable"],
+    description: "A very simple salad comprised out of leaves. Makes you feel like a herbivore.",
+    nutrition: 1.15,
+    consume: { button: "Eat", gains: { stamina: 4 }, log: "You eat a plain salad." },
+    sellPrice: { coin: 2 },
+  },
+  {
+    id: "fruitSalad",
+    name: "Fruit Salad",
+    plural: "Fruit Salads",
+    rarity: "common",
+    tags: ["Food", "Meal", "consumable"],
+    description: "A salad comprised of leaves with some slices of fruit placed between.",
+    nutrition: 1.20,
+    consume: { button: "Eat", gains: { stamina: 5 }, log: "You eat a fruit salad." },
+    sellPrice: { coin: 2 },
   },
 ];

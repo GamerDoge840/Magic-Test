@@ -28,6 +28,13 @@ const logFilterBtnWorld = document.getElementById("logFilterBtnWorld");
 const clearLogBtnWorld = document.getElementById("clearLogBtnWorld");
 const logFilterBtnInv = document.getElementById("logFilterBtnInv");
 const clearLogBtnInv = document.getElementById("clearLogBtnInv");
+const clearLogBtnCraft = document.getElementById("clearLogBtnCraft");
+const logFilterBtnCraft = document.getElementById("logFilterBtnCraft");
+const clearLogBtnOptions = document.getElementById("clearLogBtnOptions");
+const logFilterBtnOptions = document.getElementById("logFilterBtnOptions");
+const optSubSavingBtn = document.getElementById("optSubSavingBtn");
+const optSubDisplayBtn = document.getElementById("optSubDisplayBtn");
+const optSubActionsBtn = document.getElementById("optSubActionsBtn");
 const logBeginChk = document.getElementById("logBeginChk");
 const logStopChk = document.getElementById("logStopChk");
 const logUpgradesChk = document.getElementById("logUpgradesChk");
@@ -52,11 +59,16 @@ let clipMode = null;
 const invSellBtn = document.getElementById("invSellBtn");
 const invSellRow = document.getElementById("invSellRow");
 const sellQtyInput = document.getElementById("sellQtyInput");
+// Inventory search: static input row above the type chips (never rebuilt,
+// so typing never loses focus); the query lives in options like the
+// other inventory filters and AND-combines with them in renderInventory.
+const invSearchInput = document.getElementById("invSearchInput");
 // Item-hiding mode (purely visual): per panel kind (currencies, vitals,
-// actions, milestones). While on, user-hidden items show struck-through so they can be
+// actions, milestones, plans, recipes). While on, user-hidden items show struck-through so they can be
 // unhidden; exiting re-applies the hiding. Runtime-only, never saved.
-const hidingMode = { currencies: false, vitals: false, actions: false, milestones: false };
-// User-hidden item ids ("a:<id>", "u:<id>", "r:<id>", "m:<skillId>:<level>"), from hiding mode.
+const hidingMode = { currencies: false, vitals: false, actions: false, milestones: false, plans: false, recipes: false };
+// User-hidden item ids ("a:<id>", "u:<id>", "r:<id>", "m:<skillId>:<level>",
+// "p:<planId>", "c:<planId>:<recipeId>"), from hiding mode.
 // Display-only: hidden things still work (actions run, unlocks land).
 function itemHidden(key) {
   return !!state.options.hidden[key];
@@ -73,10 +85,14 @@ const tabWorldBtn = document.getElementById("tabWorldBtn");
 const tabWorld = document.getElementById("tabWorld");
 const tabInventoryBtn = document.getElementById("tabInventoryBtn");
 const tabInventory = document.getElementById("tabInventory");
+const tabCraftingBtn = document.getElementById("tabCraftingBtn");
+const tabCrafting = document.getElementById("tabCrafting");
 const playerNameEl = document.getElementById("playerNameEl");
 const playerNameInput = document.getElementById("playerNameInput");
 const playerNameEditBtn = document.getElementById("playerNameEditBtn");
 const playerStatsCtn = document.getElementById("playerStatsCtn");
+const craftStatsCtn = document.getElementById("craftStatsCtn");
+const craftStatsHead = document.getElementById("craftStatsHead");
 const tabHomeBtn = document.getElementById("tabHomeBtn");
 const tabHome = document.getElementById("tabHome");
 const homeSelectBtn = document.getElementById("homeSelectBtn");
@@ -93,6 +109,8 @@ const currenciesHideBtnHome = document.getElementById("currenciesHideBtnHome");
 const vitalsHideBtn = document.getElementById("vitalsHideBtn");
 const actionsHideBtn = document.getElementById("actionsHideBtn");
 const milesHideBtn = document.getElementById("milesHideBtn");
+const craftPlansHideBtn = document.getElementById("craftPlansHideBtn");
+const craftRecipesHideBtn = document.getElementById("craftRecipesHideBtn");
 const furnFilterBtn = document.getElementById("furnFilterBtn");
 const furnFilterModal = document.getElementById("furnFilterModal");
 const furnFilterCloseBtn = document.getElementById("furnFilterCloseBtn");
@@ -108,12 +126,18 @@ const autosaveEverySel = document.getElementById("autosaveEverySel");
 const autosaveLogChk = document.getElementById("autosaveLogChk");
 const manualSaveBtn = document.getElementById("manualSaveBtn");
 const manualLoadBtn = document.getElementById("manualLoadBtn");
+const themeSel = document.getElementById("themeSel");
 // Live DOM refs per item, rebuilt by buildUI: render() reads these
 // instead of querying the DOM every frame (keeps 50ms renders cheap
 // with hundreds of items on screen).
 const uiRefs = new Map();
 
 function showTab(which) {
+  // Leaving the Inventory tab disarms Selling mode: selling only happens
+  // on inventory cells at a store, so an armed mode elsewhere is stale
+  // (and could sit armed on a storeless tile). Silent - the Sell button
+  // simply reads "Sell" again on return.
+  if (which !== "inventory" && typeof disarmSelling === "function") disarmSelling();
   tabWork.hidden = which !== "work";
   tabHome.hidden = which !== "home";
   tabPlayer.hidden = which !== "player";
@@ -121,6 +145,7 @@ function showTab(which) {
   tabOptions.hidden = which !== "options";
   if (tabWorld) tabWorld.hidden = which !== "world";
   if (tabInventory) tabInventory.hidden = which !== "inventory";
+  if (typeof tabCrafting !== "undefined" && tabCrafting) tabCrafting.hidden = which !== "crafting";
   tabWorkBtn.classList.toggle("active", which === "work");
   tabHomeBtn.classList.toggle("active", which === "home");
   tabPlayerBtn.classList.toggle("active", which === "player");
@@ -128,6 +153,7 @@ function showTab(which) {
   tabOptionsBtn.classList.toggle("active", which === "options");
   if (tabWorldBtn) tabWorldBtn.classList.toggle("active", which === "world");
   if (tabInventoryBtn) tabInventoryBtn.classList.toggle("active", which === "inventory");
+  if (typeof tabCraftingBtn !== "undefined" && tabCraftingBtn) tabCraftingBtn.classList.toggle("active", which === "crafting");
   tabWorkBtn.setAttribute("aria-selected", which === "work" ? "true" : "false");
   tabHomeBtn.setAttribute("aria-selected", which === "home" ? "true" : "false");
   tabPlayerBtn.setAttribute("aria-selected", which === "player" ? "true" : "false");
@@ -135,6 +161,7 @@ function showTab(which) {
   tabOptionsBtn.setAttribute("aria-selected", which === "options" ? "true" : "false");
   if (tabWorldBtn) tabWorldBtn.setAttribute("aria-selected", which === "world" ? "true" : "false");
   if (tabInventoryBtn) tabInventoryBtn.setAttribute("aria-selected", which === "inventory" ? "true" : "false");
+  if (typeof tabCraftingBtn !== "undefined" && tabCraftingBtn) tabCraftingBtn.setAttribute("aria-selected", which === "crafting" ? "true" : "false");
 }
 
 // Work Log cap: keeps the DOM small for performance. Default 100 entries,
@@ -160,6 +187,47 @@ const AUTOSAVE_EVERY_DEFAULT = 5;
 function normalizeAutosaveEvery(v) {
   const n = Math.floor(Number(v));
   return (n === 1 || n === 5 || n === 10) ? n : AUTOSAVE_EVERY_DEFAULT;
+}
+// Theme override: "system" follows the OS (CSS media queries), "light"
+// and "dark" force that scheme via body classes (see render.js
+// applyTheme). Anything else resets to "system".
+function normalizeTheme(v) {
+  return (v === "light" || v === "dark") ? v : "system";
+}
+
+// O(1) id lookups over the static config lists: a length-guarded Map per
+// list array, so content growth never turns the per-tick getX scans linear.
+// First match wins (same as .find); the length guard rebuilds on push/pop.
+// In-place field edits read live through the cached refs. bustStaticCaches
+// drops everything (probes that swap whole def objects call it; file edits
+// + refresh reset module state anyway).
+// NOTE: these `let`s must stay above `const configWarnings =
+// normalizeConfig()` below: validation already calls the memoized
+// collectors, so declaring them later would throw in TDZ at load.
+let __lookupMaps = new WeakMap();
+let __allMilestones = null; // { n, list }
+let __attainedCache = { key: null, val: null };
+let __activeCache = { key: null, val: null };
+function bustStaticCaches() {
+  __lookupMaps = new WeakMap();
+  __allMilestones = null;
+  __attainedCache = { key: null, val: null };
+  __activeCache = { key: null, val: null };
+  if (typeof bustWorldCaches === "function") bustWorldCaches();
+  if (typeof bustCraftCaches === "function") bustCraftCaches();
+}
+function lookupIn(list, id) {
+  if (!Array.isArray(list)) return undefined;
+  let m = __lookupMaps.get(list);
+  if (!m || m.n !== list.length) {
+    const map = new Map();
+    for (const e of list) {
+      if (e && e.id !== undefined && !map.has(e.id)) map.set(e.id, e);
+    }
+    m = { map, n: list.length };
+    __lookupMaps.set(list, m);
+  }
+  return m.map.get(id);
 }
 
 // Item rarities, commonest-first (inventory grid + filter chips follow
@@ -187,6 +255,27 @@ function defaultWorldState() {
   return { tier, x, y, travel: null };
 }
 
+// Fresh crafting state: one slot record per known plan (built from the
+// cleaned CRAFTING config so future plans just work), recipe discovery
+// per plan, and the selected group/plan. Item slots hold { id, n } or
+// null (one slot per recipe input); the fuel slot likewise; fuelLeft/
+// fuelMax track the partially-burned fuel unit so a reload mid-burn
+// keeps its remainder; progress is the current craft's 0..1 fraction;
+// selRecipe is the clicked recipe button (autofill highlight).
+function defaultCraftState() {
+  const st = { sel: { group: null, plan: null }, plans: {}, discovered: {} };
+  if (typeof CRAFTING === "undefined") return st;
+  for (const g of CRAFTING) {
+    if (!st.sel.group) st.sel.group = g.id;
+    for (const p of g.plans ?? []) {
+      if (!st.sel.plan) st.sel.plan = p.id;
+      st.plans[p.id] = { unlocked: false, items: [null], fuel: null, fuelLeft: 0, fuelMax: 1, progress: 0, selRecipe: null };
+      st.discovered[p.id] = [];
+    }
+  }
+  return st;
+}
+
 function makeFreshState() {
   const amounts = {};
   const seen = {};
@@ -206,7 +295,7 @@ function makeFreshState() {
   const specialMessages = {};
   const skills = {};
   for (const s of SKILLS) skills[s.id] = { xp: 0, level: 0 };
-  return { amounts, seen, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, stopIfFull: true, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logSkillUps: true, logImprovements: true, logGathering: true, logSelling: true, logConsuming: true, balloonSkillMilestones: true, showMaxedSkills: false, logLimit: LOG_LIMIT_DEFAULT, hidden: {}, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 }, invRarity: "all", invType: "all", hideEmptyInv: true, sellWarn: true, showActionTime: true, autosave: false, autosaveEvery: AUTOSAVE_EVERY_DEFAULT, logAutosaves: true }, playerName: "Placeholder", playerStats, homes, currentHome: null, furniture, specialMessages, skills, stats: { actions: {} }, currentActionId: null, cycles: {}, builds: {}, activeBuildId: null, fullOverride: {}, impBase: {}, world: defaultWorldState() };
+  return { amounts, seen, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, stopIfFull: true, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logSkillUps: true, logImprovements: true, logGathering: true, logCrafting: true, logSelling: true, logConsuming: true, logSkillXp: false, logDiscovery: false, balloonSkillMilestones: true, showMaxedSkills: false, logLimit: LOG_LIMIT_DEFAULT, hidden: {}, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 }, invRarity: "all", invType: "all", invSearch: "", hideEmptyInv: true, sellWarn: true, showActionTime: true, showUnlockReqs: false, theme: "system", autosave: false, autosaveEvery: AUTOSAVE_EVERY_DEFAULT, logAutosaves: true }, playerName: "Placeholder", playerStats, homes, currentHome: null, furniture, specialMessages, skills, stats: { actions: {} }, currentActionId: null, cycles: {}, builds: {}, activeBuildId: null, fullOverride: {}, impBase: {}, world: defaultWorldState(), crafting: defaultCraftState() };
 }
 
 // Player name: trimmed, capped at 24 chars, never blank (falls back to
@@ -218,20 +307,22 @@ function normalizePlayerName(v) {
   return t || PLAYER_NAME_DEFAULT;
 }
 
+// Lookup helper above (see the `let`s before normalizeConfig): first
+// match wins (same as .find); the length guard rebuilds on push/pop.
 function getPlayerStat(id) {
-  return PLAYER_STATS.find(s => s.id === id);
+  return lookupIn(typeof PLAYER_STATS !== "undefined" ? PLAYER_STATS : [], id);
 }
 
 function getHome(id) {
-  return HOMES.find(h => h.id === id);
+  return lookupIn(typeof HOMES !== "undefined" ? HOMES : [], id);
 }
 
 function getSkill(id) {
-  return (typeof SKILLS !== "undefined" ? SKILLS : []).find(s => s.id === id);
+  return lookupIn(typeof SKILLS !== "undefined" ? SKILLS : [], id);
 }
 
 function getFurniture(id) {
-  return FURNITURE.find(f => f.id === id);
+  return lookupIn(typeof FURNITURE !== "undefined" ? FURNITURE : [], id);
 }
 
 // Home tab unlock: visible once any home is owned.
@@ -254,34 +345,67 @@ function furnitureSpaceUsed() {
 // so every value reader below is a filter over one of them. Item effects
 // scale by ownership (upgrades/furniture × owned count, current home ×1);
 // skill milestone effects scale by skill level (see attainedSkill...).
+// Both collectors are memoized on a fingerprint of their inputs (owned
+// counts + home, skill levels): recomputed only when something actually
+// changed, otherwise the cached array is shared. All readers only iterate
+// the result, so sharing is safe; the wrappers hold live effect refs, so
+// in-place amount edits read fresh. Structural config swaps (replaced
+// def objects) need bustStaticCaches(), like the lookup maps above.
 function activeItemEffects() {
-  const out = [];
-  for (const u of UPGRADES) {
-    const owned = state.upgrades[u.id] ?? 0;
-    if (!owned) continue;
-    for (const e of u.effects || []) out.push({ effect: e, mult: owned });
+  let key = UPGRADES.length + "/" + FURNITURE.length + "|";
+  for (const u of UPGRADES) key += (state.upgrades[u.id] ?? 0) + ",";
+  key += "|";
+  for (const f of FURNITURE) key += (state.furniture[f.id] ?? 0) + ",";
+  key += "|" + (state.currentHome ?? "");
+  if (__activeCache.key !== key) {
+    const out = [];
+    for (const u of UPGRADES) {
+      const owned = state.upgrades[u.id] ?? 0;
+      if (!owned) continue;
+      for (const e of u.effects || []) out.push({ effect: e, mult: owned });
+    }
+    for (const f of FURNITURE) {
+      const owned = state.furniture[f.id] ?? 0;
+      if (!owned) continue;
+      for (const e of f.effects || []) out.push({ effect: e, mult: owned });
+    }
+    const home = currentHomeDef();
+    if (home) for (const e of home.effects || []) out.push({ effect: e, mult: 1 });
+    __activeCache = { key, val: out };
   }
-  for (const f of FURNITURE) {
-    const owned = state.furniture[f.id] ?? 0;
-    if (!owned) continue;
-    for (const e of f.effects || []) out.push({ effect: e, mult: owned });
-  }
-  const home = currentHomeDef();
-  if (home) for (const e of home.effects || []) out.push({ effect: e, mult: 1 });
-  return out;
+  return __activeCache.val;
 }
 
 // Every skill milestone effect as { source, req, effect } (attained or
 // not). Value readers use attainedSkillMilestoneEffects(); skillUnlocked
 // uses the full list (a skill is locked while targeted but unattained).
+// The flat list is structural (config-only), so it is built once and
+// rebuilt only when the skill count changes (see bustStaticCaches for
+// whole-def swaps). Readers only iterate - never mutated.
 function allSkillMilestoneEffects() {
-  const out = [];
-  if (typeof SKILLS === "undefined") return out;
-  for (const s of SKILLS) for (const m of s.milestones ?? []) for (const e of m.effects ?? []) out.push({ source: s.id, req: m.level, effect: e });
-  return out;
+  const lists = (typeof SKILLS !== "undefined") ? SKILLS : [];
+  if (!__allMilestones || __allMilestones.n !== lists.length) {
+    const out = [];
+    for (const s of lists) for (const m of s.milestones ?? []) for (const e of m.effects ?? []) out.push({ source: s.id, req: m.level, effect: e });
+    __allMilestones = { n: lists.length, list: out };
+  }
+  return __allMilestones.list;
 }
+// Memoized on skill levels (see activeItemEffects above for the sharing
+// contract): the filter re-runs only when a level actually changed.
 function attainedSkillMilestoneEffects() {
-  return allSkillMilestoneEffects().filter(x => skillLevel(x.source) >= x.req);
+  const lists = (typeof SKILLS !== "undefined") ? SKILLS : [];
+  let key = lists.length + "|";
+  if (state && state.skills) {
+    for (const s of lists) {
+      const st = state.skills[s.id];
+      key += ((st && st.level) || 0) + ",";
+    }
+  }
+  if (__attainedCache.key !== key) {
+    __attainedCache = { key, val: allSkillMilestoneEffects().filter(x => skillLevel(x.source) >= x.req) };
+  }
+  return __attainedCache.val;
 }
 
 // Per-level skill scaling with an optional cap: an effect with
@@ -336,16 +460,64 @@ function currentBiomeId() {
   return (t && t.biome && t.biome.id) || null;
 }
 
+// Per-tag action override lookup (tickByTag/costsByTag/xpByTag): the value
+// of the first config entry whose tag sits on the player's tile (biome
+// tags and modifier tags alike, matched case-insensitively), or undefined
+// when nothing matches. Guarded like currentBiomeId (pre-World unlock =
+// base stats). Tag overrides beat biome overrides beat base.
+function tileTagOverride(map) {
+  if (!map || typeof worldUnlocked !== "function" || !worldUnlocked() || !state.world) return undefined;
+  if (typeof worldPlayerTileTags !== "function") return undefined;
+  const tags = worldPlayerTileTags().map(t => String(t).toLowerCase());
+  for (const [tag, v] of Object.entries(map)) {
+    if (tags.includes(String(tag).toLowerCase())) return v;
+  }
+  return undefined;
+}
+
+// Recipe tag inputs: a recipe input key "tag:Fruit" accepts any item
+// carrying that tag (matched case-insensitively), so one recipe covers
+// every present and future fruit. Concrete keys match one id exactly.
+function isTagInputKey(k) {
+  return typeof k === "string" && k.startsWith("tag:") && k.length > 4;
+}
+function tagInputTag(k) {
+  return k.slice(4);
+}
+function recipeInputMatches(key, itemId) {
+  if (key === itemId) return true;
+  if (!isTagInputKey(key)) return false;
+  const want = tagInputTag(key).toLowerCase();
+  const def = (typeof getItem === "function") ? getItem(itemId) : null;
+  return !!def && getTags(def).some(t => String(t).toLowerCase() === want);
+}
+// Concrete item ids carrying a tag input's tag, in ITEMS order.
+function tagInputItems(key) {
+  if (!isTagInputKey(key)) return [key];
+  const want = tagInputTag(key).toLowerCase();
+  const list = (typeof ITEMS !== "undefined") ? ITEMS : [];
+  return list.filter(it => getTags(it).some(t => String(t).toLowerCase() === want)).map(it => it.id);
+}
+
 // Effective action time: base tickSeconds minus every owned "time" effect
 // for that action (furniture like Pillows, upgrades, current home), floored
 // so the main loop can never hit zero/negative cycles.
 const MIN_TICK_SECONDS = 0.1;
+// Progress-bar style threshold: cycles this fast (4+ fills per second)
+// read as jitter on a discrete fill, so render shows a full-width
+// flowing striped bar instead (see .action-progress.flowing).
+const FAST_BAR_TICK_SECONDS = 0.25;
 function getEffectiveTick(a) {
   let t = a.tickSeconds ?? 1;
   // Per-biome override for the current tile (e.g. Forage runs 5s cycles
-  // on forest tiles): replaces the base before reductions apply.
+  // on forest tiles): replaces the base before reductions apply. A
+  // per-tag override (e.g. 8s on Cabbage Fields) wins over the biome one.
   const bb = currentBiomeId();
   if (bb && a.tickByBiome && typeof a.tickByBiome[bb] === "number") t = a.tickByBiome[bb];
+  if (a.tickByTag && typeof tileTagOverride === "function") {
+    const tv = tileTagOverride(a.tickByTag);
+    if (typeof tv === "number") t = tv;
+  }
   for (const { effect: e, mult } of activeItemEffects()) {
     if (e.type === "time" && e.action === a.id) t -= e.amount * mult;
   }
@@ -364,11 +536,20 @@ function homeSpaceMax() {
 // Furniture unlock: visible once ANY of its required homes is owned (a
 // string id or an array of ids - e.g. ["tent", "mediumTent"] survives the
 // Small Tent being replaced). Owned furniture stays visible via its new
-// home. No requirement = always visible.
+// home. No requirement = always visible. An optional `requiresSeenTag`
+// (a tag or an array of tags, e.g. "Food") additionally hides the entry
+// until any item carrying one of those tags has been discovered
+// (state.seen) - seen flags are sticky, so it never locks again.
 function unlockFurniture(f) {
   if (!f.requiresHome) return true;
   const req = Array.isArray(f.requiresHome) ? f.requiresHome : [f.requiresHome];
-  return req.some(id => !!state.homes[id]);
+  if (!req.some(id => !!state.homes[id])) return false;
+  if (f.requiresSeenTag !== undefined) {
+    const tags = Array.isArray(f.requiresSeenTag) ? f.requiresSeenTag : [f.requiresSeenTag];
+    const items = (typeof ITEMS !== "undefined") ? ITEMS : [];
+    if (!tags.some(t => items.some(it => getTags(it).includes(t) && state.seen && state.seen[it.id]))) return false;
+  }
+  return true;
 }
 
 // Blocked = unlocked but not currently buyable (maxed, unaffordable or no room).
@@ -380,7 +561,7 @@ function furnitureBlocked(f) {
 }
 
 function getResource(id) {
-  return RESOURCES.find(r => r.id === id) ?? (typeof ITEMS !== "undefined" ? ITEMS.find(i => i.id === id) : undefined);
+  return lookupIn(typeof RESOURCES !== "undefined" ? RESOURCES : [], id) ?? lookupIn(typeof ITEMS !== "undefined" ? ITEMS : [], id);
 }
 
 // Inventory items: non-currency holdings (no cap, no bar) from the ITEMS
@@ -389,7 +570,20 @@ function getResource(id) {
 // anywhere a resource id works - getResource resolves both lists, and
 // getEffectiveMax returns Infinity for anything without a finite max.
 function getItem(id) {
-  return (typeof ITEMS !== "undefined" ? ITEMS : []).find(i => i.id === id);
+  return lookupIn(typeof ITEMS !== "undefined" ? ITEMS : [], id);
+}
+
+// Display name for a resource/item id, falling back to the raw id.
+function resourceName(id) {
+  const d = getResource(id);
+  return d ? d.name : id;
+}
+
+// Display name for a looked-up def (action, home, furniture, upgrade),
+// falling back to the raw id.
+function entityName(get, id) {
+  const d = id ? get(id) : null;
+  return d ? d.name : id;
 }
 
 function isCurrency(def) {
@@ -462,11 +656,11 @@ function formatDuration(totalSeconds, sub) {
 }
 
 function getAction(id) {
-  return ACTIONS.find(a => a.id === id);
+  return lookupIn(typeof ACTIONS !== "undefined" ? ACTIONS : [], id);
 }
 
 function getUpgrade(id) {
-  return UPGRADES.find(u => u.id === id);
+  return lookupIn(typeof UPGRADES !== "undefined" ? UPGRADES : [], id);
 }
 
 // Tooltip tags: any resource, action, or upgrade can carry `tags: [...]`
@@ -579,10 +773,10 @@ function unlockMet(item, prefix) {
 // circumstance later stops holding (e.g. selling the furniture afterwards).
 function specialMessageMet(m) {
   const req = m.requires ?? {};
-  for (const [id, n] of Object.entries(req.furniture ?? {})) if ((state.furniture[id] ?? 0) < n) return false;
-  for (const [id, n] of Object.entries(req.upgrades ?? {})) if ((state.upgrades[id] ?? 0) < n) return false;
-  for (const [id, n] of Object.entries(req.resources ?? {})) if ((state.amounts[id] ?? 0) < n) return false;
-  for (const [id, n] of Object.entries(req.actions ?? {})) if ((state.stats.actions[id] ?? 0) < n) return false;
+  const stores = { furniture: state.furniture, upgrades: state.upgrades, resources: state.amounts, actions: state.stats.actions };
+  for (const [kind, store] of Object.entries(stores)) {
+    for (const [id, n] of Object.entries(req[kind] ?? {})) if ((store[id] ?? 0) < n) return false;
+  }
   return true;
 }
 
@@ -598,18 +792,39 @@ function checkSpecialMessages() {
   }
 }
 
+// Resource/vital panel hosts (static index.html markup - only their
+// innerHTML is ever wiped, the host elements themselves never change),
+// so the document-wide host query runs once instead of every render.
+let __resHosts = null;
+function resPanelHosts() {
+  if (!__resHosts) __resHosts = [...document.querySelectorAll(".js-currencies, .js-vitals")];
+  return __resHosts;
+}
+
+// Node-list cache for hideEmptyGroups (below): group/header structure
+// only changes on rebuilds (buildUI wipes containers), while hidden flags
+// flip every tick - so cache the node arrays once and re-read .hidden per
+// tick instead of re-querying the DOM. Validated cheaply with no queries:
+// a rebuild replaces the container's children, so a changed first child
+// or child count means the cache is stale. Stale entries for wiped
+// containers simply get GC'd (WeakMap), like the other node caches.
+const __hideCache = new WeakMap();
 function hideEmptyGroups(ctn) {
   // Collapse sections whose every button is hidden (unlock/maxed/user
   // hidden), then headers whose every group is hidden. Resource rows
   // (.currency/.res) count too, so hiding a panel's last row collapses it.
-  for (const g of ctn.querySelectorAll(".taskGroup")) {
-    const btns = [...g.querySelectorAll("button, .currency, .res")];
-    g.hidden = btns.length > 0 && btns.every(b => b.hidden);
+  let c = __hideCache.get(ctn);
+  if (!c || c.first !== ctn.firstElementChild || c.n !== ctn.childElementCount) {
+    c = {
+      first: ctn.firstElementChild,
+      n: ctn.childElementCount,
+      groups: [...ctn.querySelectorAll(".taskGroup")].map(g => ({ el: g, kids: [...g.querySelectorAll("button, .currency, .res")] })),
+      headers: [...ctn.querySelectorAll(".taskHeader")].map(h => ({ el: h, gs: [...h.querySelectorAll(".taskGroup")] })),
+    };
+    __hideCache.set(ctn, c);
   }
-  for (const h of ctn.querySelectorAll(".taskHeader")) {
-    const gs = [...h.querySelectorAll(".taskGroup")];
-    h.hidden = gs.length > 0 && gs.every(g => g.hidden);
-  }
+  for (const g of c.groups) g.el.hidden = g.kids.length > 0 && g.kids.every(b => b.hidden);
+  for (const h of c.headers) h.el.hidden = h.gs.length > 0 && h.gs.every(g => g.hidden);
 }
 
 function getEffectiveMax(resourceId) {
@@ -626,8 +841,7 @@ function getEffectiveMax(resourceId) {
 function describeCost(cost) {
   const parts = [];
   for (const [id, n] of Object.entries(cost ?? {})) {
-    const def = getResource(id);
-    parts.push(formatNum(n) + " " + (def ? def.name : id));
+    parts.push(formatNum(n) + " " + resourceName(id));
   }
   return parts.join(", ");
 }
@@ -637,29 +851,22 @@ function describeCost(cost) {
 // action descriptions at load time, before tips.js runs).
 function describeEffect(e) {
   if (e.type === "max") {
-    const def = getResource(e.resource);
-    return "+" + formatNum(e.amount) + " " + (def ? def.name : e.resource) + " max";
+    return "+" + formatNum(e.amount) + " " + resourceName(e.resource) + " max";
   }
   if (e.type === "gain") {
-    const def = getResource(e.resource);
-    const act = e.action ? getAction(e.action) : null;
-    return "+" + formatNum(e.amount) + " " + (def ? def.name : e.resource) + " to " + (act ? act.name : e.action);
+    return "+" + formatNum(e.amount) + " " + resourceName(e.resource) + " to " + entityName(getAction, e.action);
   }
   if (e.type === "home") {
-    const h = e.home ? getHome(e.home) : null;
-    return "Home: " + (h ? h.name : e.home);
+    return "Home: " + entityName(getHome, e.home);
   }
   if (e.type === "furnitureCap") {
-    const f = e.furniture ? getFurniture(e.furniture) : null;
-    return "+" + formatNum(e.amount) + " " + (f ? f.name : e.furniture) + " purchase cap";
+    return "+" + formatNum(e.amount) + " " + entityName(getFurniture, e.furniture) + " purchase cap";
   }
   if (e.type === "upgradeCap") {
-    const u = e.upgrade ? getUpgrade(e.upgrade) : null;
-    return "+" + formatNum(e.amount) + " " + (u ? u.name : e.upgrade) + " purchase cap";
+    return "+" + formatNum(e.amount) + " " + entityName(getUpgrade, e.upgrade) + " purchase cap";
   }
   if (e.type === "time") {
-    const act = e.action ? getAction(e.action) : null;
-    return "-" + formatNum(e.amount) + "s " + (act ? act.name : e.action) + " time";
+    return "-" + formatNum(e.amount) + "s " + entityName(getAction, e.action) + " time";
   }
   if (e.type === "travelTime") {
     const b = (e.biome && typeof worldBiomeDef === "function") ? worldBiomeDef(e.biome) : null;
@@ -811,6 +1018,15 @@ function effectiveGains(a) {
     const e = x.effect;
     if (e.type === "gain" && e.action === a.id && e.resource) out[e.resource] = (out[e.resource] ?? 0) + e.amount * skillEffectLevels(x.source, e);
   }
+  // Rest knits wounds on top of its Stamina payout: +2% of current max
+  // Health per cycle (e.g. +2 at 100 max). Dynamic so max-boosting
+  // effects flow through; rounded to 3dp to keep float dust out of the
+  // vitals panel. The tooltip always shows it (see buildActionTipBody),
+  // even while Health itself is still locked.
+  if (a.id === "rest") {
+    const hm = getEffectiveMax("health");
+    if (Number.isFinite(hm) && hm > 0) out.health = (out.health ?? 0) + Math.round(hm * 0.02 * 1000) / 1000;
+  }
   return out;
 }
 
@@ -822,9 +1038,14 @@ function effectiveXp(a) {
   const out = { ...(a.xp ?? {}) };
   // Per-biome XP override for the current tile (e.g. Forage pays 0.35
   // Foraging XP on forest tiles): replaces the base entry, then
-  // improvement bonuses and multipliers stack on top as usual.
+  // improvement bonuses and multipliers stack on top as usual. A per-tag
+  // override wins over the biome one, like tick and costs.
   const bb = currentBiomeId();
   if (bb && a.xpByBiome && a.xpByBiome[bb]) for (const [sid, n] of Object.entries(a.xpByBiome[bb])) out[sid] = n;
+  if (a.xpByTag && typeof tileTagOverride === "function") {
+    const tv = tileTagOverride(a.xpByTag);
+    if (tv && typeof tv === "object") for (const [sid, n] of Object.entries(tv)) out[sid] = n;
+  }
   const imp = a.improvements;
   if (imp && imp.xpBonus) {
     const lvl = actionLevel(a);
@@ -864,59 +1085,206 @@ function improvementFooter(a) {
 function normalizeConfig() {
   const warnings = [];
   const warn = (m) => warnings.push(m);
+  // Shared validation micro-helpers: NaN, infinities and non-numbers fail
+  // every numeric gate, so one predicate reads better than a dozen
+  // `typeof ... || !Number.isFinite ...` clauses.
+  function badAmount(v) { return typeof v !== "number" || !Number.isFinite(v) || v <= 0; }
+  function badNonNeg(v) { return typeof v !== "number" || !Number.isFinite(v) || v < 0; }
+  function badCount(v) { return !Number.isInteger(v) || v <= 0; }
+  // Every named list falls back to its id when the name is missing.
+  function defaultName(o) { if (typeof o.name !== "string" || !o.name) o.name = o.id; }
+  // Drop a mistyped text field with a warning (`blank` also drops "").
+  function dropBadString(o, field, label, note, blank) {
+    if (o[field] !== undefined && (typeof o[field] !== "string" || (blank && !o[field]))) {
+      warn(label + ": bad " + field + ", " + note + ".");
+      delete o[field];
+    }
+  }
+  // Remove entries with missing/duplicate ids in place (keeps the
+  // first). `dupMsg` defaults to the missing message when duplicates
+  // share it (the world lists do).
+  function dedupeIds(arr, missingMsg, dupMsg) {
+    const dup = dupMsg === undefined ? () => missingMsg : dupMsg;
+    const seen = new Set();
+    for (let i = 0; i < arr.length; i++) {
+      const e = arr[i];
+      if (!e || typeof e.id !== "string" || !e.id || seen.has(e.id)) {
+        warn((!e || typeof e.id !== "string" || !e.id) ? missingMsg : dup(e.id));
+        arr.splice(i, 1); i--; continue;
+      }
+      seen.add(e.id);
+    }
+  }
+  // Known-biome check for per-biome overrides and travel effects.
+  function knownBiome(id) {
+    return (typeof WORLD_BIOMES !== "undefined") && WORLD_BIOMES.some(b => b && b.id === id);
+  }
+  // Map of skill ids to positive amounts (action xp, xpBonus): unknown
+  // skills warn and drop (a kept entry would grant nothing yet show a
+  // phantom row in tooltips).
+  function cleanXpMap(map, label, amountNoun, grantVerb) {
+    const cleaned = {};
+    for (const [k, v] of Object.entries(map)) {
+      if (badAmount(v)) { warn(label + ": bad " + amountNoun + ' amount for "' + k + '", skipped.'); continue; }
+      if (!getSkill(k)) { warn(label + ": " + grantVerb + ' unknown skill "' + k + '", skipped.'); continue; }
+      cleaned[k] = v;
+    }
+    return cleaned;
+  }
+  // Map of ids to positive counts (conditional requires, message
+  // requires): unknown ids warn but are kept (a typo still gates).
+  function cleanCountMap(map, label, kind, finder, integer) {
+    if (map === undefined) return {};
+    if (!map || typeof map !== "object" || Array.isArray(map)) {
+      warn(label + ": bad " + kind + " requires, ignored.");
+      return {};
+    }
+    const cleaned = {};
+    for (const [k, v] of Object.entries(map)) {
+      if (typeof v !== "number" || !Number.isFinite(v) || v <= 0 || (integer && !Number.isInteger(v))) {
+        warn(label + ": bad " + kind + ' requires amount for "' + k + '", skipped.');
+        continue;
+      }
+      if (!finder(k)) warn(label + ": " + kind + ' requires unknown "' + k + '".');
+      cleaned[k] = v;
+    }
+    return cleaned;
+  }
+  // One biome-keyed override field (tickByBiome/costsByBiome/xpByBiome):
+  // bad shapes warn and drop the field, unknown biomes warn and drop the
+  // entry, and `cleanEntry` cleans one biome's value (return undefined to
+  // drop it). An emptied field is deleted.
+  function cleanBiomeField(a, aLabel, field, cleanEntry) {
+    if (a[field] === undefined) return;
+    if (!a[field] || typeof a[field] !== "object" || Array.isArray(a[field])) {
+      warn(aLabel + ": bad " + field + ", ignored.");
+      delete a[field];
+      return;
+    }
+    const kept = {};
+    for (const [bk, bv] of Object.entries(a[field])) {
+      if (!knownBiome(bk)) { warn(aLabel + ": " + field + ' targets unknown biome "' + bk + '", skipped.'); continue; }
+      const c = cleanEntry(bk, bv);
+      if (c !== undefined) kept[bk] = c;
+    }
+    if (!Object.keys(kept).length) delete a[field];
+    else a[field] = kept;
+  }
+  // One tile-tag-keyed override field (tickByTag/costsByTag/xpByTag):
+  // same value cleaning as the biome fields, but keys are free-form tile
+  // tags (biome or modifier tags, matched case-insensitively at runtime),
+  // so only empty keys warn and drop. First matching entry wins per tick.
+  function cleanTagField(a, aLabel, field, cleanEntry) {
+    if (a[field] === undefined) return;
+    if (!a[field] || typeof a[field] !== "object" || Array.isArray(a[field])) {
+      warn(aLabel + ": bad " + field + ", ignored.");
+      delete a[field];
+      return;
+    }
+    const kept = {};
+    for (const [tk, tv] of Object.entries(a[field])) {
+      if (typeof tk !== "string" || !tk.trim()) { warn(aLabel + ": " + field + " has an empty tag, skipped."); continue; }
+      const c = cleanEntry(tk, tv);
+      if (c !== undefined) kept[tk] = c;
+    }
+    if (!Object.keys(kept).length) delete a[field];
+    else a[field] = kept;
+  }
+  // Effect lists on upgrades, homes and furniture: same clean + collect.
+  function cleanEffectsList(item, label, kind) {
+    if (item.effects === undefined) item.effects = [];
+    else if (!Array.isArray(item.effects)) {
+      warn(label + ": bad effects, ignored.");
+      item.effects = [];
+    } else {
+      const kept = [];
+      for (const e of item.effects) {
+        const c = cleanEffect(e, label, kind);
+        if (c) kept.push(c);
+      }
+      item.effects = kept;
+    }
+  }
+  // Skill-effect leveling tail: perLevel scales by skill level, cap stops
+  // the growth. Returns false when the whole effect must be skipped.
+  function applySkillScaling(e, kind, ownerLabel, out) {
+    if (kind === "skill" && e.perLevel === true) out.perLevel = true;
+    if (kind !== "skill") return true;
+    const cap = cleanSkillCap(e, ownerLabel);
+    if (cap === null) return false;
+    if (cap !== undefined) out.cap = cap;
+    return true;
+  }
+  // Optional `biome` limiter on travel effects, validated against
+  // WORLD_BIOMES. Returns undefined (absent), the id, or null (invalid).
+  function cleanEffectBiome(e, type, ownerLabel) {
+    if (e.biome === undefined) return undefined;
+    if (typeof e.biome !== "string" || !knownBiome(e.biome)) {
+      warn(ownerLabel + ": skipped an invalid effect (unknown " + type + ' biome "' + e.biome + '").');
+      return null;
+    }
+    return e.biome;
+  }
+  // travelTime and terrainDifficulty differ only in type name: one
+  // factory builds both registry entries (docs live here, once).
+  // Faster/easier travel: each World tile takes `amount` fewer seconds
+  // to enter / drains `amount` less Stamina per second (floored at 0,
+  // stacking). Read through getEffectiveTravelTime /
+  // getEffectiveTerrainDifficulty so tooltips and travel agree. An
+  // optional `biome` limits it to one biome's tiles.
+  function travelEffectDef(type) {
+    return {
+      contexts: ["upgrade", "home", "furniture", "skill"],
+      clean(e, ownerLabel, kind) {
+        if (badAmount(e.amount)) {
+          warn(ownerLabel + ': skipped an invalid effect (use { type: "' + type + '", amount }).');
+          return null;
+        }
+        const biome = cleanEffectBiome(e, type, ownerLabel);
+        if (biome === null) return null;
+        const out = { type, amount: e.amount };
+        if (biome) out.biome = biome;
+        if (!applySkillScaling(e, kind, ownerLabel, out)) return null;
+        return out;
+      },
+    };
+  }
   // Purge unusable entries first (arrays are const, so edit in place):
   // a missing id would crash every engine loop, and duplicate ids would
   // share one DOM id. Later duplicates are removed, keeping the first.
   // Entries added later at runtime should call normalizeConfig() again
   // before buildUI().
   for (const [arr, kind] of [[RESOURCES, "resource"], [ACTIONS, "action"], [UPGRADES, "upgrade"], [PLAYER_STATS, "player stat"], [HOMES, "home"], [FURNITURE, "furniture"], [SPECIAL_MESSAGES, "special message"], [SKILLS, "skill"], ...(typeof ITEMS !== "undefined" ? [[ITEMS, "item"]] : [])]) {
-    const seen = new Set();
-    for (let i = 0; i < arr.length; i++) {
-      const e = arr[i];
-      if (!e || typeof e.id !== "string" || !e.id) {
-        warn("Removed " + kind + " with no id.");
-        arr.splice(i, 1); i--; continue;
-      }
-      if (seen.has(e.id)) {
-        warn("Duplicate " + kind + ' id "' + e.id + '" - removed the later entry.');
-        arr.splice(i, 1); i--; continue;
-      }
-      seen.add(e.id);
-    }
+    dedupeIds(arr, "Removed " + kind + " with no id.", (id) => "Duplicate " + kind + ' id "' + id + '" - removed the later entry.');
   }
   for (const r of RESOURCES) {
-    if (typeof r.name !== "string" || !r.name) r.name = r.id;
-    if (typeof r.start !== "number" || !Number.isFinite(r.start) || r.start < 0) {
-      if (r.start !== undefined) warn('Resource "' + r.id + '": bad start, reset to 0.');
+    defaultName(r);
+    const rLabel = 'Resource "' + r.id + '"';
+    if (badNonNeg(r.start)) {
+      if (r.start !== undefined) warn(rLabel + ": bad start, reset to 0.");
       r.start = 0;
     }
     if (r.max === undefined) r.max = Infinity;
-    if (r.max !== Infinity && (!Number.isFinite(r.max) || r.max <= 0)) {
-      warn('Resource "' + r.id + '": bad max, treated as uncapped.');
+    if (r.max !== Infinity && badAmount(r.max)) {
+      warn(rLabel + ": bad max, treated as uncapped.");
       r.max = Infinity;
     }
     if (r.kind !== undefined && r.kind !== "currency" && r.kind !== "vital") {
-      warn('Resource "' + r.id + '": bad kind, ignored.');
+      warn(rLabel + ": bad kind, ignored.");
       delete r.kind;
     }
-    cleanTags(r, 'Resource "' + r.id + '"');
-    cleanHeader(r, 'Resource "' + r.id + '"');
-    cleanUnlock(r, 'Resource "' + r.id + '"');
+    cleanTags(r, rLabel);
+    cleanHeader(r, rLabel);
+    cleanUnlock(r, rLabel);
   }
   // Items: same name/tags shape as resources, plus rarity and an optional
   // consume bundle. Unknown or malformed bits warn and reset - an item can
   // never silently stop being edible or change color.
   if (typeof ITEMS !== "undefined") for (const it of ITEMS) {
     const label = 'Item "' + it.id + '"';
-    if (typeof it.name !== "string" || !it.name) it.name = it.id;
-    if (it.plural !== undefined && (typeof it.plural !== "string" || !it.plural)) {
-      warn(label + ": bad plural, ignored.");
-      delete it.plural;
-    }
-    if (it.description !== undefined && typeof it.description !== "string") {
-      warn(label + ": bad description, ignored.");
-      delete it.description;
-    }
+    defaultName(it);
+    dropBadString(it, "plural", label, "ignored", true);
+    dropBadString(it, "description", label, "ignored");
     if (it.rarity === undefined) it.rarity = "common";
     else if (!RARITY_ORDER.includes(it.rarity)) {
       warn(label + ': unknown rarity "' + it.rarity + '", reset to common.');
@@ -938,49 +1306,43 @@ function normalizeConfig() {
           warn(label + ": bad consume button, reset to Consume.");
           delete it.consume.button;
         }
-        it.consume.gains = (() => {
-          // Same rules as costs (see cleanMap below - this block runs
-          // before it is defined): non-negative finite numbers, zero
-          // dropped, unknown ids warn but still grant.
-          const src = it.consume.gains;
-          if (src === undefined) return {};
-          if (!src || typeof src !== "object" || Array.isArray(src)) {
-            warn(label + ": bad consume gains, ignored.");
-            return {};
-          }
-          const cleaned = {};
-          for (const [k, v] of Object.entries(src)) {
-            if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
-              warn(label + ": bad consume gains amount for \"" + k + '", skipped.');
-              continue;
-            }
-            if (v === 0) continue;
-            if (!getResource(k)) warn(label + ': consume gains reference unknown resource "' + k + '".');
-            cleaned[k] = v;
-          }
-          return cleaned;
-        })();
+        it.consume.gains = cleanMap(it.consume.gains, label, "consume gains", false);
+        // Unknown gain ids would grant phantom amounts and paint raw-id
+        // tooltip rows (same class as the action-xp bug #4); an entry
+        // paying the item's own id would mint stock (eat one, get one
+        // back, plus free gains). Drop both - typos must fail loudly,
+        // never silently print money.
+        for (const k of Object.keys(it.consume.gains)) {
+          if (k === it.id) { warn(label + ": consume gains pay its own id, skipped."); delete it.consume.gains[k]; }
+          else if (!getResource(k)) { warn(label + ': consume gains reference unknown resource "' + k + '", skipped.'); delete it.consume.gains[k]; }
+        }
         if (it.consume.log !== undefined && typeof it.consume.log !== "string") {
           warn(label + ": bad consume log, ignored.");
           delete it.consume.log;
         }
       }
     }
+    // Nutrition (Meal overheal): optional Stamina-cap multiplier for this
+    // food's own grants (1.1 = heals up to 110% of max). Must be a finite
+    // number above 1; anything else warns and is ignored (never blocks
+    // eating, never overheals).
+    if (it.nutrition !== undefined && (typeof it.nutrition !== "number" || !Number.isFinite(it.nutrition) || it.nutrition <= 1)) {
+      warn(label + ": bad nutrition, ignored.");
+      delete it.nutrition;
+    }
   }
   for (const s of PLAYER_STATS) {
-    if (typeof s.name !== "string" || !s.name) s.name = s.id;
+    defaultName(s);
+    const sLabel2 = 'Player stat "' + s.id + '"';
     if (typeof s.abbr !== "string" || !s.abbr) s.abbr = s.name.slice(0, 3).toUpperCase();
     if (typeof s.start !== "number" || !Number.isFinite(s.start)) {
-      if (s.start !== undefined) warn('Player stat "' + s.id + '": bad start, reset to 1.');
+      if (s.start !== undefined) warn(sLabel2 + ": bad start, reset to 1.");
       s.start = 1;
     }
-    if (s.tooltip !== undefined && typeof s.tooltip !== "string") {
-      warn('Player stat "' + s.id + '": bad tooltip, ignored.');
-      delete s.tooltip;
-    }
-    cleanTags(s, 'Player stat "' + s.id + '"');
+    dropBadString(s, "tooltip", sLabel2, "ignored");
+    cleanTags(s, sLabel2);
   }
-  const cleanMap = (map, ownerLabel, kind) => {
+  function cleanMap(map, ownerLabel, kind, warnUnknown) {
     if (map === undefined) return {};
     if (!map || typeof map !== "object" || Array.isArray(map)) {
       warn(ownerLabel + ": bad " + kind + ", ignored.");
@@ -993,16 +1355,26 @@ function normalizeConfig() {
         continue;
       }
       if (v === 0) continue; // zero amounts are free: drop them so tips stay clean.
-      if (!getResource(k)) warn(ownerLabel + ": " + kind + ' references unknown resource "' + k + '".');
+      // Consume gains and sell prices pass warnUnknown=false: unknown ids
+      // are dropped (with their own "skipped" warning) by their callers,
+      // so the kept-with-warning note below would be a lie for them.
+      if (!getResource(k) && warnUnknown !== false) warn(ownerLabel + ": " + kind + ' references unknown resource "' + k + '".');
       cleaned[k] = v;
     }
     return cleaned;
-  };
+  }
   // Item sell prices (Selling Mode): same rules as costs - non-negative
-  // finite numbers, zeros dropped, unknown ids warn. An item is sellable
-  // only when at least one priced entry survives cleaning.
+  // finite numbers, zeros dropped, unknown ids warn - plus two drops
+  // costs don't need: unknown proceeds would mint phantom currencies
+  // (same class as the consume twin above), and a price paying the
+  // item's own id would mint stock (sell 1, get 2 back). An item is
+  // sellable only when at least one priced entry survives cleaning.
   if (typeof ITEMS !== "undefined") for (const it of ITEMS) {
-    it.sellPrice = cleanMap(it.sellPrice, 'Item "' + it.id + '"', "sell price");
+    it.sellPrice = cleanMap(it.sellPrice, 'Item "' + it.id + '"', "sell price", false);
+    for (const k of Object.keys(it.sellPrice)) {
+      if (k === it.id) { warn('Item "' + it.id + '": sell price pays its own id, skipped.'); delete it.sellPrice[k]; }
+      else if (!getResource(k)) { warn('Item "' + it.id + '": sell price references unknown resource "' + k + '", skipped.'); delete it.sellPrice[k]; }
+    }
   }
   function cleanUnlock(item, ownerLabel) {
     if (item.unlock === undefined) return;
@@ -1182,23 +1554,6 @@ function normalizeConfig() {
       delete item.conditionalLogs;
       return;
     }
-    const cleanCountReq = (map, kind, finder, integer) => {
-      if (map === undefined) return {};
-      if (!map || typeof map !== "object" || Array.isArray(map)) {
-        warn(ownerLabel + ": bad conditionalLogs " + kind + " requires, ignored.");
-        return {};
-      }
-      const cleaned = {};
-      for (const [k, v] of Object.entries(map)) {
-        if (typeof v !== "number" || !Number.isFinite(v) || v <= 0 || (integer && !Number.isInteger(v))) {
-          warn(ownerLabel + ": bad conditionalLogs " + kind + ' requires amount for "' + k + '", skipped.');
-          continue;
-        }
-        if (!finder(k)) warn(ownerLabel + ": conditionalLogs " + kind + ' requires unknown "' + k + '".');
-        cleaned[k] = v;
-      }
-      return cleaned;
-    };
     const kept = [];
     for (const e of item.conditionalLogs) {
       const eLabel = ownerLabel + " conditional log";
@@ -1226,11 +1581,11 @@ function normalizeConfig() {
       }
       const entry = {
         requires: {
-          furniture: cleanCountReq(req.furniture, "furniture", (k) => getFurniture(k)),
-          upgrades: cleanCountReq(req.upgrades, "upgrade", (k) => getUpgrade(k)),
-          resources: cleanCountReq(req.resources, "resource", (k) => getResource(k)),
-          actions: cleanCountReq(req.actions, "action", (k) => getAction(k)),
-          skills: cleanCountReq(req.skills, "skill", (k) => getSkill(k), true),
+          furniture: cleanCountMap(req.furniture, ownerLabel, "conditionalLogs furniture", (k) => getFurniture(k)),
+          upgrades: cleanCountMap(req.upgrades, ownerLabel, "conditionalLogs upgrade", (k) => getUpgrade(k)),
+          resources: cleanCountMap(req.resources, ownerLabel, "conditionalLogs resource", (k) => getResource(k)),
+          actions: cleanCountMap(req.actions, ownerLabel, "conditionalLogs action", (k) => getAction(k)),
+          skills: cleanCountMap(req.skills, ownerLabel, "conditionalLogs skill", (k) => getSkill(k), true),
           homes,
         },
       };
@@ -1281,7 +1636,7 @@ function normalizeConfig() {
     max: {
       contexts: ["upgrade", "home", "furniture"],
       clean(e, ownerLabel) {
-        if (typeof e.resource !== "string" || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+        if (typeof e.resource !== "string" || badAmount(e.amount)) {
           warn(ownerLabel + ': skipped an invalid effect (use { type: "max", resource, amount }).');
           return null;
         }
@@ -1292,7 +1647,7 @@ function normalizeConfig() {
     gain: {
       contexts: ["home", "furniture", "skill"],
       clean(e, ownerLabel, kind) {
-        if (typeof e.action !== "string" || typeof e.resource !== "string" || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+        if (typeof e.action !== "string" || typeof e.resource !== "string" || badAmount(e.amount)) {
           warn(ownerLabel + ': skipped an invalid effect (use { type: "gain", action, resource, amount }).');
           return null;
         }
@@ -1305,9 +1660,7 @@ function normalizeConfig() {
             return null;
           }
           const out = { type: "gain", action: e.action, resource: e.resource, amount: e.amount, perLevel: e.perLevel === true };
-          const cap = cleanSkillCap(e, ownerLabel);
-          if (cap === null) return null;
-          if (cap !== undefined) out.cap = cap;
+          if (!applySkillScaling(e, kind, ownerLabel, out)) return null;
           return out;
         }
         if (!getAction(e.action)) warn(ownerLabel + ': effect targets unknown action "' + e.action + '".');
@@ -1328,7 +1681,7 @@ function normalizeConfig() {
     furnitureCap: {
       contexts: ["upgrade", "home", "skill"],
       clean(e, ownerLabel) {
-        if (typeof e.furniture !== "string" || !getFurniture(e.furniture) || !Number.isInteger(e.amount) || e.amount < 1) {
+        if (typeof e.furniture !== "string" || !getFurniture(e.furniture) || badCount(e.amount)) {
           warn(ownerLabel + ': skipped an invalid effect (use { type: "furnitureCap", furniture, amount }).');
           return null;
         }
@@ -1338,7 +1691,7 @@ function normalizeConfig() {
     upgradeCap: {
       contexts: ["skill"],
       clean(e, ownerLabel) {
-        if (typeof e.upgrade !== "string" || !getUpgrade(e.upgrade) || !Number.isInteger(e.amount) || e.amount < 1) {
+        if (typeof e.upgrade !== "string" || !getUpgrade(e.upgrade) || badCount(e.amount)) {
           warn(ownerLabel + ': skipped an invalid effect (use { type: "upgradeCap", upgrade, amount }).');
           return null;
         }
@@ -1348,97 +1701,30 @@ function normalizeConfig() {
     time: {
       contexts: ["upgrade", "furniture", "home", "skill"],
       clean(e, ownerLabel, kind) {
-        if (typeof e.action !== "string" || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+        if (typeof e.action !== "string" || badAmount(e.amount)) {
           warn(ownerLabel + ': skipped an invalid effect (use { type: "time", action, amount }).');
           return null;
         }
         if (!getAction(e.action)) warn(ownerLabel + ': effect targets unknown action "' + e.action + '".');
         const out = { type: "time", action: e.action, amount: e.amount };
-        if (kind === "skill" && e.perLevel === true) out.perLevel = true;
-        if (kind === "skill") {
-          const cap = cleanSkillCap(e, ownerLabel);
-          if (cap === null) return null;
-          if (cap !== undefined) out.cap = cap;
-        }
+        if (!applySkillScaling(e, kind, ownerLabel, out)) return null;
         return out;
       },
     },
     stat: {
       contexts: ["skill"],
-      clean(e, ownerLabel) {
+      clean(e, ownerLabel, kind) {
         if (typeof e.stat !== "string" || !getPlayerStat(e.stat) || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount === 0) {
           warn(ownerLabel + ': skipped an invalid effect (use { type: "stat", stat, amount }).');
           return null;
         }
         const out = { type: "stat", stat: e.stat, amount: e.amount, perLevel: e.perLevel === true };
-        const cap = cleanSkillCap(e, ownerLabel);
-        if (cap === null) return null;
-        if (cap !== undefined) out.cap = cap;
+        if (!applySkillScaling(e, kind, ownerLabel, out)) return null;
         return out;
       },
     },
-    travelTime: {
-      contexts: ["upgrade", "home", "furniture", "skill"],
-      clean(e, ownerLabel, kind) {
-        // Faster travel: each World tile takes `amount` fewer seconds to
-        // enter (floored at 0s, stacking - a 0s tile teleports instantly
-        // but still charges one second of terrain drain). Read through
-        // getEffectiveTravelTime so tooltips and travel agree. An optional
-        // `biome` limits it to one biome's tiles (validated against
-        // WORLD_BIOMES), e.g. Plains Navigation only speeds up plains.
-        if (typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
-          warn(ownerLabel + ': skipped an invalid effect (use { type: "travelTime", amount }).');
-          return null;
-        }
-        let biome = null;
-        if (e.biome !== undefined) {
-          if (typeof e.biome !== "string" || !(typeof WORLD_BIOMES !== "undefined" && WORLD_BIOMES.some(b => b.id === e.biome))) {
-            warn(ownerLabel + ': skipped an invalid effect (unknown travelTime biome "' + e.biome + '").');
-            return null;
-          }
-          biome = e.biome;
-        }
-        const out = { type: "travelTime", amount: e.amount };
-        if (biome) out.biome = biome;
-        if (kind === "skill" && e.perLevel === true) out.perLevel = true;
-        if (kind === "skill") {
-          const cap = cleanSkillCap(e, ownerLabel);
-          if (cap === null) return null;
-          if (cap !== undefined) out.cap = cap;
-        }
-        return out;
-      },
-    },
-    terrainDifficulty: {
-      contexts: ["upgrade", "home", "furniture", "skill"],
-      clean(e, ownerLabel, kind) {
-        // Easier terrain: `amount` less Stamina drained per second while
-        // traveling (floored at 0, stacking). Read through
-        // getEffectiveTerrainDifficulty. An optional `biome` limits it to
-        // one biome's tiles (validated against WORLD_BIOMES).
-        if (typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
-          warn(ownerLabel + ': skipped an invalid effect (use { type: "terrainDifficulty", amount }).');
-          return null;
-        }
-        let biome = null;
-        if (e.biome !== undefined) {
-          if (typeof e.biome !== "string" || !(typeof WORLD_BIOMES !== "undefined" && WORLD_BIOMES.some(b => b.id === e.biome))) {
-            warn(ownerLabel + ': skipped an invalid effect (unknown terrainDifficulty biome "' + e.biome + '").');
-            return null;
-          }
-          biome = e.biome;
-        }
-        const out = { type: "terrainDifficulty", amount: e.amount };
-        if (biome) out.biome = biome;
-        if (kind === "skill" && e.perLevel === true) out.perLevel = true;
-        if (kind === "skill") {
-          const cap = cleanSkillCap(e, ownerLabel);
-          if (cap === null) return null;
-          if (cap !== undefined) out.cap = cap;
-        }
-        return out;
-      },
-    },
+    travelTime: travelEffectDef("travelTime"),
+    terrainDifficulty: travelEffectDef("terrainDifficulty"),
     cost: {
       contexts: ["skill"],
       clean(e, ownerLabel) {
@@ -1459,7 +1745,7 @@ function normalizeConfig() {
           warn(ownerLabel + ': skipped an invalid effect (use { type: "cost", action, resource, amount } or { type: "cost", skill, resource, amount }).');
           return null;
         }
-        if (typeof e.resource !== "string" || !getResource(e.resource) || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+        if (typeof e.resource !== "string" || !getResource(e.resource) || badAmount(e.amount)) {
           warn(ownerLabel + ': skipped an invalid effect (use { type: "cost", action, resource, amount } or { type: "cost", skill, resource, amount }).');
           return null;
         }
@@ -1475,7 +1761,7 @@ function normalizeConfig() {
         // Improvement headroom: `action` can earn `amount` more Improvement
         // levels past its base max (re-earned, never retroactive).
         const target = (typeof e.action === "string") ? getAction(e.action) : null;
-        if (!target || !target.improvements || !Number.isInteger(e.amount) || e.amount < 1) {
+        if (!target || !target.improvements || badCount(e.amount)) {
           warn(ownerLabel + ': skipped an invalid effect (use { type: "improvementCap", action, amount } on an improved action).');
           return null;
         }
@@ -1489,7 +1775,7 @@ function normalizeConfig() {
         // `amount` (compounding when several apply), e.g. Plain Sense II
         // doubles Plains Navigation XP. Read through xpMultFor wherever XP
         // is granted (effectiveXp, footfall) so tooltips stay truthful.
-        if (typeof e.skill !== "string" || !getSkill(e.skill) || typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) {
+        if (typeof e.skill !== "string" || !getSkill(e.skill) || badAmount(e.amount)) {
           warn(ownerLabel + ': skipped an invalid effect (use { type: "xpMult", skill, amount }).');
           return null;
         }
@@ -1541,100 +1827,62 @@ function normalizeConfig() {
     }
   };
   for (const a of ACTIONS) {
-    if (typeof a.name !== "string" || !a.name) a.name = a.id;
-    if (typeof a.tickSeconds !== "number" || !Number.isFinite(a.tickSeconds) || a.tickSeconds <= 0) {
-      if (a.tickSeconds !== undefined) warn('Action "' + a.id + '": bad tickSeconds, reset to 1.');
+    defaultName(a);
+    const aLabel = 'Action "' + a.id + '"';
+    if (badAmount(a.tickSeconds)) {
+      if (a.tickSeconds !== undefined) warn(aLabel + ": bad tickSeconds, reset to 1.");
       a.tickSeconds = 1;
     }
-    a.costs = cleanMap(a.costs, 'Action "' + a.id + '"', "cost");
-    a.gains = cleanMap(a.gains, 'Action "' + a.id + '"', "gain");
-    // Skill XP per completed cycle: { skillId: amount }. Unknown skills
-    // warn and are skipped (the engine grants what's left in doTick).
+    a.costs = cleanMap(a.costs, aLabel, "cost");
+    a.gains = cleanMap(a.gains, aLabel, "gain");
+    // Skill XP per completed cycle: { skillId: amount } (see cleanXpMap:
+    // unknown skills warn and drop, or tooltips would show a phantom
+    // "Skill XP" row with the raw id).
     if (a.xp === undefined) a.xp = {};
     else if (!a.xp || typeof a.xp !== "object" || Array.isArray(a.xp)) {
-      warn('Action "' + a.id + '": bad xp, ignored.');
+      warn(aLabel + ": bad xp, ignored.");
       a.xp = {};
-    } else {
-      const cleaned = {};
-      for (const [k, v] of Object.entries(a.xp)) {
-        if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
-          warn('Action "' + a.id + '": bad xp amount for "' + k + '", skipped.');
-          continue;
-        }
-        // Unknown skills are dropped (not just warned): kept entries would
-        // grant nothing at runtime yet still show a phantom "Skill XP" row
-        // with the raw id in tooltips.
-        if (!getSkill(k)) { warn('Action "' + a.id + '": xp grants unknown skill "' + k + '", skipped.'); continue; }
-        cleaned[k] = v;
-      }
-      a.xp = cleaned;
-    }
-    cleanUnlock(a, 'Action "' + a.id + '"');
+    } else a.xp = cleanXpMap(a.xp, aLabel, "xp", "xp grants");
+    cleanUnlock(a, aLabel);
     // Per-biome stat overrides, resolved against the player's current
     // tile (see currentBiomeId): unknown biomes and malformed amounts
     // warn and drop, so typos surface instead of silently never firing.
-    const knownBiome = (id) => (typeof WORLD_BIOMES !== "undefined") && WORLD_BIOMES.some(b => b && b.id === id);
-    if (a.tickByBiome !== undefined) {
-      if (!a.tickByBiome || typeof a.tickByBiome !== "object" || Array.isArray(a.tickByBiome)) {
-        warn('Action "' + a.id + '": bad tickByBiome, ignored.');
-        delete a.tickByBiome;
-      } else {
-        const kept = {};
-        for (const [bk, bv] of Object.entries(a.tickByBiome)) {
-          if (!knownBiome(bk)) { warn('Action "' + a.id + '": tickByBiome targets unknown biome "' + bk + '", skipped.'); continue; }
-          if (typeof bv !== "number" || !Number.isFinite(bv) || bv <= 0) { warn('Action "' + a.id + '": bad tickByBiome amount for "' + bk + '", skipped.'); continue; }
-          kept[bk] = bv;
-        }
-        if (!Object.keys(kept).length) delete a.tickByBiome;
-        else a.tickByBiome = kept;
-      }
-    }
-    if (a.costsByBiome !== undefined) {
-      if (!a.costsByBiome || typeof a.costsByBiome !== "object" || Array.isArray(a.costsByBiome)) {
-        warn('Action "' + a.id + '": bad costsByBiome, ignored.');
-        delete a.costsByBiome;
-      } else {
-        const kept = {};
-        for (const [bk, bm] of Object.entries(a.costsByBiome)) {
-          if (!knownBiome(bk)) { warn('Action "' + a.id + '": costsByBiome targets unknown biome "' + bk + '", skipped.'); continue; }
-          if (!bm || typeof bm !== "object" || Array.isArray(bm)) { warn('Action "' + a.id + '": bad costsByBiome map for "' + bk + '", skipped.'); continue; }
-          kept[bk] = cleanMap(bm, 'Action "' + a.id + '"', "cost (biome " + bk + ")");
-        }
-        if (!Object.keys(kept).length) delete a.costsByBiome;
-        else a.costsByBiome = kept;
-      }
-    }
-    if (a.xpByBiome !== undefined) {
-      if (!a.xpByBiome || typeof a.xpByBiome !== "object" || Array.isArray(a.xpByBiome)) {
-        warn('Action "' + a.id + '": bad xpByBiome, ignored.');
-        delete a.xpByBiome;
-      } else {
-        const kept = {};
-        for (const [bk, bm] of Object.entries(a.xpByBiome)) {
-          if (!knownBiome(bk)) { warn('Action "' + a.id + '": xpByBiome targets unknown biome "' + bk + '", skipped.'); continue; }
-          if (!bm || typeof bm !== "object" || Array.isArray(bm)) { warn('Action "' + a.id + '": bad xpByBiome map for "' + bk + '", skipped.'); continue; }
-          const cm = {};
-          for (const [k, v] of Object.entries(bm)) {
-            if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) { warn('Action "' + a.id + '": bad xpByBiome amount for "' + k + '", skipped.'); continue; }
-            if (!getSkill(k)) { warn('Action "' + a.id + '": xpByBiome grants unknown skill "' + k + '", skipped.'); continue; }
-            cm[k] = v;
-          }
-          kept[bk] = cm;
-        }
-        if (!Object.keys(kept).length) delete a.xpByBiome;
-        else a.xpByBiome = kept;
-      }
-    }
-    cleanTags(a, 'Action "' + a.id + '"');
-    cleanHeader(a, 'Action "' + a.id + '"');
+    cleanBiomeField(a, aLabel, "tickByBiome", (bk, bv) => {
+      if (badAmount(bv)) { warn(aLabel + ': bad tickByBiome amount for "' + bk + '", skipped.'); return undefined; }
+      return bv;
+    });
+    cleanBiomeField(a, aLabel, "costsByBiome", (bk, bm) => {
+      if (!bm || typeof bm !== "object" || Array.isArray(bm)) { warn(aLabel + ': bad costsByBiome map for "' + bk + '", skipped.'); return undefined; }
+      return cleanMap(bm, aLabel, "cost (biome " + bk + ")");
+    });
+    cleanBiomeField(a, aLabel, "xpByBiome", (bk, bm) => {
+      if (!bm || typeof bm !== "object" || Array.isArray(bm)) { warn(aLabel + ': bad xpByBiome map for "' + bk + '", skipped.'); return undefined; }
+      return cleanXpMap(bm, aLabel, "xpByBiome", "xpByBiome grants");
+    });
+    // Tag-scoped overrides (see tileTagOverride): same shapes as the
+    // biome fields, keyed by tile tag instead of biome id.
+    cleanTagField(a, aLabel, "tickByTag", (tk, tv) => {
+      if (badAmount(tv)) { warn(aLabel + ': bad tickByTag amount for "' + tk + '", skipped.'); return undefined; }
+      return tv;
+    });
+    cleanTagField(a, aLabel, "costsByTag", (tk, bm) => {
+      if (!bm || typeof bm !== "object" || Array.isArray(bm)) { warn(aLabel + ': bad costsByTag map for "' + tk + '", skipped.'); return undefined; }
+      return cleanMap(bm, aLabel, "cost (tag " + tk + ")");
+    });
+    cleanTagField(a, aLabel, "xpByTag", (tk, bm) => {
+      if (!bm || typeof bm !== "object" || Array.isArray(bm)) { warn(aLabel + ': bad xpByTag map for "' + tk + '", skipped.'); return undefined; }
+      return cleanXpMap(bm, aLabel, "xpByTag", "xpByTag grants");
+    });
+    cleanTags(a, aLabel);
+    cleanHeader(a, aLabel);
     if (a.improvements !== undefined) {
       const imp = a.improvements, impLabel = 'Action "' + a.id + '" improvement';
-      if (!imp || typeof imp !== "object" || !Number.isInteger(imp.every) || imp.every <= 0) {
-        warn('Action "' + a.id + '": bad improvements (need { every: <positive integer>, ... }), ignored.');
+      if (!imp || typeof imp !== "object" || badCount(imp.every)) {
+        warn(aLabel + ": bad improvements (need { every: <positive integer>, ... }), ignored.");
         delete a.improvements;
       } else {
         if (imp.maxLevel === undefined) imp.maxLevel = Infinity;
-        if (imp.maxLevel !== Infinity && (!Number.isInteger(imp.maxLevel) || imp.maxLevel <= 0)) {
+        if (imp.maxLevel !== Infinity && badCount(imp.maxLevel)) {
           warn(impLabel + ": bad maxLevel, uncapped.");
           imp.maxLevel = Infinity;
         }
@@ -1648,12 +1896,7 @@ function normalizeConfig() {
             warn(impLabel + ": bad xpBonus, ignored.");
             delete imp.xpBonus;
           } else {
-            const kept = {};
-            for (const [sid, n] of Object.entries(imp.xpBonus)) {
-              if (!getSkill(sid)) { warn(impLabel + ': xpBonus targets unknown skill "' + sid + '", skipped.'); continue; }
-              if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) { warn(impLabel + ': bad xpBonus amount for "' + sid + '", skipped.'); continue; }
-              kept[sid] = n;
-            }
+            const kept = cleanXpMap(imp.xpBonus, impLabel, "xpBonus", "xpBonus targets");
             if (!Object.keys(kept).length) delete imp.xpBonus;
             else imp.xpBonus = kept;
           }
@@ -1661,10 +1904,7 @@ function normalizeConfig() {
         cleanLogField(imp, "improvementLog", impLabel);
       }
     }
-    if (a.description !== undefined && typeof a.description !== "string") {
-      warn('Action "' + a.id + '": bad description, auto-generated.');
-      delete a.description;
-    }
+    dropBadString(a, "description", aLabel, "auto-generated");
     // Remember whether the description was auto-written: auto text embeds
     // the base costs, so it is refreshed live (discounts change it), while
     // custom descriptions are left exactly as written.
@@ -1674,168 +1914,271 @@ function normalizeConfig() {
     } else if (a._autoDesc === undefined) {
       a._autoDesc = false;
     }
-    cleanLogField(a, "startLog", 'Action "' + a.id + '"');
-    cleanLogField(a, "stopLog", 'Action "' + a.id + '"');
-    cleanLogField(a, "fullLog", 'Action "' + a.id + '"');
-    cleanLogField(a, "stopFullLog", 'Action "' + a.id + '"');
-    cleanConditionalLogs(a, 'Action "' + a.id + '"');
-    cleanTileRequires(a, 'Action "' + a.id + '"');
+    for (const f of ["startLog", "stopLog", "fullLog", "stopFullLog"]) cleanLogField(a, f, aLabel);
+    cleanConditionalLogs(a, aLabel);
+    cleanTileRequires(a, aLabel);
   }
   for (const u of UPGRADES) {
-    if (typeof u.name !== "string" || !u.name) u.name = u.id;
-    u.cost = cleanMap(u.cost, 'Upgrade "' + u.id + '"', "cost");
-    cleanUnlock(u, 'Upgrade "' + u.id + '"');
-    cleanTags(u, 'Upgrade "' + u.id + '"');
-    cleanHeader(u, 'Upgrade "' + u.id + '"');
-    cleanMaxPurchases(u, 'Upgrade "' + u.id + '"');
+    defaultName(u);
+    const uLabel = 'Upgrade "' + u.id + '"';
+    u.cost = cleanMap(u.cost, uLabel, "cost");
+    cleanUnlock(u, uLabel);
+    cleanTags(u, uLabel);
+    cleanHeader(u, uLabel);
+    cleanMaxPurchases(u, uLabel);
     // Timed purchase: seconds to finish, working like action completion
     // time (paid at start, pausable, free resume). Must be positive.
     if (u.buildTime !== undefined) {
-      if (typeof u.buildTime !== "number" || !Number.isFinite(u.buildTime) || u.buildTime <= 0) {
-        warn('Upgrade "' + u.id + '": bad buildTime, instant purchase.');
+      if (badAmount(u.buildTime)) {
+        warn(uLabel + ": bad buildTime, instant purchase.");
         delete u.buildTime;
       }
     }
-    if (u.effects === undefined) u.effects = [];
-    if (!Array.isArray(u.effects)) {
-      warn('Upgrade "' + u.id + '": bad effects, ignored.');
-      u.effects = [];
-    } else {
-      const kept = [];
-      for (const e of u.effects) {
-        const c = cleanEffect(e, 'Upgrade "' + u.id + '"', "upgrade");
-        if (c) kept.push(c);
-      }
-      u.effects = kept;
-    }
-    if (u.description !== undefined && typeof u.description !== "string") {
-      warn('Upgrade "' + u.id + '": bad description, auto-generated.');
-      delete u.description;
-    }
+    cleanEffectsList(u, uLabel, "upgrade");
+    dropBadString(u, "description", uLabel, "auto-generated");
     if (!u.description) u.description = autoUpgradeDescription(u);
     // Build start text: only timed (buildTime) upgrades use it - instant
     // purchases grant immediately with buyLog, so a start line would just
     // double-log. Fires on every build start and free resume (like actions).
     if (u.startLog !== undefined) {
       if (!u.buildTime) {
-        warn('Upgrade "' + u.id + '": startLog needs buildTime, ignored.');
+        warn(uLabel + ": startLog needs buildTime, ignored.");
         delete u.startLog;
-      } else cleanLogField(u, "startLog", 'Upgrade "' + u.id + '"');
+      } else cleanLogField(u, "startLog", uLabel);
     }
-    cleanTileRequires(u, 'Upgrade "' + u.id + '"');
+    cleanTileRequires(u, uLabel);
   }
   for (const h of HOMES) {
-    if (typeof h.name !== "string" || !h.name) h.name = h.id;
-    if (!Number.isInteger(h.space) || h.space <= 0) {
-      if (h.space !== undefined) warn('Home "' + h.id + '": bad space, reset to 1.');
+    defaultName(h);
+    const hLabel = 'Home "' + h.id + '"';
+    if (badCount(h.space)) {
+      if (h.space !== undefined) warn(hLabel + ": bad space, reset to 1.");
       h.space = 1;
     }
-    if (h.tooltip !== undefined && typeof h.tooltip !== "string") {
-      warn('Home "' + h.id + '": bad tooltip, ignored.');
-      delete h.tooltip;
-    }
-    if (h.unlockHint !== undefined && typeof h.unlockHint !== "string") {
-      warn('Home "' + h.id + '": bad unlockHint, ignored.');
-      delete h.unlockHint;
-    }
+    dropBadString(h, "tooltip", hLabel, "ignored");
+    dropBadString(h, "unlockHint", hLabel, "ignored");
     // Replaces: this home overrides (removes) the listed homes when granted,
     // and instantly becomes current - e.g. Medium Tent replaces Small Tent.
     if (h.replaces !== undefined) {
       const list = Array.isArray(h.replaces) ? h.replaces : [h.replaces];
       const kept = [];
       for (const r of list) {
-        if (typeof r !== "string" || !getHome(r)) warn('Home "' + h.id + '": bad replaces entry, skipped.');
+        if (typeof r !== "string" || !getHome(r)) warn(hLabel + ": bad replaces entry, skipped.");
         else if (!kept.includes(r)) kept.push(r);
       }
       if (kept.length) h.replaces = kept;
       else delete h.replaces;
     }
-    if (h.effects === undefined) h.effects = [];
-    if (!Array.isArray(h.effects)) {
-      warn('Home "' + h.id + '": bad effects, ignored.');
-      h.effects = [];
-    } else {
-      const kept = [];
-      for (const e of h.effects) {
-        const c = cleanEffect(e, 'Home "' + h.id + '"', "home");
-        if (c) kept.push(c);
-      }
-      h.effects = kept;
-    }
-    cleanTags(h, 'Home "' + h.id + '"');
+    cleanEffectsList(h, hLabel, "home");
+    cleanTags(h, hLabel);
   }
   for (const f of FURNITURE) {
-    if (typeof f.name !== "string" || !f.name) f.name = f.id;
+    defaultName(f);
+    const fLabel = 'Furniture "' + f.id + '"';
     // Floor Space comes in 0.5 steps (0.5, 1, 1.5, ...) so small items
     // like Pillows can share space; floats stay exact at halves.
-    if (typeof f.space !== "number" || !Number.isFinite(f.space) || f.space <= 0 || Math.round(f.space * 2) !== f.space * 2) {
-      if (f.space !== undefined) warn('Furniture "' + f.id + '": bad space (use 0.5 steps), reset to 1.');
+    if (badAmount(f.space) || Math.round(f.space * 2) !== f.space * 2) {
+      if (f.space !== undefined) warn(fLabel + ": bad space (use 0.5 steps), reset to 1.");
       f.space = 1;
     }
-    f.cost = cleanMap(f.cost, 'Furniture "' + f.id + '"', "cost");
-    cleanMaxPurchases(f, 'Furniture "' + f.id + '"');
-    if (f.effects === undefined) f.effects = [];
-    if (!Array.isArray(f.effects)) {
-      warn('Furniture "' + f.id + '": bad effects, ignored.');
-      f.effects = [];
-    } else {
-      const kept = [];
-      for (const e of f.effects) {
-        const c = cleanEffect(e, 'Furniture "' + f.id + '"', "furniture");
-        if (c) kept.push(c);
-      }
-      f.effects = kept;
-    }
+    f.cost = cleanMap(f.cost, fLabel, "cost");
+    cleanMaxPurchases(f, fLabel);
+    cleanEffectsList(f, fLabel, "furniture");
     // Required home: a single id or an array of ids - visible when ANY is
     // owned, so entries shared across a home replacement never lock again.
     if (f.requiresHome !== undefined) {
       const list = Array.isArray(f.requiresHome) ? f.requiresHome : [f.requiresHome];
       const keptReq = [];
       for (const r of list) {
-        if (typeof r !== "string" || !getHome(r)) warn('Furniture "' + f.id + '": bad requiresHome entry, skipped.');
+        if (typeof r !== "string" || !getHome(r)) warn(fLabel + ": bad requiresHome entry, skipped.");
         else if (!keptReq.includes(r)) keptReq.push(r);
       }
       if (keptReq.length === 1 && !Array.isArray(f.requiresHome)) f.requiresHome = keptReq[0];
       else if (keptReq.length) f.requiresHome = keptReq;
       else {
-        warn('Furniture "' + f.id + '": bad requiresHome, always visible.');
+        warn(fLabel + ": bad requiresHome, always visible.");
         delete f.requiresHome;
       }
     }
-    if (f.description !== undefined && typeof f.description !== "string") {
-      warn('Furniture "' + f.id + '": bad description, auto-generated.');
-      delete f.description;
+    dropBadString(f, "description", fLabel, "auto-generated");
+    cleanTileRequires(f, fLabel);
+    // Discovery gate: hidden until any item carrying one of these tags
+    // has been discovered (state.seen), e.g. requiresSeenTag: "Food".
+    // Seen flags are sticky, so the entry never locks again afterwards.
+    if (f.requiresSeenTag !== undefined) {
+      const list = Array.isArray(f.requiresSeenTag) ? f.requiresSeenTag : [f.requiresSeenTag];
+      const keptSeen = [];
+      for (const t of list) {
+        if (typeof t !== "string" || !t.trim()) warn(fLabel + ": bad requiresSeenTag entry, skipped.");
+        else if (!keptSeen.includes(t.trim())) keptSeen.push(t.trim());
+      }
+      if (!keptSeen.length) {
+        warn(fLabel + ": bad requiresSeenTag, always visible.");
+        delete f.requiresSeenTag;
+      } else {
+        f.requiresSeenTag = (keptSeen.length === 1 && !Array.isArray(f.requiresSeenTag)) ? keptSeen[0] : keptSeen;
+        if (typeof ITEMS !== "undefined") for (const t of keptSeen) {
+          if (!ITEMS.some(it => getTags(it).includes(t))) warn(fLabel + ': requiresSeenTag watches unknown item tag "' + t + '".');
+        }
+      }
     }
-    cleanTileRequires(f, 'Furniture "' + f.id + '"');
     if (!f.description) f.description = "Furniture for your home.";
-    cleanLogField(f, "buyLog", 'Furniture "' + f.id + '"');
-    cleanLogField(f, "sellLog", 'Furniture "' + f.id + '"');
-    if (f.flavor !== undefined && typeof f.flavor !== "string") {
-      warn('Furniture "' + f.id + '": bad flavor, ignored.');
-      delete f.flavor;
+    for (const lf of ["buyLog", "sellLog", "unlockLog"]) cleanLogField(f, lf, fLabel);
+    dropBadString(f, "flavor", fLabel, "ignored");
+    cleanTags(f, fLabel);
+  }
+  // Crafting: groups of plans with recipes (see CRAFTING in the config).
+  // Groups need a station furniture tag; plans need at least one recipe
+  // with at least one input and at least one output. A plan runs one
+  // Item Slot per recipe input (the most-input recipe sets the count)
+  // plus a Fuel Slot unless fuelPerSec is 0 (a fuelless plan runs on
+  // ingredients alone). Bad entries are removed with a warning; bad
+  // numbers reset to safe defaults. Guarded so stripped copies without
+  // crafting config boot.
+  if (typeof CRAFTING !== "undefined") {
+    const seenCraftIds = new Set();
+    for (let gi = CRAFTING.length - 1; gi >= 0; gi--) {
+      const g = CRAFTING[gi];
+      const gLabel = 'Crafting group "' + (g && g.id || "?") + '"';
+      if (!g || typeof g !== "object" || typeof g.id !== "string" || !g.id) {
+        warn(gLabel + ": bad group, removed.");
+        CRAFTING.splice(gi, 1);
+        continue;
+      }
+      if (seenCraftIds.has(g.id)) {
+        warn(gLabel + ": duplicate id, removed.");
+        CRAFTING.splice(gi, 1);
+        continue;
+      }
+      seenCraftIds.add(g.id);
+      defaultName(g);
+      if (typeof g.stationTag !== "string" || !g.stationTag) {
+        warn(gLabel + ": bad stationTag, removed.");
+        CRAFTING.splice(gi, 1);
+        continue;
+      }
+      if (g.noStationMsg !== undefined && typeof g.noStationMsg !== "string") {
+        warn(gLabel + ": bad noStationMsg, ignored.");
+        delete g.noStationMsg;
+      }
+      if (!g.noStationMsg) g.noStationMsg = "You need a " + g.stationTag + ".";
+      if (g.skill !== undefined && (typeof g.skill !== "string" || (typeof getSkill === "function" && !getSkill(g.skill)))) {
+        warn(gLabel + ": bad skill, ignored.");
+        delete g.skill;
+      }
+      if (g.speedStat !== undefined && (typeof g.speedStat !== "string" || !getPlayerStat(g.speedStat))) {
+        warn(gLabel + ": bad speedStat, ignored.");
+        delete g.speedStat;
+      }
+      if (!Array.isArray(g.plans) || !g.plans.length) {
+        warn(gLabel + ": no plans, removed.");
+        CRAFTING.splice(gi, 1);
+        continue;
+      }
+      for (let pi = g.plans.length - 1; pi >= 0; pi--) {
+        const p = g.plans[pi];
+        const pLabel = gLabel + ' plan "' + (p && p.id || "?") + '"';
+        if (!p || typeof p !== "object" || typeof p.id !== "string" || !p.id) {
+          warn(pLabel + ": bad plan, removed.");
+          g.plans.splice(pi, 1);
+          continue;
+        }
+        if (seenCraftIds.has("plan:" + p.id)) {
+          warn(pLabel + ": duplicate id, removed.");
+          g.plans.splice(pi, 1);
+          continue;
+        }
+        seenCraftIds.add("plan:" + p.id);
+        defaultName(p);
+        dropBadString(p, "description", pLabel, "ignored");
+        if (badAmount(p.time)) {
+          if (p.time !== undefined) warn(pLabel + ": bad time, reset to 5.");
+          p.time = 5;
+        }
+        if (typeof p.fuelPerSec !== "number" || !Number.isFinite(p.fuelPerSec) || p.fuelPerSec < 0) {
+          if (p.fuelPerSec !== undefined) warn(pLabel + ": bad fuelPerSec, reset to 0.25.");
+          p.fuelPerSec = 0.25;
+        }
+        // Fixed Item Slot count: raised above the recipe-derived count
+        // (never shrunk below it, so every input always has a slot).
+        if (p.slots !== undefined && (!Number.isInteger(p.slots) || p.slots <= 0)) {
+          warn(pLabel + ": bad slots, ignored.");
+          delete p.slots;
+        }
+        if (p.starter !== undefined && typeof p.starter !== "boolean") {
+          warn(pLabel + ": bad starter, ignored.");
+          delete p.starter;
+        }
+        p.xp = (!p.xp || typeof p.xp !== "object" || Array.isArray(p.xp)) ? {} : cleanXpMap(p.xp, pLabel, "xp", "craft XP");
+        if (!Array.isArray(p.recipes) || !p.recipes.length) {
+          warn(pLabel + ": no recipes, removed.");
+          g.plans.splice(pi, 1);
+          continue;
+        }
+        for (let ri = p.recipes.length - 1; ri >= 0; ri--) {
+          const r = p.recipes[ri];
+          const rLabel = pLabel + ' recipe "' + (r && r.id || "?") + '"';
+          if (!r || typeof r !== "object" || typeof r.id !== "string" || !r.id) {
+            warn(rLabel + ": bad recipe, removed.");
+            p.recipes.splice(ri, 1);
+            continue;
+          }
+          if (seenCraftIds.has("recipe:" + r.id)) {
+            warn(rLabel + ": duplicate id, removed.");
+            p.recipes.splice(ri, 1);
+            continue;
+          }
+          seenCraftIds.add("recipe:" + r.id);
+          defaultName(r);
+          // Any number of inputs (one Item Slot each); a "tag:Fruit" key
+          // accepts any item carrying that tag (see recipeInputMatches).
+          // Bad amounts are dropped, unknown ids and unmatched tags warn
+          // but are kept (see costs).
+          const inMap = r.inputs && typeof r.inputs === "object" && !Array.isArray(r.inputs) ? r.inputs : {};
+          const cleanIns = {};
+          for (const k of Object.keys(inMap)) {
+            const a = inMap[k];
+            if (typeof a !== "number" || !Number.isFinite(a) || a <= 0) {
+              warn(rLabel + ': bad input amount for "' + k + '", ignored.');
+              continue;
+            }
+            if (typeof isTagInputKey === "function" && isTagInputKey(k)) {
+              const tag = tagInputTag(k);
+              if (!tag.trim()) { warn(rLabel + ': bad tag input "' + k + '", ignored.'); continue; }
+              const lower = tag.toLowerCase();
+              if (!(typeof ITEMS !== "undefined" && ITEMS.some(it => getTags(it).some(t => String(t).toLowerCase() === lower)))) warn(rLabel + ': tag input "' + k + '" matches no item yet.');
+            }
+            else if (!getResource(k)) warn(rLabel + ': inputs reference unknown item "' + k + '".');
+            cleanIns[k] = Math.floor(a) || 1;
+          }
+          if (!Object.keys(cleanIns).length) {
+            warn(rLabel + ": no inputs, removed.");
+            p.recipes.splice(ri, 1);
+            continue;
+          }
+          r.inputs = cleanIns;
+          r.outputs = cleanMap(r.outputs, rLabel, "outputs");
+          if (!Object.keys(r.outputs).length) {
+            warn(rLabel + ": no outputs, removed.");
+            p.recipes.splice(ri, 1);
+            continue;
+          }
+          dropBadString(r, "completeLog", rLabel, "using the default");
+        }
+        if (!p.recipes.length) {
+          warn(pLabel + ": no recipes, removed.");
+          g.plans.splice(pi, 1);
+        }
+      }
+      if (!g.plans.length) {
+        warn(gLabel + ": no plans, removed.");
+        CRAFTING.splice(gi, 1);
+      }
     }
-    cleanTags(f, 'Furniture "' + f.id + '"');
   }
   // Special messages: one-time circumstantial log messages (see
   // SPECIAL_MESSAGES in the config). Requires-maps are cleaned like costs: non-negative finite
   // amounts only, unknown ids warned about but still checked.
-  const cleanReq = (map, mLabel, kind, finder) => {
-    if (map === undefined) return {};
-    if (!map || typeof map !== "object" || Array.isArray(map)) {
-      warn(mLabel + ": bad " + kind + " requires, ignored.");
-      return {};
-    }
-    const cleaned = {};
-    for (const [k, v] of Object.entries(map)) {
-      if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
-        warn(mLabel + ": bad " + kind + ' requires amount for "' + k + '", skipped.');
-        continue;
-      }
-      if (!finder(k)) warn(mLabel + ": " + kind + ' requires unknown "' + k + '".');
-      cleaned[k] = v;
-    }
-    return cleaned;
-  };
   for (let i = 0; i < SPECIAL_MESSAGES.length; i++) {
     const m = SPECIAL_MESSAGES[i];
     const mLabel = 'Special message "' + (m.id || "?") + '"';
@@ -1851,15 +2194,12 @@ function normalizeConfig() {
     }
     const req = m.requires ?? {};
     m.requires = {
-      furniture: cleanReq(req.furniture, mLabel, "furniture", (k) => getFurniture(k)),
-      upgrades: cleanReq(req.upgrades, mLabel, "upgrade", (k) => getUpgrade(k)),
-      resources: cleanReq(req.resources, mLabel, "resource", (k) => getResource(k)),
-      actions: cleanReq(req.actions, mLabel, "action", (k) => getAction(k)),
+      furniture: cleanCountMap(req.furniture, mLabel, "furniture", (k) => getFurniture(k)),
+      upgrades: cleanCountMap(req.upgrades, mLabel, "upgrade", (k) => getUpgrade(k)),
+      resources: cleanCountMap(req.resources, mLabel, "resource", (k) => getResource(k)),
+      actions: cleanCountMap(req.actions, mLabel, "action", (k) => getAction(k)),
     };
-    if (m.category !== undefined && typeof m.category !== "string") {
-      warn(mLabel + ": bad category, using the default.");
-      delete m.category;
-    }
+    dropBadString(m, "category", mLabel, "using the default");
   }
   // Skills: leveled abilities fed by action XP. Bad numbers reset to safe
   // defaults so one typo can't break the tab; bad milestones are skipped.
@@ -1869,12 +2209,12 @@ function normalizeConfig() {
   // see its header for how to add a type.
   for (const s of SKILLS) {
     const sLabel = 'Skill "' + (s.id || "?") + '"';
-    if (typeof s.name !== "string" || !s.name) s.name = s.id;
-    if (!Number.isInteger(s.maxLevel) || s.maxLevel <= 0) {
+    defaultName(s);
+    if (badCount(s.maxLevel)) {
       if (s.maxLevel !== undefined) warn(sLabel + ": bad maxLevel, reset to 1.");
       s.maxLevel = 1;
     }
-    if (typeof s.baseXp !== "number" || !Number.isFinite(s.baseXp) || s.baseXp <= 0) {
+    if (badAmount(s.baseXp)) {
       if (s.baseXp !== undefined) warn(sLabel + ": bad baseXp, reset to 3.");
       s.baseXp = 3;
     }
@@ -1882,16 +2222,10 @@ function normalizeConfig() {
       if (s.scaling !== undefined) warn(sLabel + ": bad scaling, reset to 1.5.");
       s.scaling = 1.5;
     }
-    if (s.description !== undefined && typeof s.description !== "string") {
-      warn(sLabel + ": bad description, ignored.");
-      delete s.description;
-    }
+    dropBadString(s, "description", sLabel, "ignored");
     // Flavor works exactly like actions: an italic line at the bottom of
     // the tooltip. Skills without one show no flavor line at all.
-    if (s.flavor !== undefined && typeof s.flavor !== "string") {
-      warn(sLabel + ": bad flavor, ignored.");
-      delete s.flavor;
-    }
+    dropBadString(s, "flavor", sLabel, "ignored");
     cleanTags(s, sLabel);
     cleanHeader(s, sLabel);
     if (s.milestones === undefined) s.milestones = [];
@@ -1930,85 +2264,62 @@ function normalizeConfig() {
     const worldTiers = (typeof WORLD_TIERS !== "undefined") ? WORLD_TIERS : [];
     const worldMods = (typeof WORLD_MODIFIERS !== "undefined") ? WORLD_MODIFIERS : [];
     const worldSites = (typeof WORLD_SITES !== "undefined") ? WORLD_SITES : [];
-    const seenBiome = new Set();
-    for (let i = 0; i < worldBiomes.length; i++) {
-      const b = worldBiomes[i];
-      if (!b || typeof b.id !== "string" || !b.id || seenBiome.has(b.id)) {
-        warn("Removed world biome with no id.");
-        worldBiomes.splice(i, 1); i--; continue;
-      }
-      seenBiome.add(b.id);
-      if (typeof b.name !== "string" || !b.name) b.name = b.id;
-      if (typeof b.travelTime !== "number" || !Number.isFinite(b.travelTime) || b.travelTime <= 0) {
-        if (b.travelTime !== undefined) warn('World biome "' + b.id + '": bad travelTime, reset to 5.');
+    dedupeIds(worldBiomes, "Removed world biome with no id.");
+    for (const b of worldBiomes) {
+      defaultName(b);
+      const bLabel = 'World biome "' + b.id + '"';
+      if (badAmount(b.travelTime)) {
+        if (b.travelTime !== undefined) warn(bLabel + ": bad travelTime, reset to 5.");
         b.travelTime = 5;
       }
-      if (typeof b.terrainDifficulty !== "number" || !Number.isFinite(b.terrainDifficulty) || b.terrainDifficulty < 0) {
-        if (b.terrainDifficulty !== undefined) warn('World biome "' + b.id + '": bad terrainDifficulty, reset to 1.');
+      if (badNonNeg(b.terrainDifficulty)) {
+        if (b.terrainDifficulty !== undefined) warn(bLabel + ": bad terrainDifficulty, reset to 1.");
         b.terrainDifficulty = 1;
       }
-      if (b.color !== undefined && typeof b.color !== "string") {
-        warn('World biome "' + b.id + '": bad color, ignored.');
-        delete b.color;
-      }
-      if (b.description !== undefined && typeof b.description !== "string") {
-        warn('World biome "' + b.id + '": bad description, ignored.');
-        delete b.description;
-      }
-      cleanTags(b, 'World biome "' + b.id + '"');
+      dropBadString(b, "color", bLabel, "ignored");
+      dropBadString(b, "description", bLabel, "ignored");
+      cleanTags(b, bLabel);
     }
-    const seenTier = new Set();
+    dedupeIds(worldTiers, "Removed world tier with no id.");
     for (let i = 0; i < worldTiers.length; i++) {
       const t = worldTiers[i];
-      if (!t || typeof t.id !== "string" || !t.id || seenTier.has(t.id)) {
-        warn("Removed world tier with no id.");
-        worldTiers.splice(i, 1); i--; continue;
-      }
-      seenTier.add(t.id);
-      if (typeof t.name !== "string" || !t.name) t.name = t.id;
-      if (!Number.isInteger(t.size) || t.size <= 0) {
-        if (t.size !== undefined) warn('World tier "' + t.id + '": bad size, reset to 6.');
+      defaultName(t);
+      const tLabel = 'World tier "' + t.id + '"';
+      if (badCount(t.size)) {
+        if (t.size !== undefined) warn(tLabel + ": bad size, reset to 6.");
         t.size = 6;
       }
       if (typeof t.biome !== "string" || !worldBiomes.some(b => b.id === t.biome)) {
-        warn('World tier "' + t.id + '": unknown biome, removed.');
+        warn(tLabel + ": unknown biome, removed.");
         worldTiers.splice(i, 1); i--; continue;
       }
       const s = t.start;
       if (!s || !Number.isInteger(s.x) || !Number.isInteger(s.y) || s.x < 0 || s.y < 0 || s.x >= t.size || s.y >= t.size) {
-        if (s !== undefined) warn('World tier "' + t.id + '": bad start, centered.');
+        if (s !== undefined) warn(tLabel + ": bad start, centered.");
         t.start = { x: Math.floor(t.size / 2), y: Math.floor(t.size / 2) };
       }
     }
-    const seenMod = new Set();
-    for (let i = 0; i < worldMods.length; i++) {
-      const m = worldMods[i];
-      if (!m || typeof m.id !== "string" || !m.id || seenMod.has(m.id)) {
-        warn("Removed world modifier with no id.");
-        worldMods.splice(i, 1); i--; continue;
-      }
-      seenMod.add(m.id);
-      if (typeof m.name !== "string" || !m.name) m.name = m.id;
+    dedupeIds(worldMods, "Removed world modifier with no id.");
+    for (const m of worldMods) {
+      defaultName(m);
+      const mLabel = 'World modifier "' + m.id + '"';
       if (m.short !== undefined && (typeof m.short !== "string" || !m.short || m.short.length > 4)) {
-        warn('World modifier "' + m.id + '": bad short overlay, ignored.');
+        warn(mLabel + ": bad short overlay, ignored.");
         delete m.short;
       }
       if (m.travelTime !== undefined && (typeof m.travelTime !== "number" || !Number.isFinite(m.travelTime))) {
-        warn('World modifier "' + m.id + '": bad travelTime, ignored.');
+        warn(mLabel + ": bad travelTime, ignored.");
         delete m.travelTime;
       }
       if (m.terrainDifficulty !== undefined && (typeof m.terrainDifficulty !== "number" || !Number.isFinite(m.terrainDifficulty))) {
-        warn('World modifier "' + m.id + '": bad terrainDifficulty, ignored.');
+        warn(mLabel + ": bad terrainDifficulty, ignored.");
         delete m.terrainDifficulty;
       }
-      if (m.description !== undefined && typeof m.description !== "string") {
-        warn('World modifier "' + m.id + '": bad description, ignored.');
-        delete m.description;
-      }
+      dropBadString(m, "description", mLabel, "ignored");
       // Paint color: a CSS color string (e.g. "#84240c") overriding the
       // tile's biome background. Bad values are ignored (biome shows).
       if (m.color !== undefined && (typeof m.color !== "string" || !m.color.trim())) {
-        warn('World modifier "' + m.id + '": bad color, ignored.');
+        warn(mLabel + ": bad color, ignored.");
         delete m.color;
       }
       // Paint size: fraction of the tile's width/height the modifier
@@ -2026,12 +2337,12 @@ function normalizeConfig() {
         const kept = [];
         for (const id of list) {
           if (typeof id !== "string" || !id) {
-            warn('World modifier "' + m.id + '": skipped a bad locked action (use action ids).');
+            warn(mLabel + ": skipped a bad locked action (use action ids).");
             continue;
           }
           if (kept.some(k => k.toLowerCase() === id.toLowerCase())) continue;
           if (!ACTIONS.some(a => a.id === id)) {
-            warn('World modifier "' + m.id + '": unknown locked action "' + id + '", removed.');
+            warn(mLabel + ': unknown locked action "' + id + '", removed.');
             continue;
           }
           kept.push(id);
@@ -2039,7 +2350,7 @@ function normalizeConfig() {
         if (!kept.length) delete m.locks;
         else m.locks = kept;
       }
-      cleanTags(m, 'World modifier "' + m.id + '"');
+      cleanTags(m, mLabel);
     }
     const seenSite = new Set();
     for (let i = 0; i < worldSites.length; i++) {

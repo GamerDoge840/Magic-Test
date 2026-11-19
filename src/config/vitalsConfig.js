@@ -65,4 +65,5 @@ const PLAYER_STATS = [
   { id: "int", name: "Intelligence", abbr: "INT", start: 1, nameColor: "#C2FFF9", tooltip: "General knowledge, whether of combat and magical spells, or other things.", tags: ["Stat"] },
   { id: "lck", name: "Luck",         abbr: "LCK", start: 1, nameColor: "#DBFFA6", tooltip: "Aptitude for the universe to do nice things to you.", tags: ["Stat"] },
   { id: "spd", name: "Speed",        abbr: "SPD", start: 1, nameColor: "#A6E6FF", tooltip: "Physical agility.", tags: ["Stat"] },
+  { id: "cookingSpeed", name: "Cooking Speed", abbr: "CKS", start: 0, nameColor: "#FFB36B", tooltip: "Speed of cooking.", tags: ["Stat", "Crafting"] },
 ];

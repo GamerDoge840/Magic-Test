@@ -38,16 +38,19 @@ async function loadManualSave() {
     return true;
   } catch (e) {
     console.warn("[save] ignoring corrupt manual save");
-    return false;
+    return "corrupt";
   }
 }
 
 async function loadManualGame() {
-  if (await loadManualSave()) {
+  const loaded = await loadManualSave();
+  if (loaded === true) {
     buildUI();
     render();
     clearLog();
     log("Save loaded.");
+  } else if (loaded === "corrupt") {
+    log("Saved game was corrupt and could not be loaded.");
   } else {
     log("No saved game found.");
   }
@@ -74,7 +77,10 @@ function serializeSave() {
     seen: { ...(state.seen ?? {}) },
     upgrades: { ...state.upgrades },
     unlocked: { ...state.unlocked },
-    options: { ...state.options },
+    // Nested option objects need their own copies: a shallow spread would
+    // share hidden/furnTypes/furnFilters/furnSort by reference, so mutating
+    // a serialized snapshot (backups, export) would mutate live state.
+    options: { ...state.options, hidden: { ...(state.options.hidden ?? {}) }, furnTypes: { ...(state.options.furnTypes ?? {}) }, furnFilters: { ...(state.options.furnFilters ?? {}) }, furnSort: { ...(state.options.furnSort ?? { key: "name", dir: 1 }) } },
     playerName: state.playerName,
     playerStats: { ...state.playerStats },
     homes: { ...state.homes },
@@ -92,6 +98,13 @@ function serializeSave() {
     // Non-retroactive improvement-cap baselines ({ actionId: run count
     // when the cap-raising milestone fired }). Missing on old saves.
     impBase: { ...(state.impBase ?? {}) },
+    // Crafting slots, burn remainder, progress, discovery and selection.
+    // Validated on load (unknown ids dropped, counts floored) - see below.
+    crafting: state.crafting ? {
+      sel: { ...(state.crafting.sel ?? {}) },
+      plans: Object.fromEntries(Object.entries(state.crafting.plans ?? {}).map(([k, v]) => [k, { unlocked: !!v.unlocked, items: (v.items ?? (v.item ? [v.item] : [])).map(s => s ? { ...s } : null), fuel: v.fuel ? { ...v.fuel } : null, fuelLeft: v.fuelLeft ?? 0, fuelMax: v.fuelMax ?? 1, progress: v.progress ?? 0, selRecipe: v.selRecipe ?? null }])),
+      discovered: Object.fromEntries(Object.entries(state.crafting.discovered ?? {}).map(([k, v]) => [k, [...(v ?? [])]])),
+    } : undefined,
     // "Run past the cap" overrides ({ actionId: true }). Not on old saves.
     fullOverride: { ...(state.fullOverride ?? {}) },
     // World position ({ x, y, tier, travel }). Missing on old saves.
@@ -148,7 +161,7 @@ function applySaveData(data) {
   for (const h of HOMES) if (savedHomes[h.id]) homes[h.id] = true;
   state.homes = homes;
   state.currentHome = (typeof data.currentHome === "string" && getHome(data.currentHome) && homes[data.currentHome]) ? data.currentHome : null;
-  if (!state.currentHome && homes[HOMES[0]?.id]) state.currentHome = HOMES[0].id;
+  if (!state.currentHome) state.currentHome = (HOMES.find(h => homes[h.id]) ?? {}).id ?? null;
   const savedFurniture = (data.furniture && typeof data.furniture === "object") ? data.furniture : {};
   const furniture = {};
   for (const f of FURNITURE) {
@@ -175,7 +188,11 @@ function applySaveData(data) {
     if (!Number.isFinite(n) || n < 0) {
       amounts[r.id] = r.start ?? 0;
     } else {
-      amounts[r.id] = Math.min(getEffectiveMax(r.id), n);
+      // Meal overheal legitimately parks Stamina past its cap (up to the
+      // best edible nutrition), so the loader honors that ceiling instead
+      // of clamping the buffer away - tampered values still clamp.
+      const over = (r.id === "stamina" && typeof maxNutritionMult === "function") ? maxNutritionMult() : 1;
+      amounts[r.id] = Math.min(getEffectiveMax(r.id) * over, n);
     }
   }
   // Items are uncapped: load any non-negative finite amount as-is.
@@ -189,6 +206,8 @@ function applySaveData(data) {
   for (const a of ACTIONS) if (savedUnlocked["a:" + a.id]) unlocked["a:" + a.id] = true;
   for (const u of UPGRADES) if (savedUnlocked["u:" + u.id]) unlocked["u:" + u.id] = true;
   for (const r of RESOURCES) if (savedUnlocked["r:" + r.id]) unlocked["r:" + r.id] = true;
+  for (const f of FURNITURE) if (savedUnlocked["f:" + f.id]) unlocked["f:" + f.id] = true;
+  if (savedUnlocked["tab:crafting"]) unlocked["tab:crafting"] = true;
   state.unlocked = unlocked;
   const savedStats = (data.stats && typeof data.stats === "object" && data.stats.actions && typeof data.stats.actions === "object") ? data.stats.actions : {};
   const actions = {};
@@ -265,13 +284,20 @@ function applySaveData(data) {
     logSkillUps: !data.options || data.options.logSkillUps !== false,
     logImprovements: !data.options || data.options.logImprovements !== false,
     logGathering: !data.options || data.options.logGathering !== false,
+    logCrafting: !data.options || data.options.logCrafting !== false,
     logSelling: !data.options || data.options.logSelling !== false,
     logConsuming: !data.options || data.options.logConsuming !== false,
+    // Skill XP receipts (off by default to avoid per-cycle spam).
+    logSkillXp: !!data.options && data.options.logSkillXp === true,
+    // Recipe discovery lines (off by default).
+    logDiscovery: !!data.options && data.options.logDiscovery === true,
     balloonSkillMilestones: !data.options || data.options.balloonSkillMilestones !== false,
     logLimit: normalizeLogLimit(data.options && data.options.logLimit),
     // Inventory rarity + type filters (ids stay valid via the render gates).
     invRarity: (data.options && typeof data.options.invRarity === "string") ? data.options.invRarity : "all",
     invType: (data.options && typeof data.options.invType === "string") ? data.options.invType : "all",
+    // Inventory search text (plain string, AND-combined with the filters).
+    invSearch: (data.options && typeof data.options.invSearch === "string") ? data.options.invSearch : "",
     // Hide exhausted inventory items (on by default): owned-0 items hide
     // instead of showing grayed-out. Never-obtained items stay hidden
     // either way (the render's seen gate is unconditional).
@@ -280,6 +306,10 @@ function applySaveData(data) {
     sellWarn: !data.options || data.options.sellWarn !== false,
     // Action/upgrade tooltip time lines (on by default).
     showActionTime: !data.options || data.options.showActionTime !== false,
+    // Unlock-requirement sections (off by default, to keep tooltips compact).
+    showUnlockReqs: !!(data.options && data.options.showUnlockReqs),
+    // Theme override (follow system by default).
+    theme: normalizeTheme(data.options && data.options.theme),
     // Autosave (off by default): timer save to the browser slot, every
     // 1/5/10 minutes, with its own log toggle (on by default).
     autosave: !!(data.options && data.options.autosave),
@@ -380,8 +410,58 @@ function applySaveData(data) {
         // any leftover into Stamina once, so nothing vanishes on upgrade.
         const drain = Number(tr.drainAcc);
         state.world.travel = { tx, ty, total, remaining: Math.min(rem, total), paused: tr.paused === true };
-        if (Number.isFinite(drain) && drain > 0) state.amounts.stamina = Math.max(0, Math.round(((state.amounts.stamina ?? 0) - drain) * 100) / 100);
+        if (Number.isFinite(drain) && drain > 0) state.amounts.stamina = Math.max(0, (state.amounts.stamina ?? 0) - drain);
       }
+    }
+  }
+  // Cycles clamped before the saved world position loaded (which sets the
+  // tile for biome/tag tick overrides) - re-clamp now that the tile is
+  // known, so a cross-biome load can't leave progress past one cycle.
+  for (const a of ACTIONS) {
+    const c = state.cycles[a.id];
+    if (c) c.progress = Math.min(c.progress, getEffectiveTick(a));
+  }
+  // Crafting progress (missing on old saves - start fresh). Unknown
+  // plan, item and recipe ids are dropped; slot counts floor to integers
+  // and vanish at zero; item slots clamp to the plan's slot count (old
+  // single-`item` saves migrate into slot 0); the burn remainder and
+  // progress clamp to sane ranges, so a tampered save can only pause a
+  // plan, never break it.
+  state.crafting = (typeof defaultCraftState === "function") ? defaultCraftState() : { sel: {}, plans: {}, discovered: {} };
+  if (data.crafting && typeof data.crafting === "object") {
+    const dc = data.crafting;
+    const validSlot = (s) => {
+      if (!s || typeof s !== "object" || typeof s.id !== "string" || !getResource(s.id)) return null;
+      const n = Math.floor(Number(s.n));
+      return (Number.isFinite(n) && n > 0) ? { id: s.id, n } : null;
+    };
+    const groups = (typeof CRAFTING !== "undefined") ? CRAFTING : [];
+    for (const g of groups) {
+      for (const p of g.plans ?? []) {
+        const saved = dc.plans && dc.plans[p.id];
+        if (!saved || typeof saved !== "object") continue;
+        const st = state.crafting.plans[p.id];
+        if (!st) continue;
+        st.unlocked = saved.unlocked === true;
+        // Item slots (array); very old saves hold a single `item` field.
+        const rawItems = Array.isArray(saved.items) ? saved.items : (saved.item ? [saved.item] : []);
+        st.items = rawItems.map(validSlot);
+        while (st.items.length < planItemSlots(p)) st.items.push(null);
+        if (st.items.length > planItemSlots(p)) st.items.length = planItemSlots(p);
+        st.fuel = planNeedsFuel(p) ? validSlot(saved.fuel) : null;
+        st.selRecipe = (typeof saved.selRecipe === "string" && p.recipes.some(r => r.id === saved.selRecipe)) ? saved.selRecipe : null;
+        const fl = Number(saved.fuelLeft), fm = Number(saved.fuelMax), pr = Number(saved.progress);
+        st.fuelLeft = (Number.isFinite(fl) && fl > 0) ? fl : 0;
+        st.fuelMax = (Number.isFinite(fm) && fm > 0) ? fm : 1;
+        st.progress = (Number.isFinite(pr) && pr > 0) ? Math.min(pr, 1) : 0;
+        if (dc.discovered && Array.isArray(dc.discovered[p.id])) {
+          state.crafting.discovered[p.id] = [...new Set(dc.discovered[p.id])].filter(rid => p.recipes.some(r => r.id === rid));
+        }
+      }
+    }
+    if (dc.sel && typeof dc.sel === "object") {
+      if (groups.some(g => g.id === dc.sel.group)) state.crafting.sel.group = dc.sel.group;
+      if (groups.some(g => (g.plans ?? []).some(p => p.id === dc.sel.plan))) state.crafting.sel.plan = dc.sel.plan;
     }
   }
   // Hiding mode is a live, in-progress gesture (armed Hide button, struck
@@ -391,6 +471,18 @@ function applySaveData(data) {
   // only the armed mode itself is forced off.
   for (const k of Object.keys(hidingMode)) hidingMode[k] = false;
   if (typeof syncHideButtons === "function") syncHideButtons();
+  // Selling mode is the same kind of live gesture (armed Sell button) -
+  // never saved, so importing disarms it like hiding mode. The next
+  // renderInventory syncs the button/row/grid.
+  if (typeof invSelling !== "undefined" && invSelling) invSelling = false;
+  // Timer + merge-chain runtimes never persist: the timer restarts from
+  // zero and stale line refs (detached by the import's clearLog) must not
+  // be rewritten by the next eat/sell/XP/craft.
+  if (typeof autosaveAcc !== "undefined") autosaveAcc = 0;
+  if (typeof consumeAcc !== "undefined") consumeAcc = null;
+  if (typeof sellAcc !== "undefined") sellAcc = null;
+  if (typeof skillXpAcc !== "undefined") skillXpAcc = null;
+  if (typeof craftAcc !== "undefined") craftAcc = null;
   // Heal float-dust XP (e.g. Sleeping 7.999999999999991/8): snaps stored
   // values and fires any suppressed level-ups with the normal log +
   // balloon. Import paths clearLog() afterwards (state still correct);
@@ -426,9 +518,9 @@ async function inflateBytes(bytes) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-async function encodeSaveText() {
+async function encodeSaveText(data) {
   if (!window.CompressionStream) throw new Error("no compression");
-  const raw = new TextEncoder().encode(JSON.stringify(serializeSave()));
+  const raw = new TextEncoder().encode(JSON.stringify(data ?? serializeSave()));
   return SAVE_PREFIX + SAVE_VERSION + "$" + bytesToB64(await deflateBytes(raw)) + SAVE_SUFFIX;
 }
 
@@ -438,6 +530,7 @@ async function decodeSaveText(text) {
     if (!window.DecompressionStream) throw new Error("no decompression");
     const m = t.slice(SAVE_PREFIX.length, -SAVE_SUFFIX.length).match(/^(\d+)\$([A-Za-z0-9+/=]+)$/);
     if (!m) throw new Error("bad file");
+    if (Number(m[1]) > SAVE_VERSION) throw new Error("save is from a newer version");
     try {
       const plain = await inflateBytes(b64ToBytes(m[2]));
       return JSON.parse(new TextDecoder().decode(plain));

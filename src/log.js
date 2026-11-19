@@ -1,7 +1,8 @@
 // Labor Game work log: categorized lines, dedup merging, filter window support.
 // Shared panel: the same entries render in EVERY .js-log container on the
-// page (Work + Home + World + Inventory) - to put the Work Log on a new
-// tab, just add <div class="js-log"></div> there - no JS changes needed.
+// page (Work + Home + World + Inventory + Crafting + Options) - to put
+// the Work Log on a new tab, just add <div class="js-log"></div> there -
+// no JS changes needed (filter/clear buttons need their usual wiring).
 function allLogEls() {
   const els = [...document.querySelectorAll(".js-log")];
   if (els.length) return els;
@@ -26,8 +27,14 @@ function log(msg, category = "system", mergeKey) {
   if (category === "skillup" && state.options.logSkillUps === false) return;
   if (category === "improvement" && state.options.logImprovements === false) return;
   if (category === "gather" && state.options.logGathering === false) return;
+  if (category === "craft" && state.options.logCrafting === false) return;
   if (category === "sell" && state.options.logSelling === false) return;
   if (category === "consume" && state.options.logConsuming === false) return;
+  if (category === "skillxp" && state.options.logSkillXp !== true) return;
+  if (category === "discovery" && state.options.logDiscovery !== true) return;
+  // Sequencing for tolerant receipt chains (craft <-> skillxp stacking):
+  // every write below stamps its category (see stampLogWrite).
+  stampLogWrite(category);
   // Back-to-back repeats merge: "You feel rested.", "You feel rested."
   // shows once as "You feel rested. (x2)" - in every visible copy.
   {
@@ -62,8 +69,11 @@ function log(msg, category = "system", mergeKey) {
     : category === "skillup" ? "logSkillup"
     : category === "specialMessage" ? "logSpecialMessage"
     : category === "gather" ? "logGather"
+    : category === "craft" ? "logCraft"
     : category === "sell" ? "logSell"
     : category === "consume" ? "logConsume"
+    : category === "skillxp" ? "logSkillxp"
+    : category === "discovery" ? "logDiscovery"
     : category === "improvement" ? "logImprovement" : "";
  for (const el of allLogEls()) {
    const line = document.createElement("div");
@@ -88,8 +98,13 @@ function logRich(plain, category = "system", fill, mergeKey) {
   if (category === "skillup" && state.options.logSkillUps === false) return;
   if (category === "improvement" && state.options.logImprovements === false) return;
   if (category === "gather" && state.options.logGathering === false) return;
+  if (category === "craft" && state.options.logCrafting === false) return;
   if (category === "sell" && state.options.logSelling === false) return;
   if (category === "consume" && state.options.logConsuming === false) return;
+  if (category === "skillxp" && state.options.logSkillXp !== true) return;
+  if (category === "discovery" && state.options.logDiscovery !== true) return;
+  // Same sequencing stamp as log() (see above).
+  stampLogWrite(category);
   {
     const els = allLogEls();
     const primary = els[0];
@@ -128,8 +143,11 @@ function logRich(plain, category = "system", fill, mergeKey) {
     : category === "skillup" ? "logSkillup"
     : category === "specialMessage" ? "logSpecialMessage"
     : category === "gather" ? "logGather"
+    : category === "craft" ? "logCraft"
     : category === "sell" ? "logSell"
     : category === "consume" ? "logConsume"
+    : category === "skillxp" ? "logSkillxp"
+    : category === "discovery" ? "logDiscovery"
     : category === "improvement" ? "logImprovement" : "";
   for (const el of allLogEls()) {
     const line = document.createElement("div");
@@ -178,10 +196,14 @@ function renderGatherBullets(line, action, items) {
   line.appendChild(wrap);
 }
 // Arm the host after a gather action's startLog lands (the newest line in
-// every log copy). Non-gather starts disarm.
+// every log copy). Non-gather starts disarm. A suppressed start line
+// (action-begin logging off) leaves no host: stay disarmed so finds fall
+// back to standalone lines instead of landing on whatever stale line
+// happens to be newest.
 function gatherStart(action) {
   gatherHost = null;
   if (!action || action.gather !== true) return;
+  if (state.options.logActionBegin === false) return;
   const els = allLogEls();
   if (!els.length || !els[0].firstChild) return;
   gatherHost = { aid: action.id, items: [], lines: els.map(el => el.firstChild) };
@@ -200,13 +222,17 @@ function logGather(loot, action) {
     const items = found.map(e => ({ id: e.id, n: e.n }));
     for (const el of allLogEls()) {
       const line = document.createElement("div");
-      line.className = "logGather logStart";
+      // Gather results, not a start line: the Gathering filter alone
+      // governs it (a logStart class would let the action-begin filter
+      // hide loot the player asked to see).
+      line.className = "logGather";
       line.appendChild(document.createTextNode("Gathered (" + (action ? action.name : "foraging") + "): "));
       renderGatherBullets(line, action, items);
       // renderGatherBullets appends the wrap after the header text.
       el.prepend(line);
     }
     trimLog();
+    stampLogWrite("gather");
     gatherHost = { aid, items, lines: allLogEls().map(el => el.firstChild).filter(Boolean) };
     return;
   }
@@ -234,6 +260,36 @@ function trimLog() {
 let lastLogMsg = null;
 let lastLogCount = 0;
 let lastLogMergeKey = null;
+
+// Write sequencing for tolerant receipt chains (craft <-> skillxp
+// stacking): every actual log write bumps logSeq and stamps its category
+// (see the stampLogWrite calls in log/logRich/logGather). Two chains that
+// tolerate each other (craft finish receipts and skill XP receipts) stay
+// alive across each other's writes but die on any other category's write
+// (or when their own lines leave the DOM) - instead of the strict
+// lastLogMergeKey equality every other chain uses.
+let logSeq = 0;
+let logCatSeq = {}; // category -> seq of its latest write
+function stampLogWrite(category) {
+  logSeq++;
+  logCatSeq[category] = logSeq;
+  return logSeq;
+}
+// True when any write newer than seq carries a category outside ignoreCats.
+function logWritesSince(seq, ignoreCats) {
+  for (const cat of Object.keys(logCatSeq)) {
+    if (logCatSeq[cat] > seq && (!ignoreCats || !ignoreCats.includes(cat))) return true;
+  }
+  return false;
+}
+// Stored line refs (one per .js-log copy) are only rewritable while attached.
+function logLinesAlive(lines) {
+  return !!lines && !!lines.length && lines.every(el => el && el.isConnected);
+}
+// Newest line of every visible copy, for chains to rewrite in place later.
+function captureLogLines() {
+  return allLogEls().map(el => el.firstChild).filter(Boolean);
+}
 
 // Fresh-game intro line (boot + hard reset): a special message so it renders
 // in the one-time yellow style like blanket/pillow/pockets messages.
@@ -263,8 +319,11 @@ function applyLogFilters() {
       || (c.contains("logSkillup") && state.options.logSkillUps === false)
       || (c.contains("logImprovement") && state.options.logImprovements === false)
       || (c.contains("logGather") && state.options.logGathering === false)
+      || (c.contains("logCraft") && state.options.logCrafting === false)
       || (c.contains("logSell") && state.options.logSelling === false)
-      || (c.contains("logConsume") && state.options.logConsuming === false);
+      || (c.contains("logConsume") && state.options.logConsuming === false)
+      || (c.contains("logSkillxp") && state.options.logSkillXp !== true)
+      || (c.contains("logDiscovery") && state.options.logDiscovery !== true);
     // StartLog-hosted gather bullets hide with the Gathering filter while
     // the start text itself stays (governed by its own filter).
     for (const b of line.querySelectorAll(".gather-bullets")) b.hidden = state.options.logGathering === false;
@@ -295,6 +354,9 @@ function logRequiresMet(req) {
   if (!req) return true;
   for (const [id, n] of Object.entries(req.skills ?? {})) {
     if (typeof skillLevel !== "function") return false;
+    // Unknown skills never meet (typo just never fires) - and must not
+    // create junk state.skills entries via skillState's auto-create.
+    if (typeof getSkill === "function" && !getSkill(id)) return false;
     if (skillLevel(id) < n) return false;
   }
   for (const [id, n] of Object.entries(req.upgrades ?? {})) if ((state.upgrades[id] ?? 0) < n) return false;

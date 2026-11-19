@@ -40,8 +40,16 @@ const HOMES = [
 //   - requiresHome: (optional) home id (or array of ids) that must be
 //            owned for this to appear. An array keeps entries visible across
 //            a home replacement (e.g. ["tent", "mediumTent"]).
+//   - requiresSeenTag: (optional) item tag (or array of tags) that hides
+//            this until any item carrying one of them has been discovered,
+//            e.g. requiresSeenTag: "Food". Seen flags are sticky, so the
+//            entry never locks again afterwards.
 //   - sellLog: (optional) Work Log message when selling one, e.g.
 //            "You break apart a coin pile.". Defaults to "Sold: <name>".
+//   - unlockLog: (optional) one-time Work Log message the first frame
+//            this becomes visible (filed under the unlock filter), e.g.
+//            a hint nudging the player to buy it. The fired flag is saved
+//            with the other unlocks, so it never repeats.
 //   - flavor: (optional) italic line at the bottom of the tooltip.
 // While a cost asks for more than its cap holds, the tile requirement
 // is unmet, or the house's Floor Space is full, the furniture name shows
@@ -96,6 +104,20 @@ const FURNITURE = [
     effects: [
       { type: "time", action: "rest", amount: 0.05 },
     ],
+  },
+  {
+    id: "cookingPot",
+    name: "Cooking Pot",
+    space: 2,
+    cost: { coin: 40 },
+    requiresHome: ["tent", "mediumTent", "survivalistTent"],
+    requiresSeenTag: "Food",
+    tags: ["Cooking Station", "Crafting", "Furniture", "Shopping"],
+    description: "A cheap but large pot for cooking food.",
+    buyLog: "You set up a cooking pot in your home.",
+    sellLog: "You sell your cooking pot.",
+    unlockLog: "Maybe if you bought some basic culinary equipment, you could cook the food you found?",
+    effects: [],
   },
 ];
 

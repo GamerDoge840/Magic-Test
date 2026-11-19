@@ -75,7 +75,7 @@ const SKILLS = [
     id: "basicKnowledge",
     name: "Basic Knowledge",
     group: "Understanding",
-    maxLevel: 10,
+    maxLevel: 5,
     baseXp: 3,
     scaling: 1.5,
     tags: ["Skill", "Knowledge"],
@@ -170,18 +170,18 @@ const SKILLS = [
   },
   {
     id: "sleeping",
-    name: "Sleeping",
+    name: "Resting",
     group: "Physical",
     maxLevel: 10,
     baseXp: 2,
     scaling: 2,
     tags: ["Skill", "Recovery"],
-    description: "Unconscious ability for better sleep.",
+    description: "How well you can relax.",
     milestones: [
       {
         level: 1,
         name: "Calm Rest",
-        text: "Rest restores +0.03 more Stamina per Sleeping level, up to Level 5.",
+        text: "Rest restores +0.03 more Stamina per Resting level, up to Level 5.",
         effects: [
           { type: "gain", action: "rest", resource: "stamina", amount: 0.03, perLevel: true, cap: 5 },
         ],
@@ -294,6 +294,26 @@ const SKILLS = [
         text: "All foraging actions take 0.25 less Stamina.",
         effects: [
           { type: "cost", skill: "foraging", resource: "stamina", amount: 0.25 },
+        ],
+      },
+    ],
+  },
+  {
+    id: "cooking",
+    name: "Cooking",
+    group: "Crafting",
+    maxLevel: 10,
+    baseXp: 2,
+    scaling: 1.5,
+    tags: ["Skill", "Crafting"],
+    description: "Mastery of the culinary arts.",
+    milestones: [
+      {
+        level: 1,
+        name: "Steady Cooking",
+        text: "Gain 1 Cooking Speed per level of Cooking.",
+        effects: [
+          { type: "stat", stat: "cookingSpeed", amount: 1, perLevel: true },
         ],
       },
     ],

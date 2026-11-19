@@ -21,12 +21,14 @@ function itemRarityName(rid) {
   return rid ? rid.charAt(0).toUpperCase() + rid.slice(1) : rid;
 }
 
-// Chip counts cover only displayable cells: seen items passing the OTHER
-// dimension's filter and the empty rule, so every chip number matches the
-// cells its click would show. Counts refresh every render (see
-// renderInventory), so gathering/consuming updates them live.
-function invCountBase(except) {
-  const r = invRarity(), t = invType();
+// Rarity-chip counts cover displayable cells: seen items passing the
+// OTHER dimension's filter and the empty rule, so every chip number
+// matches the cells its click would show. Type chips instead sum the
+// units held across those same cells (see invTypeCountFor). Counts
+// refresh every render (see renderInventory), so gathering/consuming
+// updates them live.
+function invCountBase(except, preTags) {
+  const r = invRarity(), t = invType(preTags);
   return ITEMS.filter(it => {
     if (!(state.seen && state.seen[it.id])) return false;
     if (!invEmptyVisible(it)) return false;
@@ -42,14 +44,68 @@ function invCountFor(r) {
   return base.filter(it => (it.rarity ?? "common") === r).length;
 }
 
+// Type chips count UNITS held (per-quantity), not distinct items: with 6
+// Twigs and nothing else held, "Materials (6)". Rarity chips still count
+// displayable cells. The sums follow the other dimension's filter + the
+// empty rule via invCountBase, so they always match the shown holdings.
 function invTypeCountFor(t) {
   const base = invCountBase("type");
-  if (t === "all") return base.length;
-  return base.filter(it => invTypeMatch(it, t)).length;
+  const inType = t === "all" ? base : base.filter(it => invTypeMatch(it, t));
+  return inType.reduce((n, it) => n + Math.max(0, Math.floor(state.amounts[it.id] ?? 0)), 0);
 }
 
 function invChipLabel(name, n) {
   return name + " (" + n + ")";
+}
+
+// Single-pass chip math for the per-tick repaint: one walk over ITEMS
+// yields every rarity-cell count and every type-unit sum, instead of one
+// full scan per chip (~20 scans/tick). Same gates as invCountBase, so
+// the numbers match the cells exactly:
+// - rarity chips (incl. "All") count displayable cells over the base
+//   that ignores the rarity dimension;
+// - type chips (incl. "All") sum held units over the base that ignores
+//   the type dimension (tags exact-match, consumable skipped).
+// Like invCountBase, the search query is NOT a chip gate (chips stay
+// stable while typing; the grid cells apply the query).
+function invChipTotals(preTags) {
+  const r = invRarity(), t = invType(preTags);
+  const hideEmpty = hideEmptyInv();
+  const rar = new Map();
+  let rarTotal = 0;
+  const typ = new Map();
+  let typTotal = 0;
+  const cat = new Map();
+  for (const catName of Object.keys(INV_TYPE_CATEGORIES)) cat.set(catName, 0);
+  for (const it of ITEMS) {
+    if (!(state.seen && state.seen[it.id])) continue;
+    const owned = Math.max(0, Math.floor(state.amounts[it.id] ?? 0));
+    if (!(owned > 0 || !hideEmpty)) continue;
+    if (invTypeMatch(it, t)) {
+      rarTotal++;
+      const rid = it.rarity ?? "common";
+      rar.set(rid, (rar.get(rid) ?? 0) + 1);
+    }
+    if (r === "all" || (it.rarity ?? "common") === r) {
+      typTotal += owned;
+      for (const tag of new Set(getTags(it))) {
+        if (String(tag).toLowerCase() === "consumable") continue;
+        typ.set(tag, (typ.get(tag) ?? 0) + owned);
+      }
+      // Category totals: OR across the category tag + its sub-types, so
+      // an item with two sub-types of one category still counts once.
+      for (const [catName, subs] of Object.entries(INV_TYPE_CATEGORIES)) {
+        const tags = getTags(it);
+        if (tags.includes(catName) || subs.some(s => tags.includes(s))) {
+          cat.set(catName, (cat.get(catName) ?? 0) + owned);
+        }
+      }
+    }
+  }
+  // Category chips read the OR totals above, not the raw-tag sums (e.g.
+  // "Food" counts greenleaf's Foraged even though it lacks the Food tag).
+  for (const [catName, n] of cat) typ.set(catName, n);
+  return { rar, rarTotal, typ, typTotal };
 }
 
 function invRarityChipLabel(r, n) {
@@ -60,6 +116,38 @@ function invRarityChipLabel(r, n) {
 // tags like "Food" are intentionally absent and render as-is.
 const INV_TYPE_PLURALS = { Herb: "Herbs" };
 
+// Inventory type categories: top-level chips grouping sub-type tags, so a
+// handful of categories replaces the flat per-tag clutter. Food holds the
+// edible sub-types (Fruit, Roasted, Meal), Materials holds the wild-found
+// ones (Foraged, Fuel), and Reagents holds Herbs (raw tag "Herb", displayed
+// "Herbs"). A category chip filters to items carrying the category tag OR
+// any of its sub-types; a sub-type chip filters to that exact tag. Any seen
+// tag outside the map (future content) falls back to a plain top-level chip
+// (see orphans).
+const INV_TYPE_CATEGORIES = {
+  Food: ["Fruit", "Roasted", "Meal"],
+  Materials: ["Foraged", "Fuel"],
+  Reagents: ["Herb"],
+};
+
+const INV_SUBTYPE_PARENT = {};
+for (const [cat, subs] of Object.entries(INV_TYPE_CATEGORIES)) {
+  for (const s of subs) INV_SUBTYPE_PARENT[s] = cat;
+}
+
+function invIsCategory(v) {
+  return Object.prototype.hasOwnProperty.call(INV_TYPE_CATEGORIES, v);
+}
+
+function invCategoryOfSubtype(s) {
+  return INV_SUBTYPE_PARENT[s] ?? null;
+}
+
+function invActiveCategory(type) {
+  if (invIsCategory(type)) return type;
+  return invCategoryOfSubtype(type);
+}
+
 function invTypeChipLabel(t, n) {
   if (t === "all") return invChipLabel("All", n);
   // Category names read as plurals ("Herbs"); uncountables ("Food") and
@@ -67,30 +155,88 @@ function invTypeChipLabel(t, n) {
   return invChipLabel(INV_TYPE_PLURALS[t] ?? t, n);
 }
 
-// Type filter (by tag): single-select inline row under the header -
-// "All" plus one chip per discovered item type tag. A tag is a *type* only when it doesn't cover every
-// defined item ("Foraged" is on everything; the "consumable" mechanic
-// tag is not a type) - and of those, only tags with at least one
-// all-time obtained item show, so advanced categories stay hidden until
-// their first find. An item matches the selected type when one of its
-// tags is exactly it.
-function invTypeTags() {
-  const total = new Map();
-  for (const it of ITEMS) for (const t of new Set(getTags(it))) {
-    if (String(t).toLowerCase() === "consumable") continue;
-    total.set(t, (total.get(t) ?? 0) + 1);
+// Type filter (by category + sub-type): single-select inline row under the
+// header - "All" plus one chip per owned category, plus the active
+// category's seen sub-types (and any orphan tags outside the map). A
+// category shows only while at least one held item carries any of its
+// sub-types; sub-types show only while their parent category is the active
+// filter (or holds the active sub-type). An item matches a category when it
+// carries the category tag or any of its sub-types, and a sub-type when one
+// of its tags is exactly it.
+// Lowercase-tag memo: tag strings are static config, so lowercasing is a
+// pure function of the tag - computed once per distinct tag instead of
+// once per item per tick.
+const __tagLowerMemo = new Map();
+function lowerTag(t) {
+  let lc = __tagLowerMemo.get(t);
+  if (lc === undefined) {
+    lc = String(t).toLowerCase();
+    __tagLowerMemo.set(t, lc);
   }
+  return lc;
+}
+function invVisibleCategories() {
   const out = [];
-  for (const [t, n] of total) {
-    if (n >= ITEMS.length) continue;
-    if (ITEMS.some(it => state.seen && state.seen[it.id] && getTags(it).includes(t))) out.push(t);
+  for (const cat of Object.keys(INV_TYPE_CATEGORIES)) {
+    const subs = INV_TYPE_CATEGORIES[cat];
+    let vis = false;
+    for (const it of ITEMS) {
+      const owned = Math.max(0, Math.floor(state.amounts[it.id] ?? 0));
+      if (!(owned > 0)) continue;
+      if (!(state.seen && state.seen[it.id])) continue;
+      const tags = getTags(it);
+      if (subs.some(s => tags.includes(s))) { vis = true; break; }
+    }
+    if (vis) out.push(cat);
+  }
+  return out;
+}
+function invVisibleSubtypes(cat) {
+  const subs = INV_TYPE_CATEGORIES[cat] ?? [];
+  return subs.filter(s => ITEMS.some(it => (state.seen && state.seen[it.id]) && getTags(it).includes(s)));
+}
+function invOrphanTypeTags() {
+  // Seen tags outside the category map (future content): same coverage +
+  // seen gates as the old flat row, so nothing new ever hides silently.
+  const total = new Map(); // tag -> { n, seen }
+  for (const it of ITEMS) {
+    const seen = !!(state.seen && state.seen[it.id]);
+    for (const t of new Set(getTags(it))) {
+      if (lowerTag(t) === "consumable") continue;
+      if (invIsCategory(t) || invCategoryOfSubtype(t)) continue;
+      let e = total.get(t);
+      if (!e) { e = { n: 0, seen: false }; total.set(t, e); }
+      e.n++;
+      if (seen) e.seen = true;
+    }
+  }
+  const n = ITEMS.length;
+  const out = [];
+  for (const [t, e] of total) {
+    if (e.n >= n) continue;
+    if (e.seen) out.push(t);
   }
   return out.sort();
 }
+function invTypeTags() {
+  // Visible UI values in row order: owned categories (config order), then
+  // the active category's seen sub-types (config order), then orphans.
+  // Read from the raw option (not invType()) to avoid a cycle: the active
+  // category is whatever is selected, even while its chip is hidden.
+  const raw = state.options.invType;
+  const cats = invVisibleCategories();
+  const active = invActiveCategory(raw);
+  const subs = (active && cats.includes(active)) ? invVisibleSubtypes(active)
+    : (active && invIsCategory(active)) ? [] : [];
+  // A selected-but-currently-hidden sub-type must stay in the list (and the
+  // filter must stay valid) until the player picks something else.
+  if (raw !== "all" && !invIsCategory(raw) && !subs.includes(raw) && invCategoryOfSubtype(raw)) subs.push(raw);
+  return [...cats, ...subs, ...invOrphanTypeTags()];
+}
 
-function invType() {
+function invType(preTags) {
   const t = state.options.invType;
-  if (t === "all" || invTypeTags().includes(t)) return t;
+  if (t === "all" || (preTags ?? invTypeTags()).includes(t)) return t;
   return "all";
 }
 
@@ -100,7 +246,77 @@ function setInvType(t) {
 }
 
 function invTypeMatch(it, t) {
-  return t === "all" || getTags(it).includes(t);
+  if (t === "all") return true;
+  if (invIsCategory(t)) {
+    const tags = getTags(it);
+    if (tags.includes(t)) return true;
+    const subs = INV_TYPE_CATEGORIES[t] ?? [];
+    return subs.some(s => tags.includes(s));
+  }
+  return getTags(it).includes(t);
+}
+// Inventory search: substring over the item name plus its tags
+// (case-insensitive). Empty query matches everything; AND-combined with
+// the rarity/type/empty filters in renderInventory. Plural-aware: the
+// haystack also carries the item's plural name, plural tag names (via
+// INV_TYPE_PLURALS), and singular word variants, so "herbs", "apples",
+// "twigs", "berries", and "greenleaves" match just like "herb", "apple",
+// "twig", "berry", and "greenleaf" - in both directions ("material"
+// finds the "Materials" tag too). The original name+tags phrase stays
+// intact first, so multi-word queries ("apple food") keep matching
+// contiguously.
+function invWordSingulars(w) {
+  const out = [];
+  if (w.length > 3 && !w.endsWith("ss")) {
+    if (w.endsWith("ies")) out.push(w.slice(0, -3) + "y");
+    else if (w.endsWith("es")) { out.push(w.slice(0, -2)); out.push(w.slice(0, -1)); }
+    else if (w.endsWith("s")) out.push(w.slice(0, -1));
+  }
+  return out;
+}
+// Per-item search haystack, cached per def object: the name + tags +
+// plural/singular variants, lowercased once instead of rebuilt (with
+// several Set allocations and regex splits) on every tick for every
+// cell. Def objects are static config; runtime-added defs compute on
+// first use and GC with the def when popped.
+const __invHayCache = new WeakMap();
+function invSearchHay(it) {
+  let h = __invHayCache.get(it);
+  if (h === undefined) {
+    const tags = getTags(it);
+    const base = (it.name + " " + tags.join(" ")).toLowerCase();
+    const words = new Set(base.split(/[^a-z0-9]+/));
+    const extra = [];
+    if (typeof it.plural === "string" && it.plural) extra.push(it.plural);
+    for (const t of tags) {
+      const p = INV_TYPE_PLURALS[t];
+      if (p) extra.push(p);
+    }
+    // Parent categories join the haystack ("reagents" finds Herb items),
+    // so the search keeps working after the flat tags become sub-types.
+    if (typeof INV_SUBTYPE_PARENT !== "undefined") {
+      for (const t of tags) {
+        const c = INV_SUBTYPE_PARENT[t];
+        if (c) extra.push(c);
+      }
+    }
+    for (const w of extra.join(" ").toLowerCase().split(/[^a-z0-9]+/)) if (w) words.add(w);
+    for (const w of [...words]) for (const v of invWordSingulars(w)) if (v && !words.has(v)) { words.add(v); extra.push(v); }
+    h = (base + " " + extra.join(" ")).toLowerCase();
+    __invHayCache.set(it, h);
+  }
+  return h;
+}
+
+function invSearchMatch(it, q, qSing) {
+  if (!q) return true;
+  const hay = invSearchHay(it);
+  // Whole-query singular fallbacks ("fuels" -> "fuel", "foods" -> "food",
+  // "consumables" -> "consumable", "cooked apples" -> "cooked apple"):
+  // plural forms with no haystack-side plural (uncountable tags like Food
+  // have no INV_TYPE_PLURALS entry) still find their singular.
+  if (hay.includes(q)) return true;
+  return (qSing ?? invWordSingulars(q)).some(v => hay.includes(v));
 }
 
 // Hide-empty option (on by default): exhausted items (owned 0) hide
@@ -138,6 +354,7 @@ function buildInventoryTab() {
   const grid = document.getElementById("invGridCtn");
   if (!filterRow || !grid) return;
   filterRow.innerHTML = "";
+  filterRow._chips = null; // cached nodes (see renderInventory) die with the rebuild
   const label = document.createElement("span");
   label.textContent = "Rarity:";
   filterRow.appendChild(label);
@@ -158,6 +375,7 @@ function buildInventoryTab() {
     filterRow.appendChild(b);
   }
   buildInvTypeRow();
+  buildInvTypeSubRow();
   buildSellRow();
   grid.innerHTML = "";
   if (!ITEMS.length) {
@@ -170,27 +388,73 @@ function buildInventoryTab() {
   for (const it of ITEMS) grid.appendChild(buildInventoryCell(it));
 }
 
-// Secondary inline filter row: "All" plus one chip per item type tag,
-// with live counts. Single-select like the rarity chips, and AND-combined
-// with the rarity filter. Hidden when nothing discriminates.
+// Secondary inline filter rows under the header: the main row holds "All"
+// plus owned category chips (and any orphan tags outside the map); the sub
+// row below it holds the active category's sub-type chips. Single-select
+// like the rarity chips, AND-combined with rarity. The main row hides when
+// no category is owned yet; the sub row hides unless a category (or one of
+// its sub-types) is selected.
+function invTopLevelTypes() {
+  const tags = invTypeTags();
+  const raw = state.options.invType;
+  const activeCat = invActiveCategory(raw === "all" ? invType(tags) : raw);
+  return tags.filter(t => invIsCategory(t) || !invCategoryOfSubtype(t) || invCategoryOfSubtype(t) !== activeCat);
+}
+
+function invSubRowTypes() {
+  const tags = invTypeTags();
+  const raw = state.options.invType;
+  const activeCat = invActiveCategory(raw === "all" ? invType(tags) : raw);
+  if (!activeCat) return [];
+  return tags.filter(t => !invIsCategory(t) && invCategoryOfSubtype(t) === activeCat);
+}
+
 function buildInvTypeRow() {
   const typeRow = document.getElementById("invTypeRow");
   if (!typeRow) return;
   typeRow.innerHTML = "";
-  const tags = invTypeTags();
+  typeRow._chips = null; // cached nodes (see renderInventory) die with the rebuild
+  const tags = invTopLevelTypes();
   typeRow.hidden = !tags.length;
   if (!tags.length) return;
   const label = document.createElement("span");
   label.textContent = "Type:";
   typeRow.appendChild(label);
+  const activeCat = invActiveCategory(state.options.invType);
   for (const t of ["all", ...tags]) {
     const b = document.createElement("button");
     b.type = "button";
     b.dataset.invtype = t;
     b.textContent = invTypeChipLabel(t, invTypeCountFor(t));
     b.classList.toggle("active", invType() === t);
+    if (activeCat && t === activeCat) b.classList.add("in-cat");
     b.addEventListener("click", () => setInvType(t));
     typeRow.appendChild(b);
+  }
+}
+
+// Sub-type row below the main Type row: the active category's sub-type
+// chips (see invSubRowTypes). Hidden unless a category is selected.
+function buildInvTypeSubRow() {
+  const subRow = document.getElementById("invTypeSubRow");
+  if (!subRow) return;
+  subRow.innerHTML = "";
+  subRow._chips = null; // cached nodes (see renderInventory) die with the rebuild
+  const tags = invSubRowTypes();
+  subRow.hidden = !tags.length;
+  if (!tags.length) return;
+  const label = document.createElement("span");
+  label.textContent = "Sub-type:";
+  subRow.appendChild(label);
+  for (const t of tags) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.invtype = t;
+    b.classList.add("sub");
+    b.textContent = invTypeChipLabel(t, invTypeCountFor(t));
+    b.classList.toggle("active", invType() === t);
+    b.addEventListener("click", () => setInvType(t));
+    subRow.appendChild(b);
   }
 }
 
@@ -250,34 +514,34 @@ function buildInventoryCell(it) {
     tip.appendChild(desc);
   }
   {
-    const sec = document.createElement("div");
-    sec.className = "tip-sec";
-    const lab = document.createElement("div");
-    lab.className = "tip-sec-label";
-    lab.textContent = "Rarity";
-    sec.appendChild(lab);
+    const { sec, body } = makeTipSection("Rarity");
     const row = document.createElement("div");
     row.className = "tip-row";
     const s = document.createElement("span");
     s.textContent = itemRarityName(it.rarity ?? "common");
     if (typeof itemRarityClass === "function") s.classList.add(itemRarityClass(it));
     row.appendChild(s);
-    sec.appendChild(row);
+    body.appendChild(row);
     tip.appendChild(sec);
   }
   if (typeof it.fuel === "number" && isFinite(it.fuel) && it.fuel > 0) {
-    const sec = document.createElement("div");
-    sec.className = "tip-sec";
-    const lab = document.createElement("div");
-    lab.className = "tip-sec-label";
-    lab.textContent = "Fuel";
-    sec.appendChild(lab);
+    const { sec, body } = makeTipSection("Fuel");
     const row = document.createElement("div");
     row.className = "tip-row";
     const s = document.createElement("span");
     s.textContent = "Fuel value: " + formatNum(it.fuel);
     row.appendChild(s);
-    sec.appendChild(row);
+    body.appendChild(row);
+    tip.appendChild(sec);
+  }
+  if (itemEdible(it) && typeof itemNutritionMult === "function" && itemNutritionMult(it) > 1) {
+    const { sec, body } = makeTipSection("Nutrition");
+    const row = document.createElement("div");
+    row.className = "tip-row";
+    const s = document.createElement("span");
+    s.textContent = "Overheals Stamina up to " + Math.round(itemNutritionMult(it) * 100) + "% of max";
+    row.appendChild(s);
+    body.appendChild(row);
     tip.appendChild(sec);
   }
   if (itemEdible(it)) appendTipSection(tip, "Consuming grants", it.consume.gains ?? {});
@@ -418,13 +682,39 @@ if (typeof window !== "undefined" && !window.__invTipTrack) {
 // every gain target sits at its cap (uncapped targets always have room,
 // so mixed bundles stay clickable). Also guards consumeItem itself, since
 // a bar can fill between the last render and the click.
+// Nutrition (Meal overheal): an item with nutrition N lets its own Stamina
+// grants exceed the cap up to max x N (e.g. nutrition 1.15 = up to 115% of
+// max). Only Stamina overheals, and only for edible items - bad values are
+// stripped at validation so this is just a second guard.
+function itemNutritionMult(it) {
+  return (it && typeof it.nutrition === "number" && Number.isFinite(it.nutrition) && it.nutrition > 1) ? it.nutrition : 1;
+}
+function itemOverhealCeil(it, rid) {
+  const max = (typeof getEffectiveMax === "function") ? getEffectiveMax(rid) : Infinity;
+  if (max === Infinity) return Infinity;
+  return (rid === "stamina" && itemEdible(it)) ? max * itemNutritionMult(it) : max;
+}
+// Highest edible nutrition multiplier on any item: bounds how far past the
+// cap Stamina may legitimately sit, so save/load keeps overheal instead of
+// clamping it back to the cap (see save.js).
+function maxNutritionMult() {
+  let m = 1;
+  if (typeof ITEMS !== "undefined") for (const it of ITEMS) {
+    if (!itemEdible(it)) continue;
+    const n = itemNutritionMult(it);
+    if (n > m) m = n;
+  }
+  return m;
+}
 function consumeFullyCapped(it) {
   const gains = (it && it.consume && it.consume.gains) || {};
   const ids = Object.keys(gains);
   if (!ids.length || typeof getEffectiveMax !== "function") return false;
   return ids.every(rid => {
-    const max = getEffectiveMax(rid);
-    return max !== Infinity && (state.amounts[rid] ?? 0) >= max;
+    // A meal still has room while Stamina sits below its own overheal
+    // ceiling (max x nutrition), not just below the cap.
+    const ceil = (typeof itemOverhealCeil === "function") ? itemOverhealCeil(it, rid) : getEffectiveMax(rid);
+    return ceil !== Infinity && (state.amounts[rid] ?? 0) >= ceil;
   });
 }
 // Eat one unit: pays nothing, grants the consume bundle through the
@@ -444,26 +734,64 @@ function gainDisplayColor(rid) {
   return r.nameColor ?? r.barColor ?? null;
 }
 
-function logConsume(base, gains, mergeKey) {
-  const entries = Object.entries(gains ?? {}).filter(([, n]) => n > 0);
-  if (!entries.length) { log(base, "consume", mergeKey); return; }
+// Consume log line with precise Stamina accounting: under-cap gains read as
+// "+N Stamina" while overhealed gains read as "also overhealing by +M"
+// ("You eat a plain salad. (+1 Stamina, also overhealing by +1.5)").
+// Overhealing is only mentioned when it actually happens - a meal eaten
+// fully under the cap logs bare gains ("(+4 Stamina)"), exactly like
+// plain foods. `gains` carries non-Stamina actuals, `split` the Stamina
+// actuals ({under, over}); merged repeats accumulate running totals the
+// same way. Amounts are actual grants (clamped), never nominal - a
+// near-cap apple logs "+0.5 Stamina", not "+1.25".
+function logConsume(base, gains, mergeKey, it, split) {
+  const entries = Object.entries(gains ?? {}).filter(([rid, n]) => rid !== "stamina" && n > 0);
+  const under = (split && split.under > 1e-9) ? split.under : 0;
+  const over = (split && split.over > 1e-9) ? split.over : 0;
+  const hasUnder = under > 0, hasOver = over > 0;
+  if (!entries.length && !hasUnder && !hasOver) { log(base, "consume", mergeKey); return; }
+  const stamDef = (typeof getResource === "function") ? getResource("stamina") : null;
+  const stamN = hasUnder ? under : over;
+  const stamLabel = "+" + formatNum(stamN) + " " + (stamDef ? displayName(stamDef, stamN) : "Stamina");
+  const overLabel = "+" + formatNum(over);
   const label = ([rid, n]) => {
     const def = (typeof getResource === "function") ? getResource(rid) : null;
     return "+" + formatNum(n) + " " + (def ? displayName(def, n) : rid);
   };
-  const plain = base + " (" + entries.map(label).join(", ") + ")";
+  let plain = base + " (";
+  let first = true;
+  const pushPlain = (t) => { if (!first) plain += ", "; first = false; plain += t; };
+  for (const e of entries) pushPlain(label(e));
+  if (hasUnder) pushPlain(stamLabel);
+  if (hasOver) pushPlain("also overhealing by " + overLabel);
+  plain += ")";
   const fill = (line) => {
     line.appendChild(document.createTextNode(base + " ("));
-    entries.forEach((e, i) => {
-      if (i) line.appendChild(document.createTextNode(", "));
+    let f = true;
+    // gain-c marks resource-tinted spans so light mode can darken them;
+    // the "also overhealing by" tail stays plain text.
+    const pushGain = (t, rid) => {
+      if (!f) line.appendChild(document.createTextNode(", "));
+      f = false;
       const s = document.createElement("span");
-      s.textContent = label(e);
-      // gain-c marks resource-tinted spans so light mode can darken them.
+      s.textContent = t;
       s.className = "gain-c";
-      const c = gainDisplayColor(e[0]);
+      const c = gainDisplayColor(rid);
       if (c) s.style.color = c;
       line.appendChild(s);
-    });
+    };
+    for (const e of entries) pushGain(label(e), e[0]);
+    if (hasUnder) pushGain(stamLabel, "stamina");
+    if (hasOver) {
+      if (!f) line.appendChild(document.createTextNode(", "));
+      f = false;
+      line.appendChild(document.createTextNode("also overhealing by "));
+      const s = document.createElement("span");
+      s.textContent = overLabel;
+      s.className = "gain-c";
+      const c = gainDisplayColor("stamina");
+      if (c) s.style.color = c;
+      line.appendChild(s);
+    }
     line.appendChild(document.createTextNode(")"));
   };
   if (typeof logRich === "function") logRich(plain, "consume", fill, mergeKey);
@@ -475,7 +803,7 @@ function logConsume(base, gains, mergeKey) {
 // instead of the generic back-to-back "(x2)" suffix. Any other log line
 // breaks the chain (lastLogMergeKey changes), starting a fresh count.
 // Runtime-only, never saved.
-let consumeAcc = null; // { key, id, n, gains }
+let consumeAcc = null; // { key, id, n, gains, under, over }
 let sellAcc = null; // { key, id, n, gains }
 
 function logChainAlive(acc) {
@@ -519,7 +847,8 @@ function consumeItem(id, maxEat) {
 // capped gain target (ceil of headroom per unit), bounded by what's
 // held. Items with no capped gains (pure uncapped bundles) eat the
 // whole stack. Callers guarantee at least one target has room (or no
-// caps at all), so this always returns 1+.
+// caps at all), so this always returns 1+. Meals measure headroom to
+// their own overheal ceiling (max x nutrition), not just the cap.
 function maxEatCount(it) {
   const owned = Math.floor(state.amounts[it.id] ?? 0);
   if (owned <= 0) return 0;
@@ -527,10 +856,10 @@ function maxEatCount(it) {
   let need = Infinity, hasCap = false;
   for (const [rid, n] of Object.entries(gains)) {
     if (!(n > 0)) continue;
-    const max = (typeof getEffectiveMax === "function") ? getEffectiveMax(rid) : Infinity;
-    if (max === Infinity) continue;
+    const ceil = (typeof itemOverhealCeil === "function") ? itemOverhealCeil(it, rid) : ((typeof getEffectiveMax === "function") ? getEffectiveMax(rid) : Infinity);
+    if (ceil === Infinity) continue;
     hasCap = true;
-    const room = max - (state.amounts[rid] ?? 0);
+    const room = ceil - (state.amounts[rid] ?? 0);
     if (room <= 0) continue;
     need = Math.min(need, Math.ceil(room / n));
   }
@@ -540,14 +869,21 @@ function maxEatCount(it) {
 }
 
 // One bite: consumes a unit and logs it. Repeat bites merge into one
-// rewritten line via the consumeAcc chain (see below).
+// rewritten line via the consumeAcc chain (see below). The log reports
+// actual grants split into under-cap and overheal shares (see logConsume).
 function eatOneUnit(it) {
   state.amounts[it.id] -= 1;
   const gains = (it.consume && it.consume.gains) || {};
+  let under = 0, over = 0;
+  const other = {};
   for (const [rid, n] of Object.entries(gains)) {
-    const max = (typeof getEffectiveMax === "function") ? getEffectiveMax(rid) : Infinity;
+    // Meals overheal: their own Stamina grants clamp to max x nutrition
+    // instead of the cap (never below the current value, so a weaker meal
+    // eaten above its own ceiling can't drain the buffer).
+    const ceil = (typeof itemOverhealCeil === "function") ? itemOverhealCeil(it, rid) : ((typeof getEffectiveMax === "function") ? getEffectiveMax(rid) : Infinity);
     const cur = state.amounts[rid] ?? 0;
-    state.amounts[rid] = max === Infinity ? cur + n : Math.min(max, cur + n);
+    const next = ceil === Infinity ? cur + n : Math.max(cur, Math.min(ceil, cur + n));
+    state.amounts[rid] = next;
     if (n > 0) {
       if (typeof markCurrencySeen === "function") markCurrencySeen(rid);
       // Item gains discover like any other find (see doTick).
@@ -556,17 +892,33 @@ function eatOneUnit(it) {
         state.seen[rid] = true;
       }
     }
+    const actual = next - cur;
+    if (!(actual > 1e-9)) continue;
+    if (rid === "stamina") {
+      const max = (typeof getEffectiveMax === "function") ? getEffectiveMax(rid) : Infinity;
+      if (max === Infinity) under += actual;
+      else {
+        under += Math.max(0, Math.min(max, next) - Math.min(max, cur));
+        over += Math.max(0, next - Math.max(max, cur));
+      }
+    } else {
+      other[rid] = (other[rid] ?? 0) + actual;
+    }
   }
   const key = "consume:" + it.id;
   if (logChainAlive(consumeAcc) && consumeAcc.id === it.id) {
     // Back-to-back eats of the same item rewrite one line with running
     // totals ("You consume 2 Apples. (+2 Stamina)") instead of "(x2)".
+    // Stamina totals stay split (under/over) so the merged line reports
+    // the true shares, not the nominal sum.
     consumeAcc.n += 1;
-    accAdd(consumeAcc.gains, gains);
-    logConsume("You consume " + formatNum(consumeAcc.n) + " " + displayName(it, consumeAcc.n) + ".", consumeAcc.gains, key);
+    consumeAcc.under += under;
+    consumeAcc.over += over;
+    accAdd(consumeAcc.gains, other);
+    logConsume("You consume " + formatNum(consumeAcc.n) + " " + displayName(it, consumeAcc.n) + ".", consumeAcc.gains, key, it, { under: consumeAcc.under, over: consumeAcc.over });
   } else {
-    consumeAcc = { key, id: it.id, n: 1, gains: { ...gains } };
-    logConsume((it.consume && it.consume.log) || ("You consume " + it.name + "."), gains, key);
+    consumeAcc = { key, id: it.id, n: 1, gains: { ...other }, under, over };
+    logConsume((it.consume && it.consume.log) || ("You consume " + it.name + "."), other, key, it, { under, over });
   }
 }
 
@@ -658,6 +1010,15 @@ function toggleSelling() {
   render();
 }
 
+// Leaving the Inventory tab disarms Selling mode (called from showTab).
+// No render here: the 50ms loop repaints within a tick, and showTab
+// itself fires mid-render on automatic tab kicks.
+function disarmSelling() {
+  if (!invSelling) return;
+  invSelling = false;
+  syncSellUI();
+}
+
 function setSellQty(n) {
   sellQty = normalizeSellQty(n);
   syncSellRow();
@@ -669,7 +1030,10 @@ function setSellQty(n) {
 // 1.5 Coins over the cap."). Selling at a full cap is always allowed.
 function logSell(base, gains, mergeKey) {
   const entries = Object.entries(gains ?? {}).filter(([, n]) => n > 0);
-  if (!entries.length) { log(base); return; }
+  // Empty gains only happen on degenerate (runtime-injected) prices -
+  // validation drops zero/unknown/self entries - but the line must still
+  // carry its category, or the sell filter can never hide it.
+  if (!entries.length) { log(base, "sell", mergeKey); return; }
   const label = ([rid, n]) => {
     const def = (typeof getResource === "function") ? getResource(rid) : null;
     return "+" + formatNum(n) + " " + (def ? displayName(def, n) : rid);
@@ -701,6 +1065,12 @@ function logSell(base, gains, mergeKey) {
 function syncItemSellWarn(it, ref) {
   const el = ref ? ref.sellWarn : null;
   if (!el) return;
+  // Selling-mode only: outside Sell mode the warning would nag on every
+  // capped tooltip, so it stays hidden until the mode is armed.
+  if (!invSelling) {
+    if (!el.hidden) el.hidden = true;
+    return;
+  }
   // Togglable in Options (on by default): off hides the warning outright.
   if (state.options.sellWarn === false) {
     if (!el.hidden) el.hidden = true;
@@ -768,6 +1138,12 @@ function sellItem(id) {
     }
     gains[rid] = total;
     if (typeof markCurrencySeen === "function") markCurrencySeen(rid);
+    // Item proceeds join the Inventory like any other find (see doTick);
+    // without this a sold-for item would be held but never seen.
+    if (typeof getItem === "function" && getItem(rid)) {
+      if (!state.seen) state.seen = {};
+      state.seen[rid] = true;
+    }
   }
   state.amounts[id] -= n;
   const key = "sell:" + id;
@@ -797,45 +1173,97 @@ function renderInventory() {
   syncSellUI();
   syncSellRow();
   const filter = invRarity();
-  const type = invType();
+  // One tag scan per tick: invType(), the chip totals, and the rebuild
+  // check below all share it instead of each re-scanning ITEMS.
+  const typeTags = invTypeTags();
+  const type = invType(typeTags);
   const hideEmpty = hideEmptyInv();
+  const query = ((state.options && state.options.invSearch) || "").trim().toLowerCase();
+  // Query singulars, computed once per tick instead of per cell.
+  const querySing = query ? invWordSingulars(query) : null;
+  // The search field is static markup (never rebuilt), so sync its text
+  // here without clobbering in-progress typing: only write when it isn't
+  // focused (loads/restores land while focus is elsewhere).
+  if (typeof invSearchInput !== "undefined" && invSearchInput && document.activeElement !== invSearchInput && invSearchInput.value !== (state.options.invSearch ?? "")) invSearchInput.value = state.options.invSearch ?? "";
   // Rarity chips highlight the active filter (setInvRarity only flips the
   // option + re-renders, so the chips would otherwise stay stale), and
   // their counts follow discoveries, the type filter, and the empty rule
   // live (gathering marks items seen, so the modal numbers update with no
-  // rebuild). Labels rewrite only when the counts actually change.
+  // rebuild). Labels rewrite only when the counts actually change. Counts
+  // come from one shared single-pass tally (see invChipTotals), not one
+  // scan per chip.
+  const chipTotals = (typeof invChipTotals === "function") ? invChipTotals(typeTags) : null;
+  const rarCount = (r) => chipTotals
+    ? (r === "all" ? chipTotals.rarTotal : (chipTotals.rar.get(r) ?? 0))
+    : invCountFor(r);
+  const typCount = (t) => chipTotals
+    ? (t === "all" ? chipTotals.typTotal : (chipTotals.typ.get(t) ?? 0))
+    : invTypeCountFor(t);
   const filterRow = document.getElementById("invFilterRow");
   if (filterRow) {
-    const chips = [...filterRow.querySelectorAll("button[data-rarity]")];
-    const sig = chips.map(b => (b.dataset.rarity ?? "all") + ":" + invCountFor(b.dataset.rarity ?? "all")).join(",");
+    // Static chip set (rarity list never changes at runtime): cache the
+    // nodes instead of re-querying every tick.
+    if (!filterRow._chips) filterRow._chips = [...filterRow.querySelectorAll("button[data-rarity]")];
+    const chips = filterRow._chips;
+    const sig = chips.map(b => (b.dataset.rarity ?? "all") + ":" + rarCount(b.dataset.rarity ?? "all")).join(",");
     if (filterRow.dataset.countSig !== sig) {
       filterRow.dataset.countSig = sig;
       for (const b of chips) {
         const r = b.dataset.rarity ?? "all";
-        b.textContent = invRarityChipLabel(r, invCountFor(r));
+        b.textContent = invRarityChipLabel(r, rarCount(r));
         b.classList.toggle("active", r === filter);
       }
     } else {
       for (const b of chips) b.classList.toggle("active", (b.dataset.rarity ?? "all") === filter);
     }
   }
-  // Type chips sync the same way (highlight + live counts).
+  // Type chips sync the same way (highlight + live counts): categories in
+  // the main row, the active category's sub-types in the sub row below.
   const typeRow = document.getElementById("invTypeRow");
+  const subRow = document.getElementById("invTypeSubRow");
+  const topTypes = invTopLevelTypes();
+  const subTypes = invSubRowTypes();
   if (typeRow) {
-    // Discovery can add tags at any time (a first find), so rebuild the
-    // row when the discovered set changes - counts alone can't do that.
-    const tagSig = invTypeTags().join("|");
+    // New finds can add categories at any time, so rebuild the row when
+    // the set changes - counts alone can't do that.
+    // The chip nodes are cached like the rarity row's (see above).
+    const tagSig = topTypes.join("|");
     if (typeRow.dataset.tagSig !== tagSig) {
       typeRow.dataset.tagSig = tagSig;
       buildInvTypeRow();
+      typeRow._chips = null;
     }
-    const chips = [...typeRow.querySelectorAll("button[data-invtype]")];
-    const sig = chips.map(b => (b.dataset.invtype ?? "all") + ":" + invTypeCountFor(b.dataset.invtype ?? "all")).join(",");
+    if (!typeRow._chips) typeRow._chips = [...typeRow.querySelectorAll("button[data-invtype]")];
+    const chips = typeRow._chips;
+    const sig = chips.map(b => (b.dataset.invtype ?? "all") + ":" + typCount(b.dataset.invtype ?? "all")).join(",");
     if (typeRow.dataset.countSig !== sig) {
       typeRow.dataset.countSig = sig;
       for (const b of chips) {
         const t = b.dataset.invtype ?? "all";
-        b.textContent = invTypeChipLabel(t, invTypeCountFor(t));
+        b.textContent = invTypeChipLabel(t, typCount(t));
+        b.classList.toggle("active", t === type);
+      }
+    } else {
+      for (const b of chips) b.classList.toggle("active", (b.dataset.invtype ?? "all") === type);
+    }
+  }
+  if (subRow) {
+    // Selecting another category swaps the whole sub-type set, so the sub
+    // row rebuilds on set changes exactly like the main row.
+    const tagSig = subTypes.join("|");
+    if (subRow.dataset.tagSig !== tagSig) {
+      subRow.dataset.tagSig = tagSig;
+      buildInvTypeSubRow();
+      subRow._chips = null;
+    }
+    if (!subRow._chips) subRow._chips = [...subRow.querySelectorAll("button[data-invtype]")];
+    const chips = subRow._chips;
+    const sig = chips.map(b => (b.dataset.invtype ?? "all") + ":" + typCount(b.dataset.invtype ?? "all")).join(",");
+    if (subRow.dataset.countSig !== sig) {
+      subRow.dataset.countSig = sig;
+      for (const b of chips) {
+        const t = b.dataset.invtype ?? "all";
+        b.textContent = invTypeChipLabel(t, typCount(t));
         b.classList.toggle("active", t === type);
       }
     } else {
@@ -848,12 +1276,12 @@ function renderInventory() {
     if (!ref || !ref.root.isConnected) continue;
     const owned = state.amounts[it.id] ?? 0;
     const seen = !!(state.seen && state.seen[it.id]);
-    const match = (filter === "all" || (it.rarity ?? "common") === filter) && invTypeMatch(it, type);
+    const match = (filter === "all" || (it.rarity ?? "common") === filter) && invTypeMatch(it, type) && invSearchMatch(it, query, querySing);
     const show = seen && match && (owned > 0 || !hideEmpty);
     if (show) anyVisible = true;
     const edible = itemEdible(it);
     const capped = edible && consumeFullyCapped(it);
-    const sig = (show ? 1 : 0) + "|" + owned + "|" + filter + "|" + type + "|" + (hideEmpty ? 1 : 0) + "|" + (edible ? 1 : 0) + "|" + (capped ? 1 : 0);
+    const sig = (show ? 1 : 0) + "|" + owned + "|" + filter + "|" + type + "|" + query + "|" + (hideEmpty ? 1 : 0) + "|" + (edible ? 1 : 0) + "|" + (capped ? 1 : 0);
     if (ref._sig !== sig) {
       ref._sig = sig;
       ref.root.hidden = !show;
@@ -897,6 +1325,28 @@ if (typeof sellQtyInput !== "undefined" && sellQtyInput) {
   });
   sellQtyInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && sellQtyInput.blur) sellQtyInput.blur();
+    e.stopPropagation();
+  });
+}
+// Inventory search wiring: typing applies live (Enter just leaves the
+// field, Escape clears it). Same stopPropagation as the sell field so
+// global keys don't fire mid-typing.
+if (typeof invSearchInput !== "undefined" && invSearchInput) {
+  invSearchInput.addEventListener("input", () => {
+    state.options.invSearch = invSearchInput.value;
+    render();
+  });
+  // The native type=search clear button doesn't fire `input` in every
+  // browser (it fires `search`); without this, the per-tick render would
+  // resync the field from the stale state and undo the clear. Firing on
+  // Enter in some browsers is harmless (same value, one extra render).
+  invSearchInput.addEventListener("search", () => {
+    state.options.invSearch = invSearchInput.value;
+    render();
+  });
+  invSearchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && invSearchInput.blur) invSearchInput.blur();
+    else if (e.key === "Escape") { state.options.invSearch = ""; invSearchInput.value = ""; render(); }
     e.stopPropagation();
   });
 }

@@ -33,20 +33,41 @@ function worldMapSize(tierId) {
   return (t && Number.isInteger(t.size) && t.size > 0) ? t.size : 6;
 }
 
+// Tile caches (see bustWorldCaches): tile makeup is static per tier, and
+// the player's tag set only changes on move/tier/site edits. All callers
+// only read, so sharing is safe; guards rebuild on push/pop probe edits.
+let __tileCache = { n: -1, map: new Map() };
+let __playerTags = { key: '', tags: [] };
+let __forageTable = { key: '', table: null };
+function bustWorldCaches() {
+  __tileCache = { n: -1, map: new Map() };
+  __playerTags = { key: '', tags: [] };
+  __forageTable = { key: '', table: null };
+}
+
 // One tile's makeup: its biome (tier default, overridable per tile by a
 // WORLD_SITES entry) plus any modifier site on it.
 function worldTileAt(x, y, tierId) {
   const tier = worldTierDef(tierId ?? (state.world && state.world.tier));
-  let biome = (tier && tier.biome) ? worldBiomeDef(tier.biome) : worldBiomeDef();
-  let modifier = null;
-  if (typeof WORLD_SITES !== "undefined" && tier) {
-    const site = WORLD_SITES.find(s => s.tier === tier.id && s.x === x && s.y === y);
-    if (site) {
-      if (site.modifier) modifier = worldModifierDef(site.modifier);
-      if (site.biome) biome = worldBiomeDef(site.biome) || biome;
+  const tierId2 = tier ? tier.id : null;
+  const nSites = (typeof WORLD_SITES !== "undefined") ? WORLD_SITES.length : 0;
+  if (__tileCache.n !== nSites) __tileCache = { n: nSites, map: new Map() };
+  const key = (tierId2 ?? "?") + "|" + x + "," + y;
+  let hit = __tileCache.map.get(key);
+  if (hit === undefined) {
+    let biome = (tier && tier.biome) ? worldBiomeDef(tier.biome) : worldBiomeDef();
+    let modifier = null;
+    if (typeof WORLD_SITES !== "undefined" && tier) {
+      const site = WORLD_SITES.find(s => s.tier === tier.id && s.x === x && s.y === y);
+      if (site) {
+        if (site.modifier) modifier = worldModifierDef(site.modifier);
+        if (site.biome) biome = worldBiomeDef(site.biome) || biome;
+      }
     }
+    hit = { x, y, tier: tierId2, biome, modifier };
+    __tileCache.map.set(key, hit);
   }
-  return { x, y, tier: tier ? tier.id : null, biome, modifier };
+  return hit;
 }
 
 function worldTileName(t) {
@@ -60,10 +81,23 @@ function worldTileTags(t) {
 
 // Tags are matched case-insensitively, so config may write "Shopping" or
 // "shopping" and tiles "General Store" or "general store" alike.
+// Current-tile tag set, memoized: tileRequirementMet, worldTileHasTag and
+// findForageTable all read the player's tile every tick, but its tags
+// only change on move/tier/site edits (the guards below). Same content
+// as worldTileTags(worldTileAt(...)), shared read-only.
+function worldPlayerTileTags() {
+  const key = (state.world ? state.world.x + "," + state.world.y + "|" + state.world.tier : "?")
+    + "|" + ((typeof WORLD_SITES !== "undefined") ? WORLD_SITES.length : 0);
+  if (__playerTags.key !== key) {
+    __playerTags = { key, tags: (!state.world ? [] : worldTileTags(worldTileAt(state.world.x, state.world.y))) };
+  }
+  return __playerTags.tags;
+}
+
 function worldTileHasTag(tag) {
   if (!state.world) return false;
   const want = String(tag).toLowerCase();
-  return worldTileTags(worldTileAt(state.world.x, state.world.y)).some(t => String(t).toLowerCase() === want);
+  return worldPlayerTileTags().some(t => String(t).toLowerCase() === want);
 }
 
 function shoppingGated(item) {
@@ -73,15 +107,22 @@ function shoppingGated(item) {
 // Current-tile forage table: first FORAGE_TABLES entry matching the tier
 // plus the tile's biome id (or one of its tags, case-insensitive). Shared
 // by the loot roll and the tooltip odds display, so both always agree.
+// Memoized on the player tile + table count (see bustWorldCaches).
 function findForageTable() {
   if (!state.world || typeof FORAGE_TABLES === "undefined") return null;
   const t = worldTileAt(state.world.x, state.world.y);
-  const tags = worldTileTags(t).map(s => String(s).toLowerCase());
-  const tier = state.world.tier;
-  return FORAGE_TABLES.find(e => e && e.tier === tier &&
-    ((!e.biome && !e.tag) ||
-     (e.biome && t.biome && e.biome === t.biome.id) ||
-     (e.tag && tags.includes(String(e.tag).toLowerCase())))) ?? null;
+  const tags = worldPlayerTileTags();
+  const tableKey = state.world.tier + "|" + (t.biome ? t.biome.id : "?") + "|" + tags.join(",") + "|" + FORAGE_TABLES.length;
+  if (__forageTable.key !== tableKey) {
+    const ltags = tags.map(s => String(s).toLowerCase());
+    const tier = state.world.tier;
+    const found = FORAGE_TABLES.find(e => e && e.tier === tier &&
+      ((!e.biome && !e.tag) ||
+        (e.biome && t.biome && e.biome === t.biome.id) ||
+        (e.tag && ltags.includes(String(e.tag).toLowerCase())))) ?? null;
+    __forageTable = { key: tableKey, table: found };
+  }
+  return __forageTable.table;
 }
 
 // Gathering loot: run the FORAGE_TABLES roll for a gather action (e.g.
@@ -117,7 +158,19 @@ function grantGatherLoot(action) {
 // The legacy "shopping" tag still implies ["General Store"], so existing
 // config keeps working. Before the World unlocks (no position yet) the
 // player is implicitly in town, so every requirement counts as met.
+// Memoized per item object (requiresTile/tags are static config): the
+// dedupe + shopping-gate scan runs once, not on every gate check.
+const __reqTagsCache = new WeakMap();
 function tileRequirementTags(item) {
+  if (!item || typeof item !== "object") return tileRequirementTagsFresh(item);
+  let cached = __reqTagsCache.get(item);
+  if (cached === undefined) {
+    cached = tileRequirementTagsFresh(item);
+    __reqTagsCache.set(item, cached);
+  }
+  return cached;
+}
+function tileRequirementTagsFresh(item) {
   const out = [];
   const push = (t) => {
     const s = String(t).trim();
@@ -134,7 +187,7 @@ function tileRequirementMet(item) {
   const req = tileRequirementTags(item);
   if (!req.length) return true;
   if (!worldUnlocked() || !state.world) return true;
-  const tags = worldTileTags(worldTileAt(state.world.x, state.world.y));
+  const tags = worldPlayerTileTags();
   return req.some(r => tags.some(t => String(t).toLowerCase() === r.toLowerCase()));
 }
 
@@ -315,6 +368,7 @@ function worldTileAdjacent(x, y) {
 const PLAINS_ENTRY_XP = 0.1;
 const FOREST_ENTRY_XP = 0.1;
 function grantTileEntryXp(x, y) {
+  if (typeof worldInBounds === "function" && !worldInBounds(x, y)) return;
   const t = (typeof worldTileAt === "function") ? worldTileAt(x, y) : null;
   if (t && t.biome && t.biome.id === "plains" && typeof gainSkillXp === "function") {
     // Milestone multipliers (Plain Sense II) apply here too, so the
@@ -344,10 +398,19 @@ function startWorldTravel(tx, ty) {
     log("You are already on that tile.");
     return;
   }
-  // No traveling on empty: a trip started at 0 Stamina would stall on its
-  // first tick (worldTick waits for Rest), so refuse up front instead.
-  // Resuming a paused trip is still allowed - it just waits for Stamina.
-  if ((state.amounts.stamina ?? 0) <= 0) {
+  // A moving trip must be stopped first (the Stop button below the map):
+  // any other click while it runs says so, before range or Stamina -
+  // otherwise a far click reports "too far" and a 0-Stamina destination
+  // click reports "too tired" for a trip that is already underway.
+  if (state.world.travel && !state.world.travel.paused) {
+    log("You are already traveling.");
+    return;
+  }
+  // No traveling on empty: a NEW trip started at 0 Stamina would stall
+  // on its first tick (worldTick waits for Rest), so refuse up front
+  // instead. Resuming a paused trip is still allowed (same-destination
+  // branch below) - it just waits for Stamina.
+  if ((state.amounts.stamina ?? 0) <= 0 && !(state.world.travel && state.world.travel.paused && state.world.travel.tx === tx && state.world.travel.ty === ty)) {
     log("You're too tired to go anywhere without resting.", "full");
     return;
   }
@@ -356,11 +419,9 @@ function startWorldTravel(tx, ty) {
     return;
   }
   if (state.world.travel) {
+    // Unpaused trips returned above; only a stopped trip reaches here:
+    // same destination resumes it, another tile replaces it.
     const tr = state.world.travel;
-    if (!tr.paused) {
-      log("You are already traveling.");
-      return;
-    }
     if (tr.tx === tx && tr.ty === ty) {
       tr.paused = false;
       lastTime = performance.now();
@@ -371,10 +432,12 @@ function startWorldTravel(tx, ty) {
   }
   const total = getEffectiveTravelTime(tx, ty);
   // A 0s tile teleports: no trip, no bar - but the terrain still charges
-  // one second of its drain, fractional like trip drain (never below 0).
+  // one second of its drain (never below 0). Kept exact (no rounding):
+  // the Vitals panel formats for display, so rounding here would only
+  // undercharge.
   if (total <= 0) {
     const diff = getEffectiveTerrainDifficulty(tx, ty);
-    if (diff > 0) state.amounts.stamina = Math.max(0, Math.round(((state.amounts.stamina ?? 0) - diff) * 100) / 100);
+    if (diff > 0) state.amounts.stamina = Math.max(0, (state.amounts.stamina ?? 0) - diff);
     state.world.travel = null;
     state.world.x = tx;
     state.world.y = ty;
@@ -403,8 +466,9 @@ function toggleWorldTravelPause() {
 // advances the trip. At 0 Stamina the trip pauses (Rest refills it); the
 // bar simply waits. A manually stopped trip (paused) waits the same way.
 // Arrival lands the player on the tile.
-// Stamina drains fractionally (rounded to 2dp, so no float dust), which
-// the Vitals panel shows as-is - a 0.5/s drain reads 9.5/10.
+// Stamina drains exactly (no per-tick rounding): rounding to 2dp biased
+// every 0.025-step down to 0.02, undercharging ~10% per trip. The Vitals
+// panel formats for display, so float dust never shows.
 function worldTick(dt) {
   const w = state.world;
   if (!w || !w.travel || w.travel.paused) return;
@@ -421,7 +485,7 @@ function worldTick(dt) {
   if (cur <= 0) return;
   const drain = getEffectiveTerrainDifficulty(tx, ty);
   if (drain > 0) {
-    state.amounts.stamina = Math.max(0, Math.round((cur - drain * dt) * 100) / 100);
+    state.amounts.stamina = Math.max(0, cur - drain * dt);
   }
   w.travel.remaining -= dt;
   if (w.travel.remaining <= 0) {
@@ -653,11 +717,15 @@ function buildWorldTab() {
       const nt = worldTierDef(tierSel.value);
       if (!nt || !state.world) return;
       // Placeholder tiers share the same land, so switching keeps the
-      // trip cleared and drops the player at that tier's start.
+      // trip cleared and drops the player at that tier's start (clamped
+      // to the tier, like the save loader, so a bad start can't strand
+      // the player off the map).
       state.world.tier = nt.id;
       state.world.travel = null;
-      state.world.x = nt.start.x;
-      state.world.y = nt.start.y;
+      const size = worldMapSize(nt.id);
+      const sx = nt.start ? nt.start.x : Math.floor(size / 2), sy = nt.start ? nt.start.y : Math.floor(size / 2);
+      state.world.x = (Number.isInteger(sx) && sx >= 0 && sx < size) ? sx : Math.floor(size / 2);
+      state.world.y = (Number.isInteger(sy) && sy >= 0 && sy < size) ? sy : Math.floor(size / 2);
       buildWorldTab();
       render();
     });
@@ -801,25 +869,32 @@ function renderWorld() {
   // toward the destination as the trip progresses, so speed visibly follows
   // the terrain's travel time (slow ground = slow marker); frozen while the
   // trip is stopped. When idle it parks on the player tile, so the marker
-  // is always visible.
+  // is always visible. Positions write only when changed (the offset reads
+  // force layout, so don't pay for them every tick while parked).
   const marker = document.getElementById("worldPlayerMarker");
   if (marker) {
     const oBtn = (state.world ? (worldTileBtns.find(e => e.x === state.world.x && e.y === state.world.y) || {}).btn : null);
     const dBtn = traveling ? (worldTileBtns.find(e => e.x === state.world.travel.tx && e.y === state.world.travel.ty) || {}).btn : null;
-    if (!oBtn || !oBtn.isConnected || (traveling && (!dBtn || !dBtn.isConnected))) {
-      marker.hidden = true;
-    } else if (!traveling) {
-      marker.hidden = false;
-      marker.style.left = (oBtn.offsetLeft + oBtn.offsetWidth / 2) + "px";
-      marker.style.top = (oBtn.offsetTop + oBtn.offsetHeight / 2) + "px";
-    } else {
-      marker.hidden = false;
-      const tr = state.world.travel;
-      const frac = Math.min(1, Math.max(0, 1 - tr.remaining / tr.total));
-      const ox = oBtn.offsetLeft + oBtn.offsetWidth / 2, oy = oBtn.offsetTop + oBtn.offsetHeight / 2;
-      const dx = dBtn.offsetLeft + dBtn.offsetWidth / 2, dy = dBtn.offsetTop + dBtn.offsetHeight / 2;
-      marker.style.left = (ox + (dx - ox) * frac) + "px";
-      marker.style.top = (oy + (dy - oy) * frac) + "px";
+    let mHide = true, mLeft = "", mTop = "";
+    if (oBtn && oBtn.isConnected && (!traveling || (dBtn && dBtn.isConnected))) {
+      mHide = false;
+      if (!traveling) {
+        mLeft = (oBtn.offsetLeft + oBtn.offsetWidth / 2) + "px";
+        mTop = (oBtn.offsetTop + oBtn.offsetHeight / 2) + "px";
+      } else {
+        const tr = state.world.travel;
+        const frac = Math.min(1, Math.max(0, 1 - tr.remaining / tr.total));
+        const ox = oBtn.offsetLeft + oBtn.offsetWidth / 2, oy = oBtn.offsetTop + oBtn.offsetHeight / 2;
+        const dx = dBtn.offsetLeft + dBtn.offsetWidth / 2, dy = dBtn.offsetTop + dBtn.offsetHeight / 2;
+        mLeft = (ox + (dx - ox) * frac) + "px";
+        mTop = (oy + (dy - oy) * frac) + "px";
+      }
+    }
+    const mSig = (mHide ? 1 : 0) + "|" + mLeft + "|" + mTop;
+    if (marker._posSig !== mSig) {
+      marker._posSig = mSig;
+      marker.hidden = mHide;
+      if (!mHide) { marker.style.left = mLeft; marker.style.top = mTop; }
     }
   }
   renderWorldTileInfo();
@@ -834,9 +909,14 @@ function renderWorld() {
     const paidResume = !isActive && !!cyc && cyc.paid === true;
     const effCost = (typeof effectiveCosts === "function") ? effectiveCosts(a) : { ...(a.costs ?? {}) };
     const vitalsFull = gainsAreFull(effectiveGains(a));
-    // Tile-modifier locks (e.g. Hamlet banning Forage) disable the
-    // mirror the same way an unmet requirement does.
-    const blocked = worldShopBlocked(a) || ((typeof worldActionLocked === "function") && worldActionLocked(a));
+    // Tile-modifier locks (e.g. Hamlet banning Forage) hide the mirror
+    // outright; unmet tile requirements hide it only for hideWhenOffTile
+    // actions (Work-tab parity - other actions show disabled with a red
+    // star). A running action stays visible until the next tick stops it.
+    const shopBlock = worldShopBlocked(a);
+    const lockBlock = ((typeof worldActionLocked === "function") && worldActionLocked(a));
+    const blocked = shopBlock || lockBlock;
+    const mirrorHide = (lockBlock || (!!a.hideWhenOffTile && shopBlock)) && !isActive;
     const disabled = isActive ? false : ((!canAfford(effCost) && !paidResume) || vitalsFull || blocked);
     const overMax = (typeof costExceedsMax === "function") ? costExceedsMax(effCost) : false;
     const prog = cyc ? cyc.progress : 0;
@@ -849,13 +929,13 @@ function renderWorld() {
     const impCap = a.improvements ? ((typeof getEffectiveImpMax === "function") ? getEffectiveImpMax(a) : a.improvements.maxLevel) : "";
     const count = state.stats.actions[a.id] ?? 0;
     const gatherSig = (typeof gatherTipSig === "function") ? gatherTipSig(a) : "";
-    const sig = (isActive ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + pkey + "|" + (blocked ? 1 : 0) + "|" + (overMax ? 1 : 0) + "|" + count + "|" + impCap + "|" + xpSig + "|" + costSig + "|" + gatherSig + "|" + tick.toFixed(3);
+    const sig = (isActive ? 1 : 0) + "|" + (disabled ? 1 : 0) + "|" + pkey + "|" + (blocked ? 1 : 0) + "|" + (mirrorHide ? 1 : 0) + "|" + (overMax ? 1 : 0) + "|" + count + "|" + impCap + "|" + xpSig + "|" + costSig + "|" + gatherSig + "|" + tick.toFixed(3);
     if (ref._sig === sig) continue;
     ref._sig = sig;
     ref.root.classList.toggle("active", isActive);
-    // Locked actions hide outright (Work-tab parity); a running one
-    // stays visible until the next tick stops it.
-    ref.root.hidden = blocked && !isActive;
+    // Hides exactly like its Work button (locks + hideWhenOffTile); a
+    // running one stays visible until the next tick stops it.
+    ref.root.hidden = mirrorHide && !isActive;
     if (ref.label) {
       // Same red "Name*" as the Work button: over-cap price or unmet
       // tile requirement (off-tile) - or banned by this tile's modifier.
@@ -865,7 +945,10 @@ function renderWorld() {
     }
     ref.root.setAttribute("aria-pressed", isActive ? "true" : "false");
     ref.root.disabled = disabled;
-    if (ref.fill) ref.fill.style.width = isActive ? Math.min(100, (prog / tick) * 100) + "%" : "0%";
+    // Very fast cycles (4+ fills/sec) flow instead of filling (see .flowing).
+    const wFlowing = isActive && tick <= FAST_BAR_TICK_SECONDS;
+    if (ref.prog) ref.prog.classList.toggle("flowing", wFlowing);
+    if (ref.fill) ref.fill.style.width = !isActive ? "0%" : (wFlowing ? "100%" : Math.min(100, (prog / tick) * 100) + "%");
     if (ref.prog) ref.prog.hidden = !isActive;
     if (ref.time) ref.time.textContent = isActive ? formatDuration(tick - prog, (s) => s.toFixed(2) + "s") : "";
     if (typeof renderActionTipLive === "function") renderActionTipLive(a, ref);
