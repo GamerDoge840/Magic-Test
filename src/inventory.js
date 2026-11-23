@@ -1132,7 +1132,9 @@ function renderInventory() {
   const typeTags = invTypeTags();
   const type = invType(typeTags);
   const hideEmpty = hideEmptyInv();
-  const query = ((state.options && state.options.invSearch) || "").trim().toLowerCase();
+  // String-coerced: a non-string value (save tampering, a stray write)
+  // would otherwise throw on .trim() and freeze the 50ms tick loop.
+  const query = String((state.options && state.options.invSearch) || "").trim().toLowerCase();
   // Query singulars, computed once per tick instead of per cell.
   const querySing = query ? invWordSingulars(query) : null;
   // The search field is static markup (never rebuilt), so sync its text

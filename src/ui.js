@@ -68,6 +68,7 @@ function buildUI() {
   if (typeof sellWarnChk !== "undefined" && sellWarnChk) sellWarnChk.checked = state.options.sellWarn !== false;
   if (typeof showActionTimeChk !== "undefined" && showActionTimeChk) showActionTimeChk.checked = state.options.showActionTime !== false;
   if (typeof showUnlockReqsChk !== "undefined" && showUnlockReqsChk) showUnlockReqsChk.checked = !!state.options.showUnlockReqs;
+  if (typeof showActionHighlightsChk !== "undefined" && showActionHighlightsChk) showActionHighlightsChk.checked = state.options.showActionHighlights !== false;
   if (typeof themeSel !== "undefined" && themeSel) themeSel.value = normalizeTheme(state.options.theme);
   if (typeof autosaveChk !== "undefined" && autosaveChk) autosaveChk.checked = !!state.options.autosave;
   if (typeof autosaveEverySel !== "undefined" && autosaveEverySel) autosaveEverySel.value = String(normalizeAutosaveEvery(state.options.autosaveEvery));

@@ -498,6 +498,13 @@ if (typeof showUnlockReqsChk !== "undefined" && showUnlockReqsChk) showUnlockReq
   state.options.showUnlockReqs = showUnlockReqsChk.checked;
   render();
 });
+if (typeof showActionHighlightsChk !== "undefined" && showActionHighlightsChk) showActionHighlightsChk.addEventListener("change", () => {
+  state.options.showActionHighlights = showActionHighlightsChk.checked;
+  // Rings only repaint on hover events, so clear any mid-hover rings
+  // outright; the next render re-tints the open tip.
+  if (typeof clearAllHi === "function") clearAllHi();
+  render();
+});
 // Theme override: "system" follows the OS, "light"/"dark" force that
 // scheme. Body classes beat the media-query blocks (see index.html);
 // documentElement colorScheme keeps native controls/scrollbars in sync.

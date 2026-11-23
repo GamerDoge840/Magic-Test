@@ -99,7 +99,7 @@
   #craftGrid { display: grid; grid-template-columns: 240px minmax(0, 1fr) 240px; grid-template-areas: "cside cmain clog"; gap: 10px; margin-bottom: 0; text-align: left; align-items: stretch; flex: 1; min-height: 0; }
   #craftGrid .panel { overflow: hidden; display: flex; flex-direction: column; min-height: 0; text-align: left; }
   #craftSideCol { grid-area: cside; }
-  #craftMainPanel { grid-area: cmain; overflow-y: auto; }
+  #craftGrid #craftMainPanel { grid-area: cmain; overflow-y: auto; }
   #craftLogPanel { grid-area: clog; }
   /* Tabular digits so the per-tick decimal readouts (progress
      countdown, fuel left, slot/material counts) never wobble in
@@ -113,6 +113,17 @@
   .craftTypeRow { flex-wrap: wrap; flex: none; margin-bottom: 10px; justify-content: center; }
   .craftTypeRow button.on { background: #4a5160; border-color: #9aa3b5; color: #fff; font-weight: bold; box-shadow: 0 0 8px rgba(255,255,255,0.25); }
   #craftPlansCtn { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
+  /* Plans-rail custom scrollbar (see buildCraftRailScroll): native bars
+     are overlay/invisible on some systems, so the rail carries its own
+     always-visible thumb while it overflows; the native bar is hidden
+     so exactly one bar shows everywhere. */
+  #craftSideCol { position: relative; }
+  #craftPlansCtn { scrollbar-width: none; }
+  #craftPlansCtn::-webkit-scrollbar { display: none; }
+  .craftRailTrack { position: absolute; top: 8px; right: 4px; bottom: 8px; width: 8px; border-radius: 4px; background: rgba(74, 79, 92, 0.18); display: none; z-index: 5; touch-action: none; cursor: pointer; }
+  .craftRailTrack.show { display: block; }
+  .craftRailThumb { position: absolute; left: 0; top: 0; width: 8px; min-height: 20px; border-radius: 4px; background: #767d8c; }
+  .craftRailThumb:hover { background: #8b93a3; }
   .craftPlanRow { position: relative; text-align: left; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 6px 10px; }
   .craftPlanRow.on { background: #4a5160; border-color: #9aa3b5; color: #fff; font-weight: bold; }
   .craftPlanRow:disabled { opacity: 0.55; cursor: default; }
@@ -1151,6 +1162,7 @@
     <div class="optionRow"><label style="white-space:nowrap"><input id="stopIfFullChk" type="checkbox"> Stop if Full</label><span>Actions automatically stop when one of their currency outputs reaches its cap. A stopped-full action shows an orange border — click it to run anyway.</span></div>
     <div class="optionRow"><label style="white-space:nowrap"><input id="showActionTimeChk" type="checkbox"> Show action times</label><span>Action and upgrade tooltips show how long they take. On by default.</span></div>
     <div class="optionRow"><label style="white-space:nowrap"><input id="showUnlockReqsChk" type="checkbox"> Show unlock requirements</label><span>Action, upgrade, plan, and furniture tooltips show every unlock requirement before the Cost section. Off by default to keep tooltips compact.</span></div>
+    <div class="optionRow"><label style="white-space:nowrap"><input id="showActionHighlightsChk" type="checkbox"> Show action highlights</label><span>Hovering actions, upgrades, and furniture rings the involved resources red and green. On by default.</span></div>
     <div class="optionDiv"></div>
     <div class="optionRow"><label style="white-space:nowrap"><input id="hideEmptyInvChk" type="checkbox"> Hide empty inventory items</label><span>Inventory hides items you own 0 of instead of showing them grayed-out.</span></div>
     <div class="optionRow"><label style="white-space:nowrap"><input id="sellWarnChk" type="checkbox"> Warn before over-cap sales</label><span>Item tooltips warn when selling the current amount would overflow a cap. On by default.</span></div>

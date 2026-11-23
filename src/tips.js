@@ -847,7 +847,15 @@ function placeActionTip(btn) {
 // or fills (green) - always through effectiveGains, so improved payouts and
 // furniture/home boosts highlight too.
 // Shared panels: the ring hits EVERY visible copy (Work + Home + later tabs).
+// Highlights toggle (Options > Actions, on by default): hovering an
+// action, upgrade, or furniture rings the involved resources red/green.
+// Off paints no rings. Tooltip row tints always paint.
+function highlightsOn() {
+  try { return (typeof state === "undefined" || !state.options) ? true : state.options.showActionHighlights !== false; }
+  catch (e) { return true; }
+}
 function hiResources(a, on) {
+  if (!highlightsOn()) on = false;
   for (const id of Object.keys(a.costs ?? {})) for (const ref of getResourceRefs(id)) ref.root.classList.toggle("spendHi", on);
   for (const id of Object.keys(effectiveGains(a))) for (const ref of getResourceRefs(id)) ref.root.classList.toggle("gainHi", on);
 }
@@ -923,7 +931,6 @@ function tintTip(ref, costs) {
     el.parentElement.classList.toggle("capped", max !== Infinity && (state.amounts[id] ?? 0) >= max);
   }
 }
-
 function openTip(key, btn, hi, costs) {
   // World Action mirrors detach above the strip (full size, may overlap the
   // Tile panel); everything else fits inside its own list.

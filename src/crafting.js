@@ -838,6 +838,75 @@ function buildCraftingTab() {
   recipesCtn.innerHTML = "";
   craftUI = { groupRow, plansCtn, matsCtn, planCtn, recipesCtn, matsSig: null, plansSig: null, planSig: null, recipesSig: null, groupsSig: null };
   buildCraftSlots();
+  buildCraftRailScroll();
+}
+
+// Plans-rail custom scrollbar: native scrollbars are overlay (invisible
+// until mid-scroll) in the user's browser, so a flooded rail gave no
+// persistent affordance that it scrolls. This thin track+thumb (same
+// palette as the native thin thumbs) is always visible while the rail
+// overflows, and hides with it when everything fits. The native bar is
+// suppressed on this container (see index.html) so exactly one bar shows
+// on every platform; wheel/touch/keyboard scrolling is untouched.
+function buildCraftRailScroll() {
+  const side = document.getElementById("craftSideCol");
+  const rail = craftUI && craftUI.plansCtn;
+  if (!side || !rail) return;
+  let track = side.querySelector(":scope > .craftRailTrack");
+  if (!track) {
+    track = document.createElement("div");
+    track.className = "craftRailTrack";
+    const thumb = document.createElement("div");
+    thumb.className = "craftRailThumb";
+    track.appendChild(thumb);
+    side.appendChild(track);
+    rail.addEventListener("scroll", () => syncCraftRailScroll(), { passive: true });
+    let drag = null; // { startY, startTop } while a thumb/track drag runs
+    const maxTop = () => Math.max(0, rail.scrollHeight - rail.clientHeight);
+    track.addEventListener("pointerdown", (e) => {
+      if (!track.classList.contains("show")) return;
+      const th = track.firstChild.getBoundingClientRect();
+      // Clicking the track outside the thumb jumps there first (native
+      // behavior), then the same gesture drags.
+      if (e.clientY < th.top || e.clientY > th.bottom) {
+        const r = track.getBoundingClientRect();
+        const frac = Math.min(1, Math.max(0, (e.clientY - r.top - th.height / 2) / Math.max(1, r.height - th.height)));
+        rail.scrollTop = frac * maxTop();
+        syncCraftRailScroll();
+      }
+      drag = { startY: e.clientY, startTop: rail.scrollTop };
+      try { track.setPointerCapture(e.pointerId); } catch (err) {}
+      e.preventDefault();
+    });
+    track.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      rail.scrollTop = drag.startTop + (e.clientY - drag.startY) / Math.max(1, track.clientHeight) * rail.scrollHeight;
+    });
+    const endDrag = () => { drag = null; };
+    track.addEventListener("pointerup", endDrag);
+    track.addEventListener("pointercancel", endDrag);
+    window.addEventListener("resize", () => syncCraftRailScroll());
+  }
+  craftUI.railTrack = track;
+  craftUI.railThumb = track.firstChild;
+  syncCraftRailScroll();
+}
+
+function syncCraftRailScroll() {
+  const rail = craftUI && craftUI.plansCtn;
+  const track = craftUI && craftUI.railTrack;
+  const thumb = craftUI && craftUI.railThumb;
+  if (!rail || !track || !thumb || !rail.isConnected || !track.isConnected) return;
+  const over = rail.scrollHeight > rail.clientHeight + 1;
+  if (track.classList.contains("show") !== over) track.classList.toggle("show", over);
+  if (!over) return;
+  const trackH = Math.max(1, track.clientHeight);
+  const thumbH = Math.max(20, Math.round(rail.clientHeight / rail.scrollHeight * trackH));
+  const maxTop = Math.max(0, rail.scrollHeight - rail.clientHeight);
+  const top = maxTop > 0 ? Math.round(rail.scrollTop / maxTop * (trackH - thumbH)) : 0;
+  const hPx = thumbH + "px", tPx = top + "px";
+  if (thumb.style.height !== hPx) thumb.style.height = hPx;
+  if (thumb.style.top !== tPx) thumb.style.top = tPx;
 }
 
 function buildCraftSlots() {
@@ -1186,6 +1255,7 @@ function renderCraftPlans(g, sel) {
     d.textContent = unlocked ? "Plans hidden." : "No plans yet.";
     craftUI.plansCtn.appendChild(d);
   }
+  if (typeof syncCraftRailScroll === "function") syncCraftRailScroll();
 }
 
 // Plan tooltip body: header, description, the fuel value one craft burns

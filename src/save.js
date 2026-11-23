@@ -316,6 +316,9 @@ function applySaveData(data) {
     showActionTime: !data.options || data.options.showActionTime !== false,
     // Unlock-requirement sections (off by default, to keep tooltips compact).
     showUnlockReqs: !!(data.options && data.options.showUnlockReqs),
+    // Red/green resource highlights on actions, upgrades, and furniture
+    // (on by default).
+    showActionHighlights: !data.options || data.options.showActionHighlights !== false,
     // Theme override (follow system by default).
     theme: normalizeTheme(data.options && data.options.theme),
     // Autosave (off by default): timer save to the browser slot, every
