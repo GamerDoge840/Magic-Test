@@ -66,4 +66,5 @@ const PLAYER_STATS = [
   { id: "lck", name: "Luck",         abbr: "LCK", start: 1, nameColor: "#DBFFA6", tooltip: "Aptitude for the universe to do nice things to you.", tags: ["Stat"] },
   { id: "spd", name: "Speed",        abbr: "SPD", start: 1, nameColor: "#A6E6FF", tooltip: "Physical agility.", tags: ["Stat"] },
   { id: "cookingSpeed", name: "Cooking Speed", abbr: "CKS", start: 0, nameColor: "#FFB36B", tooltip: "Speed of cooking.", tags: ["Stat", "Crafting"] },
+  { id: "woodworkingSpeed", name: "Woodworking Speed", abbr: "WWS", start: 0, nameColor: "#CFA15A", tooltip: "Speed of woodworking.", tags: ["Stat", "Crafting"] },
 ];

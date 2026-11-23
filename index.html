@@ -41,14 +41,15 @@
   #worldLogPanel { grid-area: wlog; max-height: 30vh; }
   #worldTierRow { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 0.9em; flex: none; }
   #worldTierRow select { background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 4px 8px; }
-  #worldMapCtn { display: grid; gap: 6px; justify-content: center; align-content: start; margin-bottom: 8px; overflow-y: auto; min-height: 0; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; --wt: 48px; position: relative; }
+  #worldMapCtn { display: grid; gap: 6px; justify-content: safe center; align-content: start; margin-bottom: 8px; overflow: auto; min-height: 0; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; --wt: 48px; position: relative; }
   @media (min-width: 1100px) { #worldMapCtn { --wt: 64px; } }
+  /* The whole land renders at once (far tiles obscured by fog); the map
+     scrolls inside its panel so tiles stay full-size on every screen. */
   .worldTile { width: var(--wt); height: var(--wt); font-weight: bold; font-size: 0.85em; text-align: center; white-space: nowrap; overflow: hidden; border-radius: 8px; border: 1px solid #4a4f5c; background: #8fd694; color: #14301c; padding: 2px; }
   .worldTile.is-adj { cursor: pointer; border-color: #7fd97f; }
   .worldTile.is-player { outline: 2px solid #fff; outline-offset: -2px; }
   .worldTile.is-target { outline: 2px dashed #fff; outline-offset: -2px; }
   .worldTile:not(.is-adj):not(.is-player) { opacity: 0.75; }
-  .worldTile.worldOut { visibility: hidden; }
   #worldTravelWrap { margin-top: auto; flex: none; display: flex; gap: 8px; align-items: center; }
   #worldTravelProg { position: relative; height: 18px; background: rgba(0, 0, 0, 0.15); border-radius: 999px; overflow: hidden; flex: 1; }
   #worldTravelBtn { background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 2px 10px; flex: none; }
@@ -141,6 +142,9 @@
   .craftProgBar .craftFill { background: #7fd97f; }
   .craftSlotSub { font-size: 0.85em; opacity: 0.8; margin-top: 4px; }
   .craftStatus { font-weight: bold; margin-top: 8px; }
+  /* Missing-station notice stands alone (plan title, materials and
+     recipes hide with the workbench) and renders in orange. */
+  .craftStatus.stationMissing { color: orange; }
   .craftRecipeBtn { position: relative; display: flex; align-items: center; justify-content: center; min-height: 64px; width: 100%; box-sizing: border-box; text-align: center; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 8px; padding: 8px 10px; cursor: pointer; }
   .craftRecipeBtn:hover:not(:disabled) { border-color: #7fd97f; }
   .craftRecipeBtn.on { background: #4a5160; border-color: #9aa3b5; color: #fff; font-weight: bold; }
@@ -207,6 +211,10 @@
   @media (max-width: 1100px) {
     #worldGrid { grid-template-columns: 240px minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "wleft wmap" "wvitals wmap" "wlog wlog"; flex: none; }
     #worldLogPanel { max-height: 34vh; }
+    /* Narrow layouts use content-sized rows, so cap the map box itself:
+       the window stays a fixed viewport fraction and the land scrolls
+       inside it no matter how many tiles the tier holds. */
+    #worldMapCtn { max-height: 50vh; }
   }
   @media (max-width: 700px) {
     #worldGrid { grid-template-columns: 1fr; grid-template-areas: "wmap" "wleft" "wvitals" "wlog"; }

@@ -53,6 +53,10 @@
         upgrades/resources/actions/furniture (count), homes (array: own
         every listed home). With no requires the text always joins the
         pool (extra weight).
+      - heals: (optional, default {}) vital restoration as a share of max,
+      //        e.g. heals: { health: 0.02 } = +2% of max Health per cycle.
+      //        Only pays while the vital is unlocked; tooltips show it as
+      //        "N% of Max" and hide the row until then.
       - xp: (optional, default {}) skill XP granted per completed cycle,
         e.g. xp: { basicKnowledge: 1 }. Unknown skill ids warn and skip.
         Shown in the tooltip under "Skill XP". XP for a skill locked
@@ -78,7 +82,10 @@
         it disabled with a red star (the World mirror already hides
         blocked actions). A running action stays visible until it stops.
         Before the World unlocks every requirement counts as met, so the
-        action still shows in town.
+        action still shows in town. Unlike other gated actions, the tile
+        gates hold even for paid progress: a half-finished cycle can't
+        be resumed on the wrong tile (it stays hidden, keeping its
+        progress and payment until the player walks back).
       - gather: (optional) when true, one FORAGE_TABLES item lands per
         completed cycle on top of the static payout (see FORAGE_TABLES).
         The tooltip lists the current tile's loot odds (unseen items show
@@ -136,6 +143,7 @@ const ACTIONS = [
     tickSeconds: 1.5,
     costs: {},
     gains: { stamina: 1 },
+    heals: { health: 0.02 },
     xp: { sleeping: 0.1 },
     description: "Relax for a moment to catch your breath.",
     startLog: "You take a breather...",
@@ -250,6 +258,25 @@ const ACTIONS = [
     flavor: "Nature's bounty...",
     unlock: { upgrade: "exploreTown" },
     gather: true, // roll one FORAGE_TABLES item per completed cycle (see below)
+  },
+  {
+    id: "chopTrees",
+    name: "Chop Trees",
+    header: "Tasks",
+    group: "Gathering",
+    tags: ["Gathering"],
+    tickSeconds: 12.5,
+    costs: { stamina: 5 },
+    gains: { oakLog: 1 },
+    xp: { treecutting: 1 },
+    requiresTile: "Forest",
+    hideWhenOffTile: true,
+    description: "Fell trees with your axe.",
+    startLog: "You start chopping at a tree.",
+    stopLog: "You stop chopping at the tree.",
+    fullLog: "If you continue cutting trees any more without resting, you might pull a muscle.",
+    runtext: "Chopping...",
+    unlock: { upgrades: { stoneAxe: 1 } },
   },
 
   // QUICK ADD - minimal action (gains only, 1s, auto description):

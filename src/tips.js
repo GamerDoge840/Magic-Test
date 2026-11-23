@@ -36,9 +36,11 @@ function appendTipSection(tip, label, entries, valueRefs) {
     body.appendChild(row);
     // Optional live refs: improved actions update these rows every frame
     // so Results always shows the leveled-up payout, not the base gains.
-    if (valueRefs) valueRefs.push({ id, el: v });
+    // Row included so render can hide locked rows live (Rest's Health).
+    if (valueRefs) valueRefs.push({ id, el: v, row });
   }
   tip.appendChild(sec);
+  return sec;
 }
 
 // Visible bounds for an anchor: the viewport shrunk by every clipping
@@ -109,14 +111,14 @@ function fitTip(tip, anchor, prefer) {
   // placed where the window edge would cut it off.
   const bounds = typeof visibleBounds === "function"
     ? visibleBounds(anchor)
-    : { top: 8, bottom: window.innerHeight - 8, left: 8, right: window.innerWidth - 8 };
+    : { top: TIP_EDGE, bottom: window.innerHeight - TIP_EDGE, left: TIP_EDGE, right: window.innerWidth - TIP_EDGE };
   const roomUp = b.top - bounds.top;
   const roomDown = bounds.bottom - b.bottom;
   let dir = prefer;
   if (prefer === "up") {
-    if (roomUp < h + 8 && roomDown > roomUp) dir = "down";
+    if (roomUp < h + TIP_BREATHE && roomDown > roomUp) dir = "down";
   } else {
-    if (roomDown < h + 8 && roomUp > roomDown) dir = "up";
+    if (roomDown < h + TIP_BREATHE && roomUp > roomDown) dir = "up";
   }
   // Tips overlap their anchor by 2px instead of floating above/below it
   // (bottom/top 100% minus 2px): with a gap, the mouse path from the anchor
@@ -124,7 +126,7 @@ function fitTip(tip, anchor, prefer) {
   // out - making the scrollbar of a long tip unreachable. The overlap is
   // invisible (the tip paints above, z-index 10) and the hover path stays
   // unbroken, so long tips can be scrolled while an action runs or idle.
-  const TIP_OFF = "calc(100% - 2px)";
+  const TIP_OFF = "calc(100% - " + TIP_OVERLAP + "px)";
   if (dir === "up") {
     if (tip.style.top !== "auto") tip.style.top = "auto";
     if (tip.style.bottom !== TIP_OFF) tip.style.bottom = TIP_OFF;
@@ -143,9 +145,9 @@ function fitTip(tip, anchor, prefer) {
     (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
   const gap = 0;
   const avail = Math.floor(room - gap - chrome);
-  const cssCap = Math.min(360, window.innerHeight * 0.7);
-  const cap = avail <= 0 ? 80 : avail < 80 ? avail : Math.min(avail, cssCap);
-  if (room < h + 8) {
+  const cssCap = Math.min(TIP_MAX_H, window.innerHeight * TIP_MAX_VH);
+  const cap = avail <= 0 ? TIP_MIN_H : avail < TIP_MIN_H ? avail : Math.min(avail, cssCap);
+  if (room < h + TIP_BREATHE) {
     const px = cap + "px";
     if (tip.style.maxHeight !== px) tip.style.maxHeight = px;
   } else if (tip.style.maxHeight) {
@@ -162,7 +164,7 @@ function fitTip(tip, anchor, prefer) {
     const r = tip.getBoundingClientRect();
     const availW = bounds.right - bounds.left;
     if (r.width > availW + 1) {
-      tip.style.maxWidth = Math.max(120, Math.floor(availW)) + "px";
+      tip.style.maxWidth = Math.max(TIP_MIN_W, Math.floor(availW)) + "px";
       const r2 = tip.getBoundingClientRect();
       const want = Math.round(bounds.left + (availW - r2.width) / 2 - r2.left) + "px";
       if (tip.style.marginLeft !== want) tip.style.marginLeft = want;
@@ -176,6 +178,101 @@ function fitTip(tip, anchor, prefer) {
   } else if (tip.style.marginLeft) {
     tip.style.marginLeft = "";
   }
+}
+
+// Detached-tip geometry (shared by every place*Tip detached placer).
+// One copy of the magic numbers the five detached placers used to repeat:
+// viewport/panel edge margin, up/down breathing room, CSS height cap
+// (min of px + viewport share), readability floor, anchor overlap, and
+// the narrow-tip minimum width. Changing a value here retunes every
+// detached tooltip at once (furniture, inventory, skills, world, plans).
+const TIP_EDGE = 8;
+const TIP_BREATHE = 8;
+const TIP_MAX_H = 360;
+const TIP_MAX_VH = 0.7;
+const TIP_MIN_H = 80;
+const TIP_OVERLAP = 2;
+const TIP_MIN_W = 120;
+
+function resetDetachedTip(tip) {
+  const keep = { position: tip.style.position, top: tip.style.top, bottom: tip.style.bottom, left: tip.style.left, transform: tip.style.transform, maxHeight: tip.style.maxHeight, marginLeft: tip.style.marginLeft };
+  tip.style.position = "";
+  tip.style.top = "";
+  tip.style.bottom = "";
+  tip.style.left = "";
+  tip.style.transform = "";
+  tip.style.maxHeight = "";
+  tip.style.marginLeft = "";
+  return keep;
+}
+
+function restoreDetachedTip(tip, keep, needShow) {
+  tip.style.position = keep.position;
+  tip.style.top = keep.top;
+  tip.style.bottom = keep.bottom;
+  tip.style.left = keep.left;
+  tip.style.transform = keep.transform;
+  tip.style.maxHeight = keep.maxHeight;
+  tip.style.marginLeft = keep.marginLeft;
+  if (needShow) tip.style.display = "";
+}
+
+function clearDetachedTip(tip) {
+  if (!tip) return;
+  tip.style.position = "";
+  tip.style.top = "";
+  tip.style.bottom = "";
+  tip.style.left = "";
+  tip.style.transform = "";
+  tip.style.maxHeight = "";
+  tip.style.marginLeft = "";
+}
+
+// Shared detached-tip fitter: reset -> measure -> cap -> fixed-place.
+// opts: { prefer ("up"/"down", default "up"), ceilTop (px, default TIP_EDGE),
+// forceShow (measure with display:block when CSS :hover hasn't painted yet) }.
+function fitDetachedTip(tip, anchor, opts) {
+  if (!tip || !anchor) return;
+  const o = opts || {};
+  const prefer = o.prefer || "up";
+  const ceilTop = (typeof o.ceilTop === "number") ? o.ceilTop : TIP_EDGE;
+  const keep = resetDetachedTip(tip);
+  let needShow = false;
+  if (o.forceShow) {
+    needShow = getComputedStyle(tip).display === "none";
+    if (needShow) tip.style.display = "block";
+  }
+  const h = tip.offsetHeight;
+  if (!h) { restoreDetachedTip(tip, keep, needShow); return; }
+  const VH = window.innerHeight, VW = window.innerWidth;
+  const b = anchor.getBoundingClientRect();
+  const roomUp = b.top - ceilTop;
+  const roomDown = VH - TIP_EDGE - b.bottom;
+  let dir = prefer;
+  if (prefer === "up") {
+    if (roomUp < h + TIP_BREATHE && roomDown > roomUp) dir = "down";
+  } else {
+    if (roomDown < h + TIP_BREATHE && roomUp > roomDown) dir = "up";
+  }
+  const room = dir === "up" ? roomUp : roomDown;
+  const cs = getComputedStyle(tip);
+  const centered = cs.transform !== "none";
+  const chrome = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) +
+    (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+  const avail = Math.floor(room - chrome);
+  const cssCap = Math.min(TIP_MAX_H, VH * TIP_MAX_VH);
+  const cap = avail <= 0 ? TIP_MIN_H : avail < TIP_MIN_H ? avail : Math.min(avail, cssCap);
+  if (room < h + TIP_BREATHE) tip.style.maxHeight = cap + "px";
+  tip.style.position = "fixed";
+  tip.style.bottom = "auto";
+  tip.style.marginLeft = "";
+  tip.style.transform = "none";
+  const w = tip.offsetWidth;
+  const wantLeft = centered ? b.left + b.width / 2 - w / 2 : b.left;
+  tip.style.left = Math.max(TIP_EDGE, Math.min(Math.round(wantLeft), VW - TIP_EDGE - w)) + "px";
+  tip.style.top = dir === "down" ? Math.round(b.bottom - TIP_OVERLAP) + "px" : Math.round(b.top + TIP_OVERLAP - tip.offsetHeight) + "px";
+  if (needShow) tip.style.display = "";
+  if (typeof syncTipPointer === "function") syncTipPointer(anchor, true);
 }
 
 // Skill XP section for action tooltips: which skills an action feeds per
@@ -307,6 +404,16 @@ function unlockRequirementLines(item, stationTag) {
   }
   const u = item ? item.unlock : null;
   if (u && typeof u === "object" && !Array.isArray(u)) {
+    // Seen gates (crafting plans, e.g. Make Salad's Cabbage): every
+    // listed item must be discovered at least once (state.seen).
+    if (u.seen !== undefined) {
+      const list = Array.isArray(u.seen) ? u.seen : [u.seen];
+      for (const id of list) {
+        if (typeof id !== "string") continue;
+        const it = (typeof getItem === "function") ? getItem(id) : null;
+        lines.push("Discover " + (it ? (it.name ?? id) : id));
+      }
+    }
     // Currency gates: legacy { resource, amount } plus the canonical map.
     const res = {};
     if (typeof u.resource === "string" && typeof u.amount === "number" && Number.isFinite(u.amount) && u.amount > 0) res[u.resource] = Math.max(res[u.resource] ?? 0, u.amount);
@@ -363,6 +470,19 @@ function unlockRequirementLines(item, stationTag) {
       const ug = (typeof getUpgrade === "function") ? getUpgrade(uid) : null;
       lines.push("Own " + (ug ? ug.name : uid) + (uc > 1 ? " ×" + uc : ""));
     }
+    // Biome-visit gates: legacy `visitedBiome` plus canonical
+    // `visitedBiomes` (EVERY listed biome visited at least once).
+    const visits = [];
+    for (const vk of ["visitedBiome", "visitedBiomes"]) {
+      const v = u[vk];
+      if (v === undefined) continue;
+      for (const id of (Array.isArray(v) ? v : [v])) if (typeof id === "string" && !visits.some(x => String(x).toLowerCase() === String(id).toLowerCase())) visits.push(id);
+    }
+    for (const id of visits) {
+      const b = (typeof worldBiomeDef === "function") ? worldBiomeDef(id) : null;
+      const bname = b ? (b.name ?? id) : id;
+      lines.push("Visit a " + bname);
+    }
   }
   return lines;
 }
@@ -408,7 +528,14 @@ function buildActionTipBody(a) {
   tip.appendChild(desc);
   appendUnlockSection(tip, a);
   const costRefs = [];
-  appendTipSection(tip, "Cost", a.costs ?? {}, costRefs);
+  // Cost rows cover every tile-override key too (base + all costsByBiome +
+  // all costsByTag): an override adding a new resource (e.g. forest-only
+  // rope) would otherwise charge a hidden price with no tooltip row.
+  // Override-only keys build at 0 and hide until their tile (see live).
+  const costBase = { ...(a.costs ?? {}) };
+  for (const m of Object.values(a.costsByBiome ?? {})) for (const k of Object.keys(m ?? {})) if (!(k in costBase)) costBase[k] = 0;
+  for (const m of Object.values(a.costsByTag ?? {})) for (const k of Object.keys(m ?? {})) if (!(k in costBase)) costBase[k] = 0;
+  const costSec = appendTipSection(tip, "Cost", costBase, costRefs) ?? null;
   // Results rows are live for improved actions (payout grows per level):
   // build rows for base gains plus any bonus-only resources, then update.
   // Furniture/home/skill-milestone "gain" effects add payout too, so their
@@ -433,22 +560,34 @@ function buildActionTipBody(a) {
       if (e.type === "gain" && e.action === a.id && e.resource && !(e.resource in gainBase)) gainBase[e.resource] = 0;
     }
   }
-  // Rest's wound-knitting (+2% of max Health per cycle, added in
-  // effectiveGains) gets a Results row even while Health itself is still
-  // locked: the payout is real from the first rest, so the tooltip shows
-  // it instead of hiding it until the vital unlocks. The value reads
-  // live like every other row - as a share of max ("2% of Max"), since
-  // the grant is defined as a percent (see pctOfMaxText).
-  if (a.id === "rest" && !("health" in gainBase)) gainBase.health = 0;
+  // Vital-restoration rows (see heals in config/actionsConfig.js) stay
+  // hidden until their vital unlocks: the payout is not real until then,
+  // so the tooltip must not spoil it. Unlocks fire mid-session with no UI
+  // rebuild, so renderActionTipLive unhides the row live (same pattern as
+  // locked Skill XP rows). The value reads live like every other row - as
+  // a share of max ("2% of Max"), since the grant is defined as a percent
+  // (see pctOfMaxText).
+  for (const k of Object.keys(a.heals ?? {})) if (!(k in gainBase)) gainBase[k] = 0;
   const gainRefs = [];
   appendTipSection(tip, "Results", gainBase, gainRefs);
-  // Cap-based vital restoration (currently only Rest's Health) displays
-  // as a percentage of max, not an absolute payout.
-  for (const g of gainRefs) if (a.id === "rest" && g.id === "health") g.pctOfMax = true;
+  // Cap-based vital restoration displays as a percentage of max,
+  // not an absolute payout.
+  for (const g of gainRefs) if (g.id in (a.heals ?? {})) {
+    g.pctOfMax = true;
+    if (typeof resourceUnlocked === "function" && typeof getResource === "function") {
+      const r = getResource(g.id);
+      if ((!r || !resourceUnlocked(r)) && g.row) g.row.hidden = true;
+    }
+  }
   // Skill XP the action grants per cycle (e.g. Research Scrolls -> Basic
   // Knowledge). Listed right after Results so no payout goes unmentioned.
   // Rows for locked skills build hidden and unhide live in render().
-  const xpBuilt = (typeof appendTipXpSection === "function") ? appendTipXpSection(tip, a.xp) : null;
+  // XP rows cover every tile-override skill too (base + all xpByBiome +
+  // xpByTag): a forest-only skill would otherwise grant hidden XP.
+  const xpBase = { ...(a.xp ?? {}) };
+  for (const m of Object.values(a.xpByBiome ?? {})) for (const k of Object.keys(m ?? {})) if (!(k in xpBase)) xpBase[k] = 0;
+  for (const m of Object.values(a.xpByTag ?? {})) for (const k of Object.keys(m ?? {})) if (!(k in xpBase)) xpBase[k] = 0;
+  const xpBuilt = (typeof appendTipXpSection === "function") ? appendTipXpSection(tip, xpBase) : null;
   // Gather odds (gather actions only, e.g. Forage): the current tile's
   // loot table with each item's share. Unseen items show as "???" in
   // their rarity color. Refreshed live in render() (moving tiles or
@@ -489,7 +628,7 @@ function buildActionTipBody(a) {
     flavor.textContent = a.flavor;
     tip.appendChild(flavor);
   }
-  return { tip, refs: { title, tc: count, tipTime: timeRow, desc, autoDesc: !!a._autoDesc, costs: costRefs, gains: gainRefs, impMax: impMaxRow, foot, xpSec: xpBuilt ? xpBuilt.sec : null, xpRows: xpBuilt ? xpBuilt.rows : null, gatherSec, reqSec, lockSec } };
+  return { tip, refs: { title, tc: count, tipTime: timeRow, desc, autoDesc: !!a._autoDesc, costs: costRefs, costSec, gains: gainRefs, impMax: impMaxRow, foot, xpSec: xpBuilt ? xpBuilt.sec : null, xpRows: xpBuilt ? xpBuilt.rows : null, gatherSec, reqSec, lockSec } };
 }
 
 // Gather-odds section for gather actions: one row per loot-table entry
@@ -600,21 +739,45 @@ function renderActionTipLive(a, ref) {
       const t = g.pctOfMax ? pctOfMaxText(g.id, v) : formatNum(v);
       if (g.el.textContent !== t) g.el.textContent = t;
     }
+    // Vital-restoration rows stay hidden until their vital unlocks
+    // (unlocks fire mid-session with no UI rebuild, same as locked Skill
+    // XP rows below). Unlocks never reverse, so rows only ever appear.
+    if (a.heals && typeof resourceUnlocked === "function" && typeof getResource === "function") {
+      for (const g of ref.gains ?? []) if (g.id in (a.heals ?? {})) {
+        const r = getResource(g.id);
+        const show = !!r && resourceUnlocked(r);
+        if (g.row && g.row.hidden === show) g.row.hidden = !show;
+      }
+    }
     // Cost rows are live for the same reason: a fresh discount changes
     // the price without changing the sig, and the per-row check is cheap.
+    // Zero-price rows hide (free, like a base cost that was dropped): an
+    // override-only cost shows only on its tiles, and a zero override
+    // reads as free instead of "Stamina: 0".
+    let anyCostVisible = false;
     for (const c of ref.costs ?? []) {
+      const cv = effCost[c.id] ?? 0;
+      const hide = !(cv > 0);
+      if (c.row && c.row.hidden !== hide) c.row.hidden = hide;
+      if (hide) continue;
+      anyCostVisible = true;
       const t = formatNum(effCost[c.id] ?? 0);
       if (c.el.textContent !== t) c.el.textContent = t;
+    }
+    if (ref.costSec) {
+      const hideSec = !anyCostVisible;
+      if (ref.costSec.hidden !== hideSec) ref.costSec.hidden = hideSec;
     }
     // Skill XP rows unhide live when their skill unlocks: unlocks fire
     // mid-session with no UI rebuild (e.g. Basic Knowledge M3 revealing
     // Odd Jobs Mastery on the Odd Jobs tooltip). Unlocks never reverse,
-    // so rows only ever appear, and the section follows suit.
+    // so unlocks only ever appear. Zero-grant rows hide too (an override
+    // silencing XP reads as no row, not "+0"), and the section follows.
     if (ref.xpSec && typeof skillUnlocked === "function") {
       let anyVisible = false;
       const ex = (typeof effectiveXp === "function") ? effectiveXp(a) : (a.xp ?? {});
       for (const x of ref.xpRows ?? []) {
-        const show = skillUnlocked(x.sid);
+        const show = skillUnlocked(x.sid) && ((ex[x.sid] ?? 0) > 0);
         if (x.row.hidden === show) x.row.hidden = !show;
         if (show) {
           anyVisible = true;

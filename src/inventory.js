@@ -1,12 +1,7 @@
 // Labor Game inventory: item grid, rarity filters, consuming.
-const RARITY_COLORS = {
-  junk: "#9aa3b5",
-  common: "#f5f5f5",
-  uncommon: "#7fd97f",
-  rare: "#7fc9ff",
-  exotic: "#c58fff",
-  legendary: null, // gradient, handled by the .rar-legendary CSS class
-};
+// Rarity colors live in CSS (.rar-* in both index.html copies, dark + light
+// variants) - JS only picks the class (see itemRarityClass), never a hex,
+// so light mode stays readable without a JS-side palette to drift.
 
 // Rarity class for an item's name (inventory cells, item tooltips, gather
 // log bullets). Classes - not inline styles - so the light-mode CSS block
@@ -14,7 +9,8 @@ const RARITY_COLORS = {
 // mode). Unknown rarities fall back to common, matching validation.
 function itemRarityClass(def) {
   const r = (def && def.rarity) || "common";
-  return "rar-" + (((typeof RARITY_ORDER !== "undefined" && RARITY_ORDER.includes(r)) || ["junk", "common", "uncommon", "rare", "exotic", "legendary"].includes(r)) ? r : "common");
+  const order = (typeof RARITY_ORDER !== "undefined" && RARITY_ORDER.length) ? RARITY_ORDER : ["common"];
+  return "rar-" + (order.includes(r) ? r : "common");
 }
 
 function itemRarityName(rid) {
@@ -114,19 +110,19 @@ function invRarityChipLabel(r, n) {
 
 // Display plurals for type-filter chips ("Herb" -> "Herbs"). Uncountable
 // tags like "Food" are intentionally absent and render as-is.
-const INV_TYPE_PLURALS = { Herb: "Herbs" };
+const INV_TYPE_PLURALS = { Herb: "Herbs", Plank: "Planks" };
 
 // Inventory type categories: top-level chips grouping sub-type tags, so a
 // handful of categories replaces the flat per-tag clutter. Food holds the
 // edible sub-types (Fruit, Roasted, Meal), Materials holds the wild-found
-// ones (Foraged, Fuel), and Reagents holds Herbs (raw tag "Herb", displayed
+// ones (Foraged, Fuel) plus Wood and Plank, and Reagents holds Herbs (raw tag "Herb", displayed
 // "Herbs"). A category chip filters to items carrying the category tag OR
 // any of its sub-types; a sub-type chip filters to that exact tag. Any seen
 // tag outside the map (future content) falls back to a plain top-level chip
 // (see orphans).
 const INV_TYPE_CATEGORIES = {
   Food: ["Fruit", "Roasted", "Meal"],
-  Materials: ["Foraged", "Fuel"],
+  Materials: ["Foraged", "Fuel", "Wood", "Plank"],
   Reagents: ["Herb"],
 };
 
@@ -390,7 +386,8 @@ function buildInventoryTab() {
 
 // Secondary inline filter rows under the header: the main row holds "All"
 // plus owned category chips (and any orphan tags outside the map); the sub
-// row below it holds the active category's sub-type chips. Single-select
+// row below it holds an "All" chip (the whole category at once) plus the
+// active category's sub-type chips. Single-select
 // like the rarity chips, AND-combined with rarity. The main row hides when
 // no category is owned yet; the sub row hides unless a category (or one of
 // its sub-types) is selected.
@@ -433,8 +430,10 @@ function buildInvTypeRow() {
   }
 }
 
-// Sub-type row below the main Type row: the active category's sub-type
-// chips (see invSubRowTypes). Hidden unless a category is selected.
+// Sub-type row below the main Type row: an "All" chip (the whole active
+// category at once, same filter as its main-row chip) plus the active
+// category's sub-type chips (see invSubRowTypes). Hidden unless a category
+// is selected.
 function buildInvTypeSubRow() {
   const subRow = document.getElementById("invTypeSubRow");
   if (!subRow) return;
@@ -446,6 +445,20 @@ function buildInvTypeSubRow() {
   const label = document.createElement("span");
   label.textContent = "Sub-type:";
   subRow.appendChild(label);
+  // "All" first: the whole category (every sub-type at once) without
+  // leaving the row - same filter as the category's main-row chip.
+  const activeCat = invActiveCategory(state.options.invType);
+  if (activeCat) {
+    const allB = document.createElement("button");
+    allB.type = "button";
+    allB.dataset.invtype = activeCat;
+    allB.classList.add("sub");
+    allB._subAll = true;
+    allB.textContent = "All (" + invTypeCountFor(activeCat) + ")";
+    allB.classList.toggle("active", invType() === activeCat);
+    allB.addEventListener("click", () => setInvType(activeCat));
+    subRow.appendChild(allB);
+  }
   for (const t of tags) {
     const b = document.createElement("button");
     b.type = "button";
@@ -600,68 +613,11 @@ function buildInventoryCell(it) {
 // over neighboring panels instead.
 let activeInvTip = null; // { cell, tip } of the open item tip
 function placeInvTip(tip, anchor) {
-  if (!tip || !anchor) return;
-  const keep = { position: tip.style.position, top: tip.style.top, bottom: tip.style.bottom, left: tip.style.left, transform: tip.style.transform, maxHeight: tip.style.maxHeight, marginLeft: tip.style.marginLeft };
-  tip.style.position = "";
-  tip.style.top = "";
-  tip.style.bottom = "";
-  tip.style.left = "";
-  tip.style.transform = "";
-  tip.style.maxHeight = "";
-  tip.style.marginLeft = "";
-  // Measure with the tip forcibly shown: open paths can land a frame
-  // before CSS :hover/:focus-visible paints it visible, and a display:none
-  // tip reads 0 and bails, stranding it at its natural clipped spot.
-  const needShow = getComputedStyle(tip).display === "none";
-  if (needShow) tip.style.display = "block";
-  const h = tip.offsetHeight;
-  if (!h) {
-    tip.style.position = keep.position;
-    tip.style.top = keep.top;
-    tip.style.bottom = keep.bottom;
-    tip.style.left = keep.left;
-    tip.style.transform = keep.transform;
-    tip.style.maxHeight = keep.maxHeight;
-    tip.style.marginLeft = keep.marginLeft;
-    if (needShow) tip.style.display = "";
-    return;
-  }
-  const VH = window.innerHeight, VW = window.innerWidth;
-  const b = anchor.getBoundingClientRect();
-  const roomUp = b.top - 8;
-  const roomDown = VH - 8 - b.bottom;
-  let dir = "up";
-  if (roomUp < h + 8 && roomDown > roomUp) dir = "down";
-  const room = dir === "up" ? roomUp : roomDown;
-  const cs = getComputedStyle(tip);
-  const centered = cs.transform !== "none";
-  const chrome = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) +
-    (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
-  const avail = Math.floor(room - chrome);
-  const cssCap = Math.min(360, VH * 0.7);
-  const cap = avail <= 0 ? 80 : avail < 80 ? avail : Math.min(avail, cssCap);
-  if (room < h + 8) tip.style.maxHeight = cap + "px";
-  tip.style.position = "fixed";
-  tip.style.bottom = "auto";
-  tip.style.marginLeft = "";
-  tip.style.transform = "none";
-  const w = tip.offsetWidth;
-  const wantLeft = centered ? b.left + b.width / 2 - w / 2 : b.left;
-  tip.style.left = Math.max(8, Math.min(Math.round(wantLeft), VW - 8 - w)) + "px";
-  tip.style.top = dir === "down" ? Math.round(b.bottom - 2) + "px" : Math.round(b.top + 2 - tip.offsetHeight) + "px";
-  if (needShow) tip.style.display = "";
-  if (typeof syncTipPointer === "function") syncTipPointer(anchor, true);
+  return fitDetachedTip(tip, anchor, { prefer: "up", forceShow: true });
 }
 
 function clearInvTip(tip) {
-  if (!tip) return;
-  tip.style.position = "";
-  tip.style.top = "";
-  tip.style.bottom = "";
-  tip.style.left = "";
-  tip.style.transform = "";
-  tip.style.maxHeight = "";
-  tip.style.marginLeft = "";
+  return clearDetachedTip(tip);
 }
 
 // While an item tip is open, scrolling or resizing would strand its fixed
@@ -692,7 +648,7 @@ function itemNutritionMult(it) {
 function itemOverhealCeil(it, rid) {
   const max = (typeof getEffectiveMax === "function") ? getEffectiveMax(rid) : Infinity;
   if (max === Infinity) return Infinity;
-  return (rid === "stamina" && itemEdible(it)) ? max * itemNutritionMult(it) : max;
+  return (rid === OVERHEAL_RESOURCE && itemEdible(it)) ? max * itemNutritionMult(it) : max;
 }
 // Highest edible nutrition multiplier on any item: bounds how far past the
 // cap Stamina may legitimately sit, so save/load keeps overheal instead of
@@ -724,11 +680,9 @@ function consumeFullyCapped(it) {
 // shows "+1 Stamina" in Stamina's own color (its bar color, like the
 // Vitals panel), and the same holds for any other gain target.
 function gainDisplayColor(rid) {
-  const item = (typeof getItem === "function") ? getItem(rid) : null;
-  if (item) {
-    if (item.rarity === "legendary") return "#ffd700";
-    return RARITY_COLORS[item.rarity ?? "common"] ?? RARITY_COLORS.common;
-  }
+  // Resources carry their own display colors (nameColor/barColor in config).
+  // Item gains are class-colored where they render (gather bullets wear
+  // itemRarityClass; consume/sell lines only ever pay resources).
   const r = (typeof getResource === "function") ? getResource(rid) : null;
   if (!r) return null;
   return r.nameColor ?? r.barColor ?? null;
@@ -744,12 +698,12 @@ function gainDisplayColor(rid) {
 // same way. Amounts are actual grants (clamped), never nominal - a
 // near-cap apple logs "+0.5 Stamina", not "+1.25".
 function logConsume(base, gains, mergeKey, it, split) {
-  const entries = Object.entries(gains ?? {}).filter(([rid, n]) => rid !== "stamina" && n > 0);
+  const entries = Object.entries(gains ?? {}).filter(([rid, n]) => rid !== OVERHEAL_RESOURCE && n > 0);
   const under = (split && split.under > 1e-9) ? split.under : 0;
   const over = (split && split.over > 1e-9) ? split.over : 0;
   const hasUnder = under > 0, hasOver = over > 0;
   if (!entries.length && !hasUnder && !hasOver) { log(base, "consume", mergeKey); return; }
-  const stamDef = (typeof getResource === "function") ? getResource("stamina") : null;
+  const stamDef = (typeof getResource === "function") ? getResource(OVERHEAL_RESOURCE) : null;
   const stamN = hasUnder ? under : over;
   const stamLabel = "+" + formatNum(stamN) + " " + (stamDef ? displayName(stamDef, stamN) : "Stamina");
   const overLabel = "+" + formatNum(over);
@@ -780,7 +734,7 @@ function logConsume(base, gains, mergeKey, it, split) {
       line.appendChild(s);
     };
     for (const e of entries) pushGain(label(e), e[0]);
-    if (hasUnder) pushGain(stamLabel, "stamina");
+    if (hasUnder) pushGain(stamLabel, OVERHEAL_RESOURCE);
     if (hasOver) {
       if (!f) line.appendChild(document.createTextNode(", "));
       f = false;
@@ -788,7 +742,7 @@ function logConsume(base, gains, mergeKey, it, split) {
       const s = document.createElement("span");
       s.textContent = overLabel;
       s.className = "gain-c";
-      const c = gainDisplayColor("stamina");
+      const c = gainDisplayColor(OVERHEAL_RESOURCE);
       if (c) s.style.color = c;
       line.appendChild(s);
     }
@@ -894,7 +848,7 @@ function eatOneUnit(it) {
     }
     const actual = next - cur;
     if (!(actual > 1e-9)) continue;
-    if (rid === "stamina") {
+    if (rid === OVERHEAL_RESOURCE) {
       const max = (typeof getEffectiveMax === "function") ? getEffectiveMax(rid) : Infinity;
       if (max === Infinity) under += actual;
       else {
@@ -944,7 +898,7 @@ function itemSellable(def) {
 // works exactly where buying does.
 function atStoreTile() {
   if (typeof tileRequirementMet !== "function") return true;
-  return tileRequirementMet({ requiresTile: "General Store" });
+  return tileRequirementMet({ requiresTile: STORE_TAG });
 }
 
 function normalizeSellQty(n) {
@@ -1223,6 +1177,10 @@ function renderInventory() {
   const subRow = document.getElementById("invTypeSubRow");
   const topTypes = invTopLevelTypes();
   const subTypes = invSubRowTypes();
+  // The active category's chip glows green (in-cat) while one of its
+  // sub-types is selected - synced every frame like .active, so leaving
+  // the sub-type never strands the glow on the old category.
+  const activeCat = invActiveCategory(type);
   if (typeRow) {
     // New finds can add categories at any time, so rebuild the row when
     // the set changes - counts alone can't do that.
@@ -1240,11 +1198,15 @@ function renderInventory() {
       typeRow.dataset.countSig = sig;
       for (const b of chips) {
         const t = b.dataset.invtype ?? "all";
-        b.textContent = invTypeChipLabel(t, typCount(t));
+        b.textContent = b._subAll ? "All (" + typCount(t) + ")" : invTypeChipLabel(t, typCount(t));
         b.classList.toggle("active", t === type);
+        b.classList.toggle("in-cat", !!activeCat && t === activeCat);
       }
     } else {
-      for (const b of chips) b.classList.toggle("active", (b.dataset.invtype ?? "all") === type);
+      for (const b of chips) {
+        b.classList.toggle("active", (b.dataset.invtype ?? "all") === type);
+        b.classList.toggle("in-cat", !!activeCat && (b.dataset.invtype ?? "all") === activeCat);
+      }
     }
   }
   if (subRow) {
@@ -1263,11 +1225,15 @@ function renderInventory() {
       subRow.dataset.countSig = sig;
       for (const b of chips) {
         const t = b.dataset.invtype ?? "all";
-        b.textContent = invTypeChipLabel(t, typCount(t));
+        b.textContent = b._subAll ? "All (" + typCount(t) + ")" : invTypeChipLabel(t, typCount(t));
         b.classList.toggle("active", t === type);
+        b.classList.toggle("in-cat", !!activeCat && t === activeCat);
       }
     } else {
-      for (const b of chips) b.classList.toggle("active", (b.dataset.invtype ?? "all") === type);
+      for (const b of chips) {
+        b.classList.toggle("active", (b.dataset.invtype ?? "all") === type);
+        b.classList.toggle("in-cat", !!activeCat && (b.dataset.invtype ?? "all") === activeCat);
+      }
     }
   }
   let anyVisible = false;

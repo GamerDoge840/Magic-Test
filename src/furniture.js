@@ -95,7 +95,7 @@ function buyFurniture(id) {
   state.furniture[id] = owned + 1;
   // Crafting tab: buying any "Crafting"-tagged furniture reveals it
   // permanently (sticky - selling everything afterwards keeps the tab).
-  if (getTags(f).includes("Crafting")) state.unlocked["tab:crafting"] = true;
+  if (getTags(f).includes(CRAFTING_TAG)) state.unlocked["tab:crafting"] = true;
   // Station plans: the first furniture of a crafting station unlocks
   // that group's starter plans (e.g. a Cooking Pot unlocks Roasting).
   if (typeof unlockStarterPlans === "function") unlockStarterPlans(f);
@@ -119,7 +119,7 @@ function sellFurniture(id) {
     const max = getEffectiveMax(rid);
     // Same overheal guard as doTick: never drain a meal buffer with a refund.
     const cur = state.amounts[rid] ?? 0;
-    if (rid === "stamina" && cur > max) state.amounts[rid] = Math.max(cur, Math.min(max, cur + n));
+    if (rid === OVERHEAL_RESOURCE && cur > max) state.amounts[rid] = Math.max(cur, Math.min(max, cur + n));
     else state.amounts[rid] = max === Infinity ? cur + n : Math.min(max, cur + n);
     if (n > 0) {
       markCurrencySeen(rid);
@@ -175,72 +175,14 @@ function furnitureBuyGains(f) {
 // closeInfo clears the inline positioning again. Scroll/resize while open
 // re-places (see the trackers below), so the tip follows its anchor.
 function placeFurnTip(tip, anchor) {
-  if (!tip || !anchor) return;
-  // Measure the tip's TRUE geometry first (same reset discipline as
-  // fitTip): stale inline writes from a previous fit would shrink the
-  // measured height and the cap would compound on every hover.
-  const keep = { position: tip.style.position, top: tip.style.top, bottom: tip.style.bottom, left: tip.style.left, transform: tip.style.transform, maxHeight: tip.style.maxHeight, marginLeft: tip.style.marginLeft };
-  tip.style.position = "";
-  tip.style.top = "";
-  tip.style.bottom = "";
-  tip.style.left = "";
-  tip.style.transform = "";
-  tip.style.maxHeight = "";
-  tip.style.marginLeft = "";
-  const h = tip.offsetHeight;
-  if (!h) {
-    tip.style.position = keep.position;
-    tip.style.top = keep.top;
-    tip.style.bottom = keep.bottom;
-    tip.style.left = keep.left;
-    tip.style.transform = keep.transform;
-    tip.style.maxHeight = keep.maxHeight;
-    tip.style.marginLeft = keep.marginLeft;
-    return;
-  }
-  const VH = window.innerHeight, VW = window.innerWidth;
-  const b = anchor.getBoundingClientRect();
-  const roomUp = b.top - 8;
-  const roomDown = VH - 8 - b.bottom;
-  let dir = "up";
-  if (roomUp < h + 8 && roomDown > roomUp) dir = "down";
-  const room = dir === "up" ? roomUp : roomDown;
-  const cs = getComputedStyle(tip);
-  // NOTE: cs is a LIVE declaration - read everything off it before writing
-  // any inline style below (writing first would echo back here).
-  const centered = cs.transform !== "none";
-  const chrome = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) +
-    (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
-  const avail = Math.floor(room - chrome);
-  const cssCap = Math.min(360, VH * 0.7);
-  const cap = avail <= 0 ? 80 : avail < 80 ? avail : Math.min(avail, cssCap);
-  if (room < h + 8) tip.style.maxHeight = cap + "px";
-  // Detach: explicit viewport pixels from here on (percentages would resolve
-  // against the viewport under fixed positioning). Width is measured after
-  // the cap lands, since wrapping depends on it.
-  tip.style.position = "fixed";
-  tip.style.bottom = "auto";
-  tip.style.marginLeft = "";
-  tip.style.transform = "none";
-  const w = tip.offsetWidth;
-  const wantLeft = centered ? b.left + b.width / 2 - w / 2 : b.left;
-  tip.style.left = Math.max(8, Math.min(Math.round(wantLeft), VW - 8 - w)) + "px";
-  tip.style.top = dir === "down" ? Math.round(b.bottom - 2) + "px" : Math.round(b.top + 2 - tip.offsetHeight) + "px";
-  if (typeof syncTipPointer === "function") syncTipPointer(anchor, true);
+  return fitDetachedTip(tip, anchor, { prefer: "up" });
 }
 
 // Undo placeFurnTip: the next open re-fits from scratch, so no stale fixed
 // position may survive a close (a CSS reshown tip would otherwise sit at
 // old viewport pixels without any placer running).
 function clearFurnTip(tip) {
-  if (!tip) return;
-  tip.style.position = "";
-  tip.style.top = "";
-  tip.style.bottom = "";
-  tip.style.left = "";
-  tip.style.transform = "";
-  tip.style.maxHeight = "";
-  tip.style.marginLeft = "";
+  return clearDetachedTip(tip);
 }
 
 // While a furniture tip is open, scrolling or resizing would strand its

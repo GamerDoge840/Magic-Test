@@ -8,7 +8,7 @@ function doTick(action) {
     const cur = state.amounts[id] ?? 0;
     // Meal overheal parks Stamina past its cap: a capped grant (e.g. Rest
     // while hurt) must never drain the buffer back to the cap.
-    if (id === "stamina" && cur > max) state.amounts[id] = Math.max(cur, Math.min(max, cur + n));
+    if (id === OVERHEAL_RESOURCE && cur > max) state.amounts[id] = Math.max(cur, Math.min(max, cur + n));
     else state.amounts[id] = max === Infinity ? cur + n : Math.min(max, cur + n);
     if (n > 0) {
       markCurrencySeen(id);
@@ -50,15 +50,26 @@ function setAction(id, stopMsg, stopCategory = "stop") {  const prev = state.cur
     // Tile requirement: gated actions (e.g. Buy Scrolls at a General
     // Store) only START on a matching tile. A paid cycle picked up
     // mid-bar resumes anywhere, exactly like affordability and builds.
-    if (!cyc.paid && (typeof worldShopBlocked === "function") && worldShopBlocked(action)) {
+    // HideWhenOffTile actions (Explores, Chop Trees) stay gated while
+    // paid: half-finished progress can't run on the wrong tile (it is
+    // kept and resumes on return).
+    if ((!cyc.paid || action.hideWhenOffTile) && (typeof worldShopBlocked === "function") && worldShopBlocked(action)) {
       log(tileBlockedMessage(action, "perform"));
       render();
       return;
     }
     // Tile locks: a modifier (e.g. Hamlet) bans some actions on its
     // tile outright - walk elsewhere. Same paid-resume rule as above.
-    if (!cyc.paid && (typeof worldActionLocked === "function") && worldActionLocked(action)) {
+    if ((!cyc.paid || action.hideWhenOffTile) && (typeof worldActionLocked === "function") && worldActionLocked(action)) {
       log(worldLockMessage(action));
+      render();
+      return;
+    }
+    // Locked actions can't start at all (the Work tab hides them and the
+    // World mirror now does too - this refusal is defense in depth for
+    // any other path that reaches here).
+    if (!cyc.paid && (typeof unlockMet === "function") && !unlockMet(action, "a")) {
+      log("You haven't unlocked " + action.name + " yet.");
       render();
       return;
     }
@@ -78,6 +89,15 @@ function setAction(id, stopMsg, stopCategory = "stop") {  const prev = state.cur
     if (!state.fullOverride) state.fullOverride = {};
     if (state.options.stopIfFull !== false && currencyGainsAreFull(effectiveGains(action))) state.fullOverride[action.id] = true;
     else delete state.fullOverride[action.id];
+    // No action runs while a trip is moving: starting one pauses the
+    // journey first (progress kept) - resume it afterward from the Stop
+    // button or by clicking the destination tile again. Acting beside a
+    // paused trip is the normal mid-travel pause, so it stays. Placed
+    // after every refusal above (locks, tile gates, affordability) so a
+    // refused start never pauses the trip.
+    if (state.world && state.world.travel && !state.world.travel.paused) {
+      state.world.travel.paused = true;
+    }
     state.currentActionId = id;
     lastTime = performance.now();
     log(pickActionLog(action, "startLog", "start") ?? "Started: " + action.name, "start");
@@ -140,7 +160,7 @@ function buildActionBtn(a) {
   time.className = "action-time";
   progress.appendChild(time);
   btn.appendChild(progress);
-  uiRefs.set("a:" + a.id, { root: btn, label, title, tipTime, foot, desc, autoDesc, costs: costRefs, gains: gainRefs, fill, prog: progress, time, tc: count, impMax: impMaxRow, xpSec, xpRows, gatherSec: built.refs.gatherSec, reqSec, lockSec });
+  uiRefs.set("a:" + a.id, { root: btn, label, title, tipTime, foot, desc, autoDesc, costs: costRefs, costSec: built.refs.costSec, gains: gainRefs, fill, prog: progress, time, tc: count, impMax: impMaxRow, xpSec, xpRows, gatherSec: built.refs.gatherSec, reqSec, lockSec });
 
   btn.addEventListener("click", () => {
     // Hiding mode: clicking strikes the action hidden instead of running it.

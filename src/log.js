@@ -226,7 +226,7 @@ function logGather(loot, action) {
       // governs it (a logStart class would let the action-begin filter
       // hide loot the player asked to see).
       line.className = "logGather";
-      line.appendChild(document.createTextNode("Gathered (" + (action ? action.name : "foraging") + "): "));
+      line.appendChild(document.createTextNode("Gathered (" + (action ? action.name : "Gather") + "): "));
       renderGatherBullets(line, action, items);
       // renderGatherBullets appends the wrap after the header text.
       el.prepend(line);

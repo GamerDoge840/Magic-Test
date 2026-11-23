@@ -138,13 +138,13 @@ function buildPlayerTab() {
   // Crafting-tagged stats (e.g. Cooking Speed) live under their own
   // header below (hidden until Cooking is unlocked - see render()).
   for (const s of PLAYER_STATS) {
-    if (getTags(s).includes("Crafting")) continue;
+    if (getTags(s).includes(CRAFTING_TAG)) continue;
     playerStatsCtn.appendChild(buildPlayerStatEl(s));
   }
   if (typeof craftStatsCtn !== "undefined" && craftStatsCtn) {
     craftStatsCtn.innerHTML = "";
     for (const s of PLAYER_STATS) {
-      if (!getTags(s).includes("Crafting")) continue;
+      if (!getTags(s).includes(CRAFTING_TAG)) continue;
       craftStatsCtn.appendChild(buildPlayerStatEl(s));
     }
   }

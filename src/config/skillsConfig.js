@@ -262,10 +262,11 @@ const SKILLS = [
       {
         level: 4,
         name: "Forest Sense II",
-        text: "Double all Forest Navigation XP gain and boost all Plains Navigation XP by 1.25x.",
+        text: "Double all Forest Navigation and Treecutting XP gain and boost all Plains Navigation XP by 1.25x.",
         effects: [
           { type: "xpMult", skill: "forestNavigation", amount: 2 },
           { type: "xpMult", skill: "plainsNavigation", amount: 1.25 },
+          { type: "xpMult", skill: "treecutting", amount: 2 },
         ],
       },
     ],
@@ -314,6 +315,46 @@ const SKILLS = [
         text: "Gain 1 Cooking Speed per level of Cooking.",
         effects: [
           { type: "stat", stat: "cookingSpeed", amount: 1, perLevel: true },
+        ],
+      },
+    ],
+  },
+  {
+    id: "treecutting",
+    name: "Treecutting",
+    group: "Gathering",
+    maxLevel: 10,
+    baseXp: 2,
+    scaling: 1.5,
+    tags: ["Skill", "Gathering"],
+    description: "How well you can cut down trees.",
+    milestones: [
+      {
+        level: 1,
+        name: "Faster Cutting",
+        text: "Chop Trees takes 0.15s less per level of Treecutting.",
+        effects: [
+          { type: "time", action: "chopTrees", amount: 0.15, perLevel: true },
+        ],
+      },
+    ],
+  },
+  {
+    id: "woodworking",
+    name: "Woodworking",
+    group: "Crafting",
+    maxLevel: 10,
+    baseXp: 2,
+    scaling: 1.5,
+    tags: ["Skill", "Crafting"],
+    description: "Mastery of wood processing.",
+    milestones: [
+      {
+        level: 1,
+        name: "Steady Woodworking",
+        text: "Gain 1 Woodworking Speed per level of Woodworking.",
+        effects: [
+          { type: "stat", stat: "woodworkingSpeed", amount: 1, perLevel: true },
         ],
       },
     ],

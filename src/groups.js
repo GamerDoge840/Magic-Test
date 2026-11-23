@@ -97,4 +97,5 @@ function appendGroupedResources() {
     }
   }
 }
+// (end of groups.js)
 

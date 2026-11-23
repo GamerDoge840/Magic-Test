@@ -1,8 +1,9 @@
 // Labor Game world: tiles, travel, shopping gate, World tab UI.
 // The World tab unlocks by performing Explore Outskirts once, and lets the
-// player walk a small tile map. Travel runs on its own clock (see
-// worldTick, called from main.js), so it ticks alongside actions - Rest can
-// be run from the World Actions window while a trip is in progress.
+// player walk a tile map. Travel runs on its own clock (see worldTick,
+// called from main.js): starting an action pauses a moving trip first,
+// and heading out stops any running action, so actions never run
+// mid-travel (see setAction/startWorldTravel/toggleWorldTravelPause).
 
 let worldHover = null; // { x, y } moused-over/focused tile (runtime only)
 let worldTileBtns = []; // [{ x, y, btn, _sig }] rebuilt by buildWorldMap
@@ -10,12 +11,14 @@ let worldTileInfoSig = null;
 
 function worldTierDef(id) {
   const arr = (typeof WORLD_TIERS !== "undefined") ? WORLD_TIERS : [];
-  return arr.find(t => t.id === id) ?? arr[0] ?? null;
+  if (id === undefined || id === null) return arr[0] ?? null;
+  return arr.find(t => t.id === id) ?? null;
 }
 
 function worldBiomeDef(id) {
   const arr = (typeof WORLD_BIOMES !== "undefined") ? WORLD_BIOMES : [];
-  return arr.find(b => b.id === id) ?? arr[0] ?? null;
+  if (id === undefined) return arr[0] ?? null;
+  return arr.find(b => b.id === id) ?? null;
 }
 
 function worldModifierDef(id) {
@@ -179,7 +182,7 @@ function tileRequirementTagsFresh(item) {
   const rt = item ? item.requiresTile : undefined;
   if (typeof rt === "string") push(rt);
   else if (Array.isArray(rt)) for (const t of rt) push(t);
-  if (shoppingGated(item) && !out.some(x => x.toLowerCase() === "general store")) push("General Store");
+  if (shoppingGated(item) && !out.some(x => x.toLowerCase() === STORE_TAG.toLowerCase())) push(STORE_TAG);
   return out;
 }
 
@@ -301,7 +304,7 @@ function worldTileColors(t) {
   if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
   const r = parseInt(hex.slice(0, 2), 16), g = parseInt(hex.slice(2, 4), 16), b = parseInt(hex.slice(4, 6), 16);
   const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  const fg = lum < 0.5 ? "#f2ede4" : "#14301c";
+  const fg = lum < 0.5 ? FOG_TEXT_ON_DARK : FOG_TEXT_ON_LIGHT;
   // Partial coverage: the tile's base is the biome color with the
   // modifier color as a centered inset on top of it.
   if (modColor && size < 1) return { bg: biomeBg, fg, mod: modColor, size };
@@ -333,9 +336,10 @@ function paintWorldTile(btn, t) {
   else btn.style.color = "";
 }
 
-// Vision: only an 8x8 window of tiles around the player is rendered -
-// nothing beyond it. The window slides with the player and clamps to
-// the map edge, so small maps (like the 6x6 bones map) show in full.
+// Vision: the full map renders, but only an 8x8 window of tiles around
+// the player is lit - anything beyond it is invisible (disabled) until
+// the player gets closer. The window slides with the player and clamps
+// to the map edge, so small maps show fully lit.
 const WORLD_VISION = 8;
 function worldVisionOrigin() {
   const size = worldMapSize();
@@ -360,27 +364,32 @@ function worldTileAdjacent(x, y) {
   return dx <= 1 && dy <= 1 && (dx + dy) > 0;
 }
 
-// Plains footfall XP: every arrival on a Plains-biome tile teaches
-// navigation - walking the land itself is practice, on top of the
-// Explore Plains action's +1/cycle. Silent unless it levels the skill
-// (gainSkillXp logs that); locked or maxed skills earn nothing, exactly
-// like action XP. Called from both arrival paths (trip + teleport).
-const PLAINS_ENTRY_XP = 0.1;
-const FOREST_ENTRY_XP = 0.1;
+// Sticky biome visits: every arrival records the tile's biome (forest
+// visits unlock the Stone Axe). Checked by hasVisitedBiome for unlock
+// gates; saved with the world so it survives reloads.
+function markBiomeVisited(biomeId) {
+  if (!biomeId || !state.world) return;
+  if (!state.world.visitedBiomes || typeof state.world.visitedBiomes !== "object") state.world.visitedBiomes = {};
+  state.world.visitedBiomes[biomeId] = true;
+}
+
+// Arrival footfall XP: biomes carrying `entryXp` (see WORLD_BIOMES) teach
+// their skill a little on every arrival - walking the land itself is
+// practice, on top of the Explore actions' per-cycle XP. Silent unless it
+// levels the skill (gainSkillXp logs that); locked or maxed skills earn
+// nothing, exactly like action XP. Called from both arrival paths (trip
+// + teleport).
 function grantTileEntryXp(x, y) {
   if (typeof worldInBounds === "function" && !worldInBounds(x, y)) return;
   const t = (typeof worldTileAt === "function") ? worldTileAt(x, y) : null;
-  if (t && t.biome && t.biome.id === "plains" && typeof gainSkillXp === "function") {
-    // Milestone multipliers (Plain Sense II) apply here too, so the
-    // footfall trickle doubles from 0.1 to 0.2 like every other source.
-    const m = (typeof xpMultFor === "function") ? xpMultFor("plainsNavigation") : 1;
-    gainSkillXp("plainsNavigation", PLAINS_ENTRY_XP * m);
-  }
-  if (t && t.biome && t.biome.id === "forest" && typeof gainSkillXp === "function") {
-    // Same deal for forests: Plain Sense II's 1.25x and Forest Sense
-    // II's doubling both flow through xpMultFor.
-    const m = (typeof xpMultFor === "function") ? xpMultFor("forestNavigation") : 1;
-    gainSkillXp("forestNavigation", FOREST_ENTRY_XP * m);
+  if (!t || !t.biome || !t.biome.id) return;
+  markBiomeVisited(t.biome.id);
+  const ex = t.biome.entryXp;
+  if (ex && typeof gainSkillXp === "function") {
+    // Milestone multipliers apply here too, so the footfall trickle
+    // grows exactly like every other source of the same skill.
+    const m = (typeof xpMultFor === "function") ? xpMultFor(ex.skill) : 1;
+    gainSkillXp(ex.skill, ex.amount * m);
   }
 }
 
@@ -423,6 +432,9 @@ function startWorldTravel(tx, ty) {
     // same destination resumes it, another tile replaces it.
     const tr = state.world.travel;
     if (tr.tx === tx && tr.ty === ty) {
+      // Walking again ends any running action first (no actions run
+      // while a trip is moving).
+      if (state.currentActionId) setAction(null);
       tr.paused = false;
       lastTime = performance.now();
       render();
@@ -446,6 +458,9 @@ function startWorldTravel(tx, ty) {
     render();
     return;
   }
+  // Heading out ends any running action first (no actions run while a
+  // trip is moving). Progress is kept, so nothing is lost.
+  if (state.currentActionId) setAction(null);
   state.world.travel = { tx, ty, total, remaining: total, paused: false };
   lastTime = performance.now();
   render();
@@ -457,14 +472,20 @@ function startWorldTravel(tx, ty) {
 function toggleWorldTravelPause() {
   const w = state.world;
   if (!w || !w.travel) return;
+  // Resuming the walk ends any running action first (no actions run
+  // while a trip is moving); pausing mid-trip to act is always fine.
+  if (w.travel.paused && state.currentActionId) setAction(null);
   w.travel.paused = !w.travel.paused;
   lastTime = performance.now();
   render();
 }
 
 // Per-frame travel: drains Stamina for the destination's terrain, then
-// advances the trip. At 0 Stamina the trip pauses (Rest refills it); the
-// bar simply waits. A manually stopped trip (paused) waits the same way.
+// advances the trip. At 0 Stamina the trip stalls until Stamina returns
+// (pause it and Rest, then resume). A manually stopped trip (paused)
+// (pause it and act, then resume). A manually stopped trip (paused)
+// waits the same way. No action runs while a trip is moving (see
+// setAction/startWorldTravel/toggleWorldTravelPause).
 // Arrival lands the player on the tile.
 // Stamina drains exactly (no per-tick rounding): rounding to 2dp biased
 // every 0.025-step down to 0.02, undercharging ~10% per trip. The Vitals
@@ -505,81 +526,18 @@ function worldTick(dt) {
 function placeWorldTip(btn) {
   const tip = btn ? btn.querySelector(":scope > .tip") : null;
   if (!tip || !btn) return;
-  const keep = { position: tip.style.position, top: tip.style.top, bottom: tip.style.bottom, left: tip.style.left, transform: tip.style.transform, maxHeight: tip.style.maxHeight, marginLeft: tip.style.marginLeft };
-  tip.style.position = "";
-  tip.style.top = "";
-  tip.style.bottom = "";
-  tip.style.left = "";
-  tip.style.transform = "";
-  tip.style.maxHeight = "";
-  tip.style.marginLeft = "";
-  // Measure with the tip forcibly shown: openTip fires from JS hover/focus
-  // events that can land a frame before CSS :hover/:focus-visible paints
-  // the tip visible (or, for retargeted disabled-button events, from the
-  // poll with no JS event at all). Measuring a display:none tip reads 0
-  // and bails, stranding it at its natural clipped position - invisible.
-  // Forcing display for the synchronous measure below can't flash: style
-  // writes and reads complete with no paint between them, and the forcing
-  // is removed again before returning, so CSS keeps sole show control.
-  const needShow = getComputedStyle(tip).display === "none";
-  if (needShow) tip.style.display = "block";
-  const h = tip.offsetHeight;
-  if (!h) {
-    tip.style.position = keep.position;
-    tip.style.top = keep.top;
-    tip.style.bottom = keep.bottom;
-    tip.style.left = keep.left;
-    tip.style.transform = keep.transform;
-    tip.style.maxHeight = keep.maxHeight;
-    tip.style.marginLeft = keep.marginLeft;
-    if (needShow) tip.style.display = "";
-    return;
-  }
-  const VH = window.innerHeight, VW = window.innerWidth;
-  const b = btn.getBoundingClientRect();
-  // Ceiling for upward tips: the Tile panel's top edge (first panel in the
-  // left rail). Falls back to the viewport when the panel is missing.
-  let ceil = 8;
+  let ceil = (typeof TIP_EDGE !== "undefined") ? TIP_EDGE : 8;
   const leftCol = document.getElementById("worldLeftCol");
   const tilePanel = leftCol ? leftCol.querySelector(":scope > .panel") : null;
   if (tilePanel) {
     const r = tilePanel.getBoundingClientRect();
-    if (r.bottom > r.top) ceil = Math.max(8, Math.round(r.top) + 8);
+    if (r.bottom > r.top) ceil = Math.max(ceil, Math.round(r.top) + ceil);
   }
-  const roomUp = b.top - ceil;
-  const roomDown = VH - 8 - b.bottom;
-  let dir = "up";
-  if (roomUp < h + 8 && roomDown > roomUp) dir = "down";
-  const room = dir === "up" ? roomUp : roomDown;
-  const cs = getComputedStyle(tip);
-  const centered = cs.transform !== "none";
-  const chrome = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) +
-    (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
-  const avail = Math.floor(room - chrome);
-  const cssCap = Math.min(360, VH * 0.7);
-  const cap = avail <= 0 ? 80 : avail < 80 ? avail : Math.min(avail, cssCap);
-  if (room < h + 8) tip.style.maxHeight = cap + "px";
-  tip.style.position = "fixed";
-  tip.style.bottom = "auto";
-  tip.style.marginLeft = "";
-  tip.style.transform = "none";
-  const w = tip.offsetWidth;
-  const wantLeft = centered ? b.left + b.width / 2 - w / 2 : b.left;
-  tip.style.left = Math.max(8, Math.min(Math.round(wantLeft), VW - 8 - w)) + "px";
-  tip.style.top = dir === "down" ? Math.round(b.bottom - 2) + "px" : Math.round(b.top + 2 - tip.offsetHeight) + "px";
-  if (needShow) tip.style.display = "";
-  if (typeof syncTipPointer === "function") syncTipPointer(btn, true);
+  return fitDetachedTip(tip, btn, { prefer: "up", ceilTop: ceil, forceShow: true });
 }
 
 function clearWorldTip(tip) {
-  if (!tip) return;
-  tip.style.position = "";
-  tip.style.top = "";
-  tip.style.bottom = "";
-  tip.style.left = "";
-  tip.style.transform = "";
-  tip.style.maxHeight = "";
-  tip.style.marginLeft = "";
+  return clearDetachedTip(tip);
 }
 
 // While a World Action tip is open, scrolling or resizing would strand its
@@ -643,33 +601,28 @@ function buildWorldActionBtn(a) {
   return btn;
 }
 
-// Map window: the map grid is always exactly WORLD_VISION x WORLD_VISION
-// cells for the current vision origin. In-bounds cells are tile buttons;
-// cells past the map edge (small maps) hold invisible placeholders so
-// the window keeps its size. Tiles beyond vision are never created.
-// Rebuilt by buildWorldTab and by renderWorld whenever the origin moves.
-let worldBuiltOrigin = null; // { tier, ox, oy }
+// Map: the whole tier renders at once; tiles past the vision window show
+// invisible (disabled) until the player gets closer. Rebuilt by
+// buildWorldTab and by renderWorld whenever the tier changes; the vision
+// slides update in place every frame (no rebuild, so a focused tile never
+// loses focus when the player moves).
+let worldBuiltOrigin = null; // { tier }
+let worldMapSig = null; // whole-grid paint signature (see renderWorld)
+let worldFollow = { x: -1, y: -1, w: -1, h: -1 }; // last viewport-centering mark (see renderWorld)
 function buildWorldMap() {
   const mapCtn = document.getElementById("worldMapCtn");
   if (!mapCtn) return;
-  const o = worldVisionOrigin();
   const tier = state.world ? state.world.tier : null;
+  const size = worldMapSize();
   mapCtn.innerHTML = "";
   worldTileBtns = [];
+  // Tiles stay full-size on every map: the panel scrolls (see #worldMapCtn).
   // Fixed square tracks (see --wt): auto rows size from content, which
   // ignores aspect-ratio - fixed tracks keep every tile truly square.
-  mapCtn.style.gridTemplateColumns = "repeat(" + WORLD_VISION + ", var(--wt))";
+  mapCtn.style.gridTemplateColumns = "repeat(" + size + ", var(--wt))";
   mapCtn.style.gridAutoRows = "var(--wt)";
-  for (let wy = 0; wy < WORLD_VISION; wy++) {
-    for (let wx = 0; wx < WORLD_VISION; wx++) {
-      const x = o.x + wx, y = o.y + wy;
-      if (!worldInBounds(x, y)) {
-        const s = document.createElement("span");
-        s.className = "worldTile worldOut";
-        s.setAttribute("aria-hidden", "true");
-        mapCtn.appendChild(s);
-        continue;
-      }
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
       const t = worldTileAt(x, y);
       const b = document.createElement("button");
       b.type = "button";
@@ -692,7 +645,9 @@ function buildWorldMap() {
   marker.setAttribute("aria-hidden", "true");
   marker.hidden = true;
   mapCtn.appendChild(marker);
-  worldBuiltOrigin = { tier, ox: o.x, oy: o.y };
+  worldBuiltOrigin = { tier };
+  worldMapSig = null;
+  worldFollow = { x: -1, y: -1, w: -1, h: -1 };
   worldHover = null;
 }
 function buildWorldTab() {
@@ -715,17 +670,23 @@ function buildWorldTab() {
     tierSel._worldWired = true;
     tierSel.addEventListener("change", () => {
       const nt = worldTierDef(tierSel.value);
-      if (!nt || !state.world) return;
-      // Placeholder tiers share the same land, so switching keeps the
-      // trip cleared and drops the player at that tier's start (clamped
-      // to the tier, like the save loader, so a bad start can't strand
-      // the player off the map).
-      state.world.tier = nt.id;
-      state.world.travel = null;
+      if (!nt || !state.world || nt.id === state.world.tier) return;
+      const w = state.world;
+      // Each tier remembers where the player stood: stash the old tile,
+      // then return to the new tier's last tile (or its start on a first
+      // visit, clamped to the tier like the save loader). The trip never
+      // survives a switch.
+      if (!w.posByTier || typeof w.posByTier !== "object") w.posByTier = {};
+      w.posByTier[w.tier] = { x: w.x, y: w.y };
+      w.tier = nt.id;
+      w.travel = null;
       const size = worldMapSize(nt.id);
+      const st = w.posByTier[nt.id];
+      const inTier = (v) => Number.isInteger(v) && v >= 0 && v < size;
       const sx = nt.start ? nt.start.x : Math.floor(size / 2), sy = nt.start ? nt.start.y : Math.floor(size / 2);
-      state.world.x = (Number.isInteger(sx) && sx >= 0 && sx < size) ? sx : Math.floor(size / 2);
-      state.world.y = (Number.isInteger(sy) && sy >= 0 && sy < size) ? sy : Math.floor(size / 2);
+      const fx = (inTier(sx)) ? sx : Math.floor(size / 2), fy = (inTier(sy)) ? sy : Math.floor(size / 2);
+      w.x = (st && inTier(Math.floor(Number(st.x)))) ? Math.floor(Number(st.x)) : fx;
+      w.y = (st && inTier(Math.floor(Number(st.y)))) ? Math.floor(Number(st.y)) : fy;
       buildWorldTab();
       render();
     });
@@ -797,15 +758,22 @@ function renderWorldTileInfo() {
   stats.appendChild(td);
   infoCtn.appendChild(stats);
   // Modifier bans on the displayed tile (e.g. Hamlet locking Forage
-  // and Explore Plains): names the locked actions so the tile itself
-  // says why they won't run here. Lock ids are static config validated
-  // against ACTIONS, so hx,hy in the sig already covers tile changes.
+  // and Explore Plains): names the locked groups so the tile itself says
+  // why they won't run here. Individual action names would flood the
+  // window, so bans collapse to their action groups ("Locked: Gathering,
+  // Exploration"). Lock ids are static config validated against ACTIONS,
+  // so hx,hy in the sig already covers tile changes.
   const lockIds = worldTileLocks(hx, hy);
   if (lockIds.length) {
-    const names = lockIds.map(id => { const a = getAction(id); return a ? a.name : id; });
+    const groups = [];
+    for (const id of lockIds) {
+      const a = (typeof getAction === "function") ? getAction(id) : null;
+      const label = (a && a.group) ? a.group : (a ? a.name : id);
+      if (!groups.includes(label)) groups.push(label);
+    }
     const locks = document.createElement("div");
     locks.className = "worldTileLocks";
-    locks.textContent = "Locked: " + names.join(", ");
+    locks.textContent = "Locked: " + groups.join(", ");
     infoCtn.appendChild(locks);
   }
   const desc = (t.modifier && t.modifier.description) || (t.biome && t.biome.description);
@@ -826,31 +794,59 @@ function renderWorld() {
   }
   const tierSel = document.getElementById("worldTierSelect");
   if (tierSel && state.world && tierSel.value !== state.world.tier) tierSel.value = state.world.tier;
-  // The vision window slides with the player: rebuild the map grid
-  // whenever its origin (or tier) changed since the last build.
-  const vo = worldVisionOrigin();
+  // The vision slides with the player: rebuild the map grid only when
+  // its tier changes - lit/invisible tiles update in place below. The
+  // whole tile loop is skipped while the vision sits still (same origin,
+  // player, destination and sites): every per-tile input is covered by
+  // the signature, so huge worlds cost ~0 per tick while idle. The
+  // marker and travel bar below still update every frame.
   const vtier = state.world ? state.world.tier : null;
-  if (!worldBuiltOrigin || worldBuiltOrigin.tier !== vtier || worldBuiltOrigin.ox !== vo.x || worldBuiltOrigin.oy !== vo.y) buildWorldMap();
+  if (!worldBuiltOrigin || worldBuiltOrigin.tier !== vtier) buildWorldMap();
   const traveling = !!(state.world && state.world.travel);
-  for (const e of worldTileBtns) {
-    if (!e.btn.isConnected) continue;
-    // The player marker badge ("O") is always visible (sliding mid-trip,
-    // parked on the player tile when idle), so tiles never print their
-    // own "O" - only the modifier short (e.g. "ST").
-    const isPlayer = !traveling && state.world && e.x === state.world.x && e.y === state.world.y;
-    const isTarget = traveling && e.x === state.world.travel.tx && e.y === state.world.travel.ty;
-    const adj = !traveling && worldTileAdjacent(e.x, e.y);
-    const t = worldTileAt(e.x, e.y);
-    const short = (t.modifier && t.modifier.short) ? t.modifier.short : "";
-    const text = short;
-    const sig = (isPlayer ? 1 : 0) + "|" + (isTarget ? 1 : 0) + "|" + (adj ? 1 : 0) + "|" + text;
-    if (e._sig === sig) continue;
-    e._sig = sig;
-    e.btn.textContent = text;
-    e.btn.classList.toggle("is-player", !!isPlayer);
-    e.btn.classList.toggle("is-target", !!isTarget);
-    e.btn.classList.toggle("is-adj", !!adj);
-    e.btn.setAttribute("aria-label", worldTileName(t) + " (" + e.x + ", " + e.y + ")" + (isPlayer ? ", you are here" : ""));
+  const vo = worldVisionOrigin();
+  // Viewport centering happens after the marker block below (it reuses the
+  // same tile-center reads): the map box scrolls so the player sits dead
+  // center, clamped by the browser at the land edges.
+  const mapSig = vtier + "|" + vo.x + "," + vo.y + "|" + state.world.x + "," + state.world.y + "|" + (traveling ? state.world.travel.tx + "," + state.world.travel.ty : "-") + "|" + ((typeof WORLD_SITES !== "undefined") ? WORLD_SITES.length : 0);
+  if (mapSig !== worldMapSig) {
+    worldMapSig = mapSig;
+    for (const e of worldTileBtns) {
+      if (!e.btn.isConnected) continue;
+      // The player marker badge ("O") is always visible (sliding mid-trip,
+      // parked on the player tile when idle), so tiles never print their
+      // own "O" - only the modifier short (e.g. "ST").
+      const isPlayer = !traveling && state.world && e.x === state.world.x && e.y === state.world.y;
+      const isTarget = traveling && e.x === state.world.travel.tx && e.y === state.world.travel.ty;
+      const adj = !traveling && worldTileAdjacent(e.x, e.y);
+      const vis = worldTileVisible(e.x, e.y);
+      const t = worldTileAt(e.x, e.y);
+      const short = (t.modifier && t.modifier.short) ? t.modifier.short : "";
+      const text = short;
+      const sig = (isPlayer ? 1 : 0) + "|" + (isTarget ? 1 : 0) + "|" + (adj ? 1 : 0) + "|" + (vis ? 1 : 0) + "|" + text;
+      if (e._sig === sig) continue;
+      e._sig = sig;
+      if (vis) {
+        paintWorldTile(e.btn, t);
+        e.btn.textContent = text;
+        e.btn.style.visibility = "";
+        e.btn.disabled = false;
+        e.btn.setAttribute("aria-label", worldTileName(t) + " (" + e.x + ", " + e.y + ")" + (isPlayer ? ", you are here" : ""));
+      } else {
+        // Far tiles are completely invisible (not even a "?" box): the
+        // slot stays so the land keeps its shape, but nothing shows and
+        // the tile is unclickable and out of the tab order until the
+        // player gets closer. Adjacent tiles are always lit (the window
+        // holds the player), so this never gates legal travel - only the
+        // "too far" kind.
+        e.btn.style.visibility = "hidden";
+        e.btn.textContent = "";
+        e.btn.disabled = true;
+        e.btn.setAttribute("aria-label", "Unknown tile (" + e.x + ", " + e.y + ")");
+      }
+      e.btn.classList.toggle("is-player", !!isPlayer);
+      e.btn.classList.toggle("is-target", !!isTarget);
+      e.btn.classList.toggle("is-adj", !!adj);
+    }
   }
   const wrap = document.getElementById("worldTravelWrap");
   if (wrap) {
@@ -875,19 +871,23 @@ function renderWorld() {
   if (marker) {
     const oBtn = (state.world ? (worldTileBtns.find(e => e.x === state.world.x && e.y === state.world.y) || {}).btn : null);
     const dBtn = traveling ? (worldTileBtns.find(e => e.x === state.world.travel.tx && e.y === state.world.travel.ty) || {}).btn : null;
-    let mHide = true, mLeft = "", mTop = "";
+    let mHide = true, mLeft = "", mTop = "", mcx = 0, mcy = 0;
     if (oBtn && oBtn.isConnected && (!traveling || (dBtn && dBtn.isConnected))) {
       mHide = false;
       if (!traveling) {
-        mLeft = (oBtn.offsetLeft + oBtn.offsetWidth / 2) + "px";
-        mTop = (oBtn.offsetTop + oBtn.offsetHeight / 2) + "px";
+        mcx = oBtn.offsetLeft + oBtn.offsetWidth / 2;
+        mcy = oBtn.offsetTop + oBtn.offsetHeight / 2;
+        mLeft = mcx + "px";
+        mTop = mcy + "px";
       } else {
         const tr = state.world.travel;
         const frac = Math.min(1, Math.max(0, 1 - tr.remaining / tr.total));
         const ox = oBtn.offsetLeft + oBtn.offsetWidth / 2, oy = oBtn.offsetTop + oBtn.offsetHeight / 2;
         const dx = dBtn.offsetLeft + dBtn.offsetWidth / 2, dy = dBtn.offsetTop + dBtn.offsetHeight / 2;
-        mLeft = (ox + (dx - ox) * frac) + "px";
-        mTop = (oy + (dy - oy) * frac) + "px";
+        mcx = ox + (dx - ox) * frac;
+        mcy = oy + (dy - oy) * frac;
+        mLeft = mcx + "px";
+        mTop = mcy + "px";
       }
     }
     const mSig = (mHide ? 1 : 0) + "|" + mLeft + "|" + mTop;
@@ -896,7 +896,31 @@ function renderWorld() {
       marker.hidden = mHide;
       if (!mHide) { marker.style.left = mLeft; marker.style.top = mTop; }
     }
+    // The World window is always centered around the player: the map box
+    // scrolls so the marker's center sits in the middle of the visible
+    // box - parked on the player tile when idle, following the sliding
+    // marker mid-trip. The browser clamps at the land edges, and small
+    // maps that fit need no scroll (safe-center CSS keeps them centered).
+    // Gated on origin + player + box size + trip progress, so parked
+    // frames cost only compares; skipped while the tab is hidden
+    // (zero-size tiles) with a retry on a later tick.
+    const mapBox = document.getElementById("worldMapCtn");
+    if (!mHide && mapBox && oBtn.offsetWidth > 0) {
+      const mw = mapBox.clientWidth, mh = mapBox.clientHeight;
+      if (mw > 0 && mh > 0) {
+        const cFrac = traveling ? Math.min(1, Math.max(0, 1 - state.world.travel.remaining / state.world.travel.total)) : -1;
+        const cSig = vo.x + "," + vo.y + "|" + state.world.x + "," + state.world.y + "|" + mw + "x" + mh + "|" + (traveling ? cFrac.toFixed(3) : "i");
+        if (cSig !== worldFollow._sig) {
+          worldFollow = { x: vo.x, y: vo.y, w: mw, h: mh, _sig: cSig };
+          const wantL = mcx - mw / 2, wantT = mcy - mh / 2;
+          if (Math.abs(mapBox.scrollLeft - wantL) >= 1) mapBox.scrollLeft = wantL;
+          if (Math.abs(mapBox.scrollTop - wantT) >= 1) mapBox.scrollTop = wantT;
+        }
+      }
+    }
   }
+  // A hovered tile that slid out of vision stops describing itself.
+  if (worldHover && !worldTileVisible(worldHover.x, worldHover.y)) worldHover = null;
   renderWorldTileInfo();
   // World Actions mirrors stay in lockstep with their Work originals.
   const acts = (typeof WORLD_ACTIONS !== "undefined") ? WORLD_ACTIONS : [];
@@ -912,12 +936,25 @@ function renderWorld() {
     // Tile-modifier locks (e.g. Hamlet banning Forage) hide the mirror
     // outright; unmet tile requirements hide it only for hideWhenOffTile
     // actions (Work-tab parity - other actions show disabled with a red
-    // star). A running action stays visible until the next tick stops it.
+    // star). Locked (un-unlocked) and user-hidden actions hide exactly
+    // like their Work buttons. A running action stays visible until the
+    // next tick stops it.
     const shopBlock = worldShopBlocked(a);
     const lockBlock = ((typeof worldActionLocked === "function") && worldActionLocked(a));
+    const unlockOK = (typeof unlockMet === "function") ? unlockMet(a, "a") : true;
+    const hideHidden = !(typeof hidingMode !== "undefined" && hidingMode.actions) && (typeof itemHidden === "function") && itemHidden("a:" + a.id);
     const blocked = shopBlock || lockBlock;
-    const mirrorHide = (lockBlock || (!!a.hideWhenOffTile && shopBlock)) && !isActive;
-    const disabled = isActive ? false : ((!canAfford(effCost) && !paidResume) || vitalsFull || blocked);
+    // Paid-cycle resume stays visible on its tile (same rule as the Work
+    // button): a stopped-but-paid mirror can finish anywhere instead of
+    // stranding progress behind a hidden button - except hideWhenOffTile
+    // actions (Explores, Chop Trees), which stay hidden off-tile while
+    // paid. Unlocks and user-hiding still hide (re-unlock/unhide first).
+    const tilePaidOk = paidResume && !a.hideWhenOffTile;
+    const mirrorHide = (!unlockOK || hideHidden || (lockBlock && !tilePaidOk) || (!!a.hideWhenOffTile && shopBlock && !tilePaidOk)) && !isActive;
+    // Blocked (locked/off-tile) still disables a fresh start, but a paid
+    // resume stays clickable (Work-tab parity) - except hideWhenOffTile
+    // actions, which stay disabled off-tile while paid.
+    const disabled = isActive ? false : ((!canAfford(effCost) && !paidResume) || vitalsFull || (blocked && !tilePaidOk));
     const overMax = (typeof costExceedsMax === "function") ? costExceedsMax(effCost) : false;
     const prog = cyc ? cyc.progress : 0;
     const tick = getEffectiveTick(a);
@@ -933,8 +970,9 @@ function renderWorld() {
     if (ref._sig === sig) continue;
     ref._sig = sig;
     ref.root.classList.toggle("active", isActive);
-    // Hides exactly like its Work button (locks + hideWhenOffTile); a
-    // running one stays visible until the next tick stops it.
+    // Hides exactly like its Work button (locks, hideWhenOffTile,
+    // unlocks, hiding); a running one stays visible until the next tick
+    // stops it.
     ref.root.hidden = mirrorHide && !isActive;
     if (ref.label) {
       // Same red "Name*" as the Work button: over-cap price or unmet

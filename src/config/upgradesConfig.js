@@ -174,6 +174,20 @@ const UPGRADES = [
       { type: "max", resource: "scroll", amount: 1 },
     ],
   },
+  {
+    id: "stoneAxe",
+    name: "Stone Axe",
+    group: "Tools",
+    header: "Upgrades",
+    tags: ["Shopping", "Tools"],
+    description: "Buy a beginner's axe for cutting wood.",
+    cost: { coin: 30, research: 3 },
+    maxPurchases: 1,
+    buyLog: "You buy a sturdy stone axe.",
+    unlock: { visitedBiome: "forest" },
+    unlockLog: "Maybe if you had an axe, you could cut these trees down.",
+    effects: [],
+  },
 
   // QUICK ADD - minimal upgrade (buys once, auto description):
   // { id: "snack", name: "Snack", cost: { coin: 5 },

@@ -35,7 +35,7 @@ function render() {
     const hideRow = !discovered || (itemHidden("r:" + r.id) && !(isCurrency(r) ? hidingMode.currencies : hidingMode.vitals));
     const struck = itemHidden("r:" + r.id);
     // Meal overheal: Stamina past its cap grades the bar into pale green.
-    const overhealed = !isCurrency(r) && r.id === "stamina" && max !== Infinity && val > max + 1e-9;
+    const overhealed = !isCurrency(r) && r.id === OVERHEAL_RESOURCE && max !== Infinity && val > max + 1e-9;
     const sig = val + "|" + rate + "|" + (max === Infinity ? "i" : max) + "|" + (hideRow ? 1 : 0) + "|" + (struck ? 1 : 0) + "|" + (discovered ? 1 : 0) + "|" + (overhealed ? 1 : 0);
     for (const ref of refs) {
     if (ref._sig === sig) continue;
@@ -47,7 +47,7 @@ function render() {
       ref.name.textContent = displayName(r, val);
       ref.val.textContent = capText;
       // Full stacks read at a glance: the numbers glow pale yellow at cap.
-      ref.val.style.color = (max !== Infinity && val >= max) ? "#FFFE40" : "";
+      ref.val.style.color = (max !== Infinity && val >= max) ? CAP_GLOW_COLOR : "";
       if (ref.tipCount) ref.tipCount.textContent = capText;
       if (ref.tipRate) {
         ref.tipRate.textContent = rate ? formatNum(rate) + "/s" : "";
@@ -63,7 +63,7 @@ function render() {
       ref.fill.style.width = Math.max(0, Math.min(100, (val / max) * 100)) + "%";
       // Overhealed Stamina glows: the fill grades from its usual color
       // into pale green (#CBFFA3) until the buffer is spent.
-      ref.fill.style.background = overhealed ? ("linear-gradient(to right, " + (r.barColor || "#FFFCAD") + ", #CBFFA3)") : (r.barColor || "");
+      ref.fill.style.background = overhealed ? ("linear-gradient(to right, " + (r.barColor || DEFAULT_BAR_COLOR) + ", " + OVERHEAL_GRADIENT_END + ")") : (r.barColor || "");
       if (ref.tipCount) ref.tipCount.textContent = formatNum(val) + " / " + formatNum(max);
       if (ref.tipRate) {
         ref.tipRate.textContent = rate ? formatNum(rate) + "/s" : "";
@@ -92,25 +92,30 @@ function render() {
     const tileBlocked = shopBlock || lockBlock;
     // Tile-modifier locks (e.g. Hamlet banning Forage) hide the
     // action outright instead of a red star. A running action stays
-    // visible until the next tick stops it.
-    const lockHide = lockBlock && !isActive;
+    // visible until the next tick stops it. A stopped-but-paid action stays
+    // visible too, so its paid cycle can resume anywhere (the same rule
+    // tileStopped uses below) instead of stranding progress behind a
+    // hidden button until the player walks back.
+    const cyc = state.cycles[a.id];
+    const paidResume = !isActive && !!cyc && cyc.paid === true;
+    // Paid progress normally stays visible/resumable anywhere - except
+    // hideWhenOffTile actions (Explores, Chop Trees), whose tile gates
+    // hold even when paid (progress + payment are kept, just unusable
+    // until the player walks back).
+    const tilePaidOk = paidResume && !a.hideWhenOffTile;
+    const lockHide = lockBlock && !isActive && !tilePaidOk;
     // hideWhenOffTile (e.g. Explore Plains): an unmet tile requirement
     // hides the action outright instead of a red star, exactly like a
     // lock. A running action stays visible until the next tick stops
     // it. Before the World unlocks every requirement counts as met, so
     // the action still shows in town.
-    const offTileHide = !!a.hideWhenOffTile && !isActive && shopBlock;
+    const offTileHide = !!a.hideWhenOffTile && !isActive && !tilePaidOk && shopBlock;
     const hidden = !unlockMet(a, "a") || (!hidingMode.actions && itemHidden("a:" + a.id)) || lockHide || offTileHide;
     const count = state.stats.actions[a.id] ?? 0;
     // Skill milestones can discount the price (Scroll Frugality): every
     // affordability check, cap check, and label below reads the effective
     // costs so the whole frame agrees on the true price.
     const effCost = (typeof effectiveCosts === "function") ? effectiveCosts(a) : { ...(a.costs ?? {}) };
-    // A stopped action sitting on a paid cycle resumes for free - starting a
-    // NEW cycle is what costs resources. Only the fresh-start price gates
-    // the button, so a half-finished action stays clickable when broke.
-    const cyc = state.cycles[a.id];
-    const paidResume = !isActive && !!cyc && cyc.paid === true;
     // One payout read per action per tick: vitals-full, currency-full, and
     // the override lapse below all share it.
     const effGains = effectiveGains(a);
@@ -127,10 +132,11 @@ function render() {
     const ovr = !!(state.fullOverride && state.fullOverride[a.id]);
     // Tile requirement: gated actions (e.g. Buy Scrolls) only start on
     // a matching tile. A paid cycle picked up mid-bar resumes anywhere,
-    // exactly like upgrades and timed builds.
+    // exactly like upgrades and timed builds - except hideWhenOffTile
+    // actions, which stay gated while paid (see tilePaidOk above).
     // Tile-modifier locks (e.g. Hamlet banning Forage) block the
     // same way.
-    const tileStopped = tileBlocked && !paidResume;
+    const tileStopped = tileBlocked && !tilePaidOk;
     const disabled = hidingMode.actions ? false : (isActive ? false : ((!canAfford(effCost) && !paidResume) || vitalsFull || tileStopped));
     const prog = cyc ? cyc.progress : 0;
     const tick = getEffectiveTick(a);
@@ -332,8 +338,10 @@ function render() {
   }
 
   // Player stats: base values plus attained skill-milestone boosts (INT
-  // rises with Basic Knowledge). Crafting-tagged stats (Cooking Speed)
-  // hide with their section header until Cooking is unlocked. Rendered
+  // rises with Basic Knowledge). Crafting-tagged stats (Cooking Speed,
+  // Woodworking Speed) hide with their section header until their own
+  // crafting group opens (see craftStatOpen) - a Woodworking Speed with
+  // no Woodworking plans stays hidden while Cooking shows. Rendered
   // through the same sig-skip pattern so future effects just work.
   const craftOpen = (typeof cookingUnlocked === "function") ? cookingUnlocked() : true;
   if (typeof craftStatsHead !== "undefined" && craftStatsHead && craftStatsHead.hidden !== !craftOpen) craftStatsHead.hidden = !craftOpen;
@@ -341,7 +349,7 @@ function render() {
     const ref = uiRefs.get("p:" + s.id);
     if (!ref) continue;
     const val = getEffectiveStat(s.id);
-    const hidden = getTags(s).includes("Crafting") && !craftOpen;
+    const hidden = getTags(s).includes(CRAFTING_TAG) && !(typeof craftStatOpen === "function" ? craftStatOpen(s.id) : craftOpen);
     const sig = String(val) + "|" + (hidden ? 1 : 0);
     if (ref._sig === sig) continue;
     ref._sig = sig;
@@ -437,6 +445,7 @@ resetBtn.addEventListener("click", () => {
   if (typeof consumeAcc !== "undefined") consumeAcc = null;
   if (typeof sellAcc !== "undefined") sellAcc = null;
   if (typeof skillXpAcc !== "undefined") skillXpAcc = null;
+  if (typeof skillXpLast !== "undefined") skillXpLast = {};
   if (typeof craftAcc !== "undefined") craftAcc = null;
   if (typeof selectedSkillId !== "undefined") selectedSkillId = null;
   buildUI();

@@ -119,6 +119,20 @@ const FURNITURE = [
     unlockLog: "Maybe if you bought some basic culinary equipment, you could cook the food you found?",
     effects: [],
   },
+  {
+    id: "woodworkingTable",
+    name: "Woodworking Table",
+    space: 2,
+    cost: { coin: 40 },
+    requiresHome: ["tent", "mediumTent", "survivalistTent"],
+    requiresSeenTag: "Wood",
+    tags: ["Woodworking Station", "Crafting", "Furniture", "Shopping"],
+    description: "A small table with a saw, necessary for processing wood.",
+    buyLog: "You set up a woodworking table in your home.",
+    sellLog: "You sell your woodworking table.",
+    unlockLog: "If you had a woodworker's table, you'd be able to cut the log you just chopped.",
+    effects: [],
+  },
 ];
 
 // SPECIAL_MESSAGES: one-time log messages fired by circumstances, not by buying

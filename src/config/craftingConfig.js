@@ -24,7 +24,9 @@
 //       - slots: (optional) fixed Item Slot count for the plan; defaults
 //                to one slot per recipe input (the most-input recipe sets
 //                it), raised when larger (never shrunk below the recipes).
-//       - time: (optional, default 5) base seconds per craft.
+//       - time: (optional, default 5) base seconds per craft. A
+//                recipe's own `time` (below) overrides this for that
+//                recipe alone.
 //       - fuelPerSec: (optional, default 0.25) fuel value drained per
 //                base-time second (so a 5s plan burns 1.25 fuel value per
 //                craft, however fast it runs). 0 means the plan needs
@@ -34,6 +36,11 @@
 //         xp: { cooking: 0.5 }.
 //       - recipes: (required) at least one recipe, each:
 //           - id / name: (name defaults to id; shown once discovered)
+//           - time: (optional) seconds per craft for this recipe alone
+//                (defaults to the plan time above), e.g. a bigger burn
+//                that takes 7s on a 6s plan. Per-craft fuel follows the
+//                recipe time (fuelPerSec x recipe seconds), and the
+//                recipe tooltip shows the affected time.
 //           - inputs: (required) one or more entries, e.g. { apples: 1 }.
 //                A key "tag:Fruit" accepts any item carrying that tag
 //                (matched case-insensitively), so one recipe covers every
@@ -51,7 +58,7 @@ const CRAFTING = [
     id: "cooking",
     name: "Cooking",
     stationTag: "Cooking Station",
-    noStationMsg: "You need a Cooking Station to cook.",
+    noStationMsg: "You need a Cooking Station to craft.",
     skill: "cooking",
     speedStat: "cookingSpeed",
     plans: [
@@ -88,6 +95,7 @@ const CRAFTING = [
         id: "makeSalad",
         name: "Make Salad",
         description: "Make salads.",
+        unlock: { seen: "cabbage", skill: "cooking", skillLevel: 1 },
         time: 4,
         fuelPerSec: 0,
         slots: 3,
@@ -104,6 +112,58 @@ const CRAFTING = [
             name: "Fruit Salad",
             inputs: { cabbage: 1, "tag:fruit": 1 },
             outputs: { fruitSalad: 1 },
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "woodworking",
+    name: "Woodworking",
+    stationTag: "Woodworking Station",
+    noStationMsg: "You need a Woodworking Station to craft.",
+    skill: "woodworking",
+    speedStat: "woodworkingSpeed",
+    plans: [
+      {
+        id: "cutPlanks",
+        name: "Cut Planks",
+        description: "Saw logs into planks.",
+        starter: true,
+        time: 8,
+        fuelPerSec: 0,
+        xp: { woodworking: 0.5 },
+        recipes: [
+          {
+            id: "cutPlanks",
+            name: "Cut Oak Planks",
+            inputs: { oakLog: 1 },
+            outputs: { oakPlank: 2 },
+          },
+        ],
+      },
+      {
+        id: "makeCharcoal",
+        name: "Make Charcoal",
+        description: "Smelt wood into charcoal.",
+        starter: true,
+        time: 6,
+        fuelPerSec: 0.125,
+        xp: { woodworking: 0.6 },
+        recipes: [
+          {
+            id: "charTwigs",
+            name: "Charcoal from Twigs",
+            time: 6,
+            inputs: { twigs: 2 },
+            outputs: { charcoal: 1 },
+          },
+          {
+            id: "charPlank",
+            name: "Charcoal from Planks",
+            time: 7,
+            inputs: { "tag:plank": 2 },
+            outputs: { charcoal: 1 },
           },
         ],
       },

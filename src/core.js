@@ -5,6 +5,33 @@
    so new items just work.
    ============================================================ */
 
+ // Shared magic strings (one copy - engine + UI all read these, so a
+ // rename touches one line): the furniture tag that reveals the Crafting
+ // tab, the tile tag that gates shops/selling, and the vital that meals
+ // can overheal past its cap.
+const CRAFTING_TAG = "Crafting";
+const STORE_TAG = "General Store";
+const OVERHEAL_RESOURCE = "stamina";
+// Named UI literals (single copy - the values are still hex by necessity,
+// but a retune touches one line): fallback bar color for vitals without
+// one in config, full-stack number glow, overheal gradient end, and the
+// two fog-of-war text inks picked by tile luminance in worldTileColors.
+const DEFAULT_BAR_COLOR = "#FFFCAD";
+const CAP_GLOW_COLOR = "#FFFE40";
+const OVERHEAL_GRADIENT_END = "#CBFFA3";
+const FOG_TEXT_ON_DARK = "#f2ede4";
+const FOG_TEXT_ON_LIGHT = "#14301c";
+// Per-tick catch-up caps: a background-throttled frame may owe many cycles
+// at once; each loop applies at most this many, then the remainder waits
+// for the next 50ms tick (self-corrects, no explosion - see main.js).
+const MAX_CYCLES_PER_TICK = 10;
+const MAX_FUEL_UNITS_PER_TICK = 10;
+// Named timings (single copy): milestone balloon lifetime, exported-save
+// object-URL revocation delay, and the main-loop tick (see main.js).
+const MILESTONE_BALLOON_MS = 15000;
+const EXPORT_URL_REVOKE_MS = 5000;
+const MAIN_TICK_MS = 50;
+
 const currenciesCtn = document.getElementById("currenciesCtn");
 const vitalsCtn = document.getElementById("vitalsCtn");
 // Home-tab mirrors (may be null in stripped-down copies): the resource and
@@ -243,6 +270,8 @@ let lastTime = performance.now();
 // Fresh World position: first tier's start tile (top-left origin), no
 // travel in progress. Reads WORLD_TIERS defensively so stripped copies
 // without world config still boot (world.js guards everything else).
+// visitedBiomes tracks every biome the player has ever stood on (forest
+// visits unlock the Stone Axe) - sticky, saved, never cleared.
 function defaultWorldState() {
   let tier = null, x = 3, y = 3;
   if (typeof WORLD_TIERS !== "undefined" && WORLD_TIERS.length) {
@@ -252,18 +281,19 @@ function defaultWorldState() {
     x = (t.start && Number.isInteger(t.start.x)) ? Math.min(size - 1, Math.max(0, t.start.x)) : Math.floor(size / 2);
     y = (t.start && Number.isInteger(t.start.y)) ? Math.min(size - 1, Math.max(0, t.start.y)) : Math.floor(size / 2);
   }
-  return { tier, x, y, travel: null };
+  return { tier, x, y, travel: null, visitedBiomes: {}, posByTier: {} };
 }
 
 // Fresh crafting state: one slot record per known plan (built from the
 // cleaned CRAFTING config so future plans just work), recipe discovery
-// per plan, and the selected group/plan. Item slots hold { id, n } or
+// per plan, the selected group/plan, and per-group plan memory (selPlans,
+// so sub-tabs return to the plan you were on). Item slots hold { id, n } or
 // null (one slot per recipe input); the fuel slot likewise; fuelLeft/
 // fuelMax track the partially-burned fuel unit so a reload mid-burn
 // keeps its remainder; progress is the current craft's 0..1 fraction;
 // selRecipe is the clicked recipe button (autofill highlight).
 function defaultCraftState() {
-  const st = { sel: { group: null, plan: null }, plans: {}, discovered: {} };
+  const st = { sel: { group: null, plan: null }, selPlans: {}, plans: {}, discovered: {} };
   if (typeof CRAFTING === "undefined") return st;
   for (const g of CRAFTING) {
     if (!st.sel.group) st.sel.group = g.id;
@@ -536,14 +566,15 @@ function homeSpaceMax() {
 // Furniture unlock: visible once ANY of its required homes is owned (a
 // string id or an array of ids - e.g. ["tent", "mediumTent"] survives the
 // Small Tent being replaced). Owned furniture stays visible via its new
-// home. No requirement = always visible. An optional `requiresSeenTag`
-// (a tag or an array of tags, e.g. "Food") additionally hides the entry
-// until any item carrying one of those tags has been discovered
-// (state.seen) - seen flags are sticky, so it never locks again.
+// home. An optional `requiresSeenTag` (a tag or an array of tags, e.g.
+// "Food") additionally hides the entry until any item carrying one of
+// those tags has been discovered (state.seen) - seen flags are sticky,
+// so it never locks again. No requirements at all = always visible.
 function unlockFurniture(f) {
-  if (!f.requiresHome) return true;
-  const req = Array.isArray(f.requiresHome) ? f.requiresHome : [f.requiresHome];
-  if (!req.some(id => !!state.homes[id])) return false;
+  if (f.requiresHome !== undefined) {
+    const req = Array.isArray(f.requiresHome) ? f.requiresHome : [f.requiresHome];
+    if (!req.some(id => !!state.homes[id])) return false;
+  }
   if (f.requiresSeenTag !== undefined) {
     const tags = Array.isArray(f.requiresSeenTag) ? f.requiresSeenTag : [f.requiresSeenTag];
     const items = (typeof ITEMS !== "undefined") ? ITEMS : [];
@@ -717,10 +748,24 @@ function buildTipTags(item) {
 //   { upgrades: { pockets: 5 } } = own at least that many of EACH
 //     upgrade. Shorthand: { upgrade: "pockets", upgradeCount: 5 }
 //     (count defaults to 1). Works on actions too.
+//   { visitedBiomes: ["forest"] } = ever stood on EVERY listed biome.
+//     Shorthand: { visitedBiome: "forest" } (a single id, or an array).
 // Add `unlock` to any action or upgrade to gate it; groups with nothing
 // visible collapse on their own. Set `unlockLog` to customize the
 // message; it defaults to "Unlocked Action: <name>" /
 // "Unlocked Upgrade: <name>".
+// Sticky biome visits (see defaultWorldState/markBiomeVisited in world.js):
+// true once the player has ever stood on that biome, matched
+// case-insensitively so config may write "forest" or "Forest" alike.
+function hasVisitedBiome(id) {
+  if (!id || !state.world || !state.world.visitedBiomes || typeof state.world.visitedBiomes !== "object") return false;
+  const want = String(id).toLowerCase();
+  for (const k of Object.keys(state.world.visitedBiomes)) {
+    if (String(k).toLowerCase() === want && state.world.visitedBiomes[k]) return true;
+  }
+  return false;
+}
+
 function unlockMet(item, prefix) {
   if (!item.unlock) return true;
   const key = prefix + ":" + item.id;
@@ -761,6 +806,15 @@ function unlockMet(item, prefix) {
       if ((state.upgrades[uid] ?? 0) < n) return false;
     }
   }
+  // Biome-visit gates: EVERY listed biome must have been stood on at least
+  // once (e.g. the Stone Axe needs a forest visit). Accepts the legacy
+  // `visitedBiome` (single id or array) and the canonical `visitedBiomes`.
+  const visitReqs = [];
+  if (typeof u.visitedBiome === "string") visitReqs.push(u.visitedBiome);
+  else if (Array.isArray(u.visitedBiome)) visitReqs.push(...u.visitedBiome);
+  if (typeof u.visitedBiomes === "string") visitReqs.push(u.visitedBiomes);
+  else if (Array.isArray(u.visitedBiomes)) visitReqs.push(...u.visitedBiomes);
+  for (const b of visitReqs) if (!hasVisitedBiome(b)) return false;
   state.unlocked[key] = true;
   const kind = prefix === "u" ? "Upgrade" : prefix === "r" ? (isCurrency(item) ? "Currency" : "Vital") : "Action";
   log(item.unlockLog ?? ("Unlocked " + kind + ": " + item.name), "unlock");
@@ -1018,14 +1072,17 @@ function effectiveGains(a) {
     const e = x.effect;
     if (e.type === "gain" && e.action === a.id && e.resource) out[e.resource] = (out[e.resource] ?? 0) + e.amount * skillEffectLevels(x.source, e);
   }
-  // Rest knits wounds on top of its Stamina payout: +2% of current max
-  // Health per cycle (e.g. +2 at 100 max). Dynamic so max-boosting
-  // effects flow through; rounded to 3dp to keep float dust out of the
-  // vitals panel. The tooltip always shows it (see buildActionTipBody),
-  // even while Health itself is still locked.
-  if (a.id === "rest") {
-    const hm = getEffectiveMax("health");
-    if (Number.isFinite(hm) && hm > 0) out.health = (out.health ?? 0) + Math.round(hm * 0.02 * 1000) / 1000;
+  // Vital restoration (e.g. Rest heals: { health: 0.02 }): a share of
+  // current max per cycle, once the vital itself is unlocked. Dynamic so
+  // max-boosting effects flow through; rounded to 3dp to keep float dust
+  // out of the vitals panel. Locked vitals grant nothing and the tooltip
+  // hides their rows (see buildActionTipBody/renderActionTipLive).
+  for (const [rid, pct] of Object.entries(a.heals ?? {})) {
+    if (typeof resourceUnlocked !== "function" || typeof getResource !== "function") continue;
+    const r = getResource(rid);
+    if (!r || !resourceUnlocked(r)) continue;
+    const mx = (typeof getEffectiveMax === "function") ? getEffectiveMax(rid) : NaN;
+    if (Number.isFinite(mx) && mx > 0) out[rid] = (out[rid] ?? 0) + Math.round(mx * pct * 1000) / 1000;
   }
   return out;
 }
@@ -1122,10 +1179,17 @@ function normalizeConfig() {
   // Map of skill ids to positive amounts (action xp, xpBonus): unknown
   // skills warn and drop (a kept entry would grant nothing yet show a
   // phantom row in tooltips).
-  function cleanXpMap(map, label, amountNoun, grantVerb) {
+  // Tile overrides (xpByBiome/xpByTag) pass allowZero: an explicit 0 means
+  // "no XP on this tile" (overwriting the base), while a missing entry
+  // means "fall back to the base" - dropping the 0 would silently run the
+  // base instead of nothing (same class as the cost-zero bug below).
+  function cleanXpMap(map, label, amountNoun, grantVerb, allowZero) {
     const cleaned = {};
     for (const [k, v] of Object.entries(map)) {
-      if (badAmount(v)) { warn(label + ": bad " + amountNoun + ' amount for "' + k + '", skipped.'); continue; }
+      const bad = allowZero
+        ? (typeof v !== "number" || !Number.isFinite(v) || v < 0)
+        : badAmount(v);
+      if (bad) { warn(label + ": bad " + amountNoun + ' amount for "' + k + '", skipped.'); continue; }
       if (!getSkill(k)) { warn(label + ": " + grantVerb + ' unknown skill "' + k + '", skipped.'); continue; }
       cleaned[k] = v;
     }
@@ -1342,7 +1406,11 @@ function normalizeConfig() {
     dropBadString(s, "tooltip", sLabel2, "ignored");
     cleanTags(s, sLabel2);
   }
-  function cleanMap(map, ownerLabel, kind, warnUnknown) {
+  // Tile cost overrides (costsByBiome/costsByTag) pass keepZero: an explicit
+  // 0 means "free on this tile" (overwriting the base), while a missing
+  // entry means "fall back to the base" - dropping the 0 would silently
+  // charge the base instead of nothing.
+  function cleanMap(map, ownerLabel, kind, warnUnknown, keepZero) {
     if (map === undefined) return {};
     if (!map || typeof map !== "object" || Array.isArray(map)) {
       warn(ownerLabel + ": bad " + kind + ", ignored.");
@@ -1354,7 +1422,7 @@ function normalizeConfig() {
         warn(ownerLabel + ": bad " + kind + ' amount for "' + k + '", skipped.');
         continue;
       }
-      if (v === 0) continue; // zero amounts are free: drop them so tips stay clean.
+      if (v === 0 && !keepZero) continue; // zero amounts are free: drop them so tips stay clean.
       // Consume gains and sell prices pass warnUnknown=false: unknown ids
       // are dropped (with their own "skipped" warning) by their callers,
       // so the kept-with-warning note below would be a lie for them.
@@ -1463,15 +1531,28 @@ function normalizeConfig() {
         upgrades[uid] = Math.max(upgrades[uid] ?? 0, uc);
       }
     }
+    // Biome-visit gates: legacy `visitedBiome` plus canonical
+    // `visitedBiomes`; each accepts a single id or an array, and EVERY
+    // listed biome must have been stood on (see hasVisitedBiome).
+    const visitedBiomes = [];
+    for (const vkey of ["visitedBiome", "visitedBiomes"]) {
+      if (k[vkey] === undefined) continue;
+      const list = Array.isArray(k[vkey]) ? k[vkey] : [k[vkey]];
+      if (!list.length) return void fail(": bad unlock visited biome");
+      for (const id of list) {
+        if (typeof id !== "string" || !id || (typeof knownBiome === "function" && !knownBiome(id))) return void fail(": bad unlock visited biome");
+        if (!visitedBiomes.some(x => String(x).toLowerCase() === String(id).toLowerCase())) visitedBiomes.push(id);
+      }
+    }
     for (const key of Object.keys(k)) {
-      if (!["resource", "amount", "resources", "home", "homes", "skill", "skillLevel", "skills", "upgrade", "upgradeCount", "upgrades"].includes(key)) {
+      if (!["resource", "amount", "resources", "home", "homes", "skill", "skillLevel", "skills", "upgrade", "upgradeCount", "upgrades", "visitedBiome", "visitedBiomes"].includes(key)) {
         warn(ownerLabel + ': unknown unlock key "' + key + '", ignored.');
       }
     }
     if (item.id && upgrades[item.id] !== undefined) {
       warn(ownerLabel + ": unlock requires its own purchase, so it can never appear.");
     }
-    if (!Object.keys(resources).length && !homes.length && !Object.keys(skills).length && !Object.keys(upgrades).length) {
+    if (!Object.keys(resources).length && !homes.length && !Object.keys(skills).length && !Object.keys(upgrades).length && !visitedBiomes.length) {
       warn(ownerLabel + ": bad unlock, always visible.");
       delete item.unlock;
       return;
@@ -1481,6 +1562,7 @@ function normalizeConfig() {
     if (homes.length) item.unlock.homes = homes;
     if (Object.keys(skills).length) item.unlock.skills = skills;
     if (Object.keys(upgrades).length) item.unlock.upgrades = upgrades;
+    if (visitedBiomes.length) item.unlock.visitedBiomes = visitedBiomes;
   }
   function cleanHeader(item, ownerLabel) {
     if (item.header === undefined) return;
@@ -1835,6 +1917,21 @@ function normalizeConfig() {
     }
     a.costs = cleanMap(a.costs, aLabel, "cost");
     a.gains = cleanMap(a.gains, aLabel, "gain");
+    // Vital restoration as a share of max, e.g. heals: { health: 0.02 }.
+    // Unknown vitals warn and drop; malformed maps reset to {}.
+    if (a.heals === undefined) a.heals = {};
+    else if (!a.heals || typeof a.heals !== "object" || Array.isArray(a.heals)) {
+      warn(aLabel + ": bad heals, ignored.");
+      a.heals = {};
+    } else {
+      const kept = {};
+      for (const [rid, pct] of Object.entries(a.heals)) {
+        if (typeof pct !== "number" || !Number.isFinite(pct) || pct <= 0) { warn(aLabel + ': bad heals amount for "' + rid + '", skipped.'); continue; }
+        if (typeof getResource === "function" && !getResource(rid)) { warn(aLabel + ': heals references unknown resource "' + rid + '", skipped.'); continue; }
+        kept[rid] = pct;
+      }
+      a.heals = kept;
+    }
     // Skill XP per completed cycle: { skillId: amount } (see cleanXpMap:
     // unknown skills warn and drop, or tooltips would show a phantom
     // "Skill XP" row with the raw id).
@@ -1853,11 +1950,11 @@ function normalizeConfig() {
     });
     cleanBiomeField(a, aLabel, "costsByBiome", (bk, bm) => {
       if (!bm || typeof bm !== "object" || Array.isArray(bm)) { warn(aLabel + ': bad costsByBiome map for "' + bk + '", skipped.'); return undefined; }
-      return cleanMap(bm, aLabel, "cost (biome " + bk + ")");
+      return cleanMap(bm, aLabel, "cost (biome " + bk + ")", true, true);
     });
     cleanBiomeField(a, aLabel, "xpByBiome", (bk, bm) => {
       if (!bm || typeof bm !== "object" || Array.isArray(bm)) { warn(aLabel + ': bad xpByBiome map for "' + bk + '", skipped.'); return undefined; }
-      return cleanXpMap(bm, aLabel, "xpByBiome", "xpByBiome grants");
+      return cleanXpMap(bm, aLabel, "xpByBiome", "xpByBiome grants", true);
     });
     // Tag-scoped overrides (see tileTagOverride): same shapes as the
     // biome fields, keyed by tile tag instead of biome id.
@@ -1867,11 +1964,11 @@ function normalizeConfig() {
     });
     cleanTagField(a, aLabel, "costsByTag", (tk, bm) => {
       if (!bm || typeof bm !== "object" || Array.isArray(bm)) { warn(aLabel + ': bad costsByTag map for "' + tk + '", skipped.'); return undefined; }
-      return cleanMap(bm, aLabel, "cost (tag " + tk + ")");
+      return cleanMap(bm, aLabel, "cost (tag " + tk + ")", true, true);
     });
     cleanTagField(a, aLabel, "xpByTag", (tk, bm) => {
       if (!bm || typeof bm !== "object" || Array.isArray(bm)) { warn(aLabel + ': bad xpByTag map for "' + tk + '", skipped.'); return undefined; }
-      return cleanXpMap(bm, aLabel, "xpByTag", "xpByTag grants");
+      return cleanXpMap(bm, aLabel, "xpByTag", "xpByTag grants", true);
     });
     cleanTags(a, aLabel);
     cleanHeader(a, aLabel);
@@ -2109,6 +2206,54 @@ function normalizeConfig() {
           warn(pLabel + ": bad starter, ignored.");
           delete p.starter;
         }
+        // Event unlock, e.g. unlock: { seen: "cabbage", skill: "cooking", skillLevel: 1 }.
+        // Seen gates (item id or array) AND-stack with skill gates (legacy
+        // skill/skillLevel plus a plural skills map). Unknown ids warn but
+        // are kept (like costs), so typos surface instead of silently firing.
+        if (p.unlock !== undefined) {
+          if (!p.unlock || typeof p.unlock !== "object" || Array.isArray(p.unlock)) {
+            warn(pLabel + ": bad unlock, ignored.");
+            delete p.unlock;
+          } else {
+            const u = p.unlock;
+            if (u.seen !== undefined) {
+              const list = Array.isArray(u.seen) ? u.seen : [u.seen];
+              const kept = [];
+              for (const id of list) {
+                if (typeof id !== "string" || !id) { warn(pLabel + ": bad unlock seen, skipped."); continue; }
+                if (typeof getItem === "function" && !getItem(id)) warn(pLabel + ': unlock watches unknown item "' + id + '".');
+                if (!kept.includes(id)) kept.push(id);
+              }
+              if (!kept.length) delete u.seen;
+              else u.seen = Array.isArray(u.seen) ? kept : kept[0];
+            }
+            const skills = {};
+            if (u.skill !== undefined || u.skillLevel !== undefined) {
+              if (typeof u.skill !== "string" || !u.skill) { warn(pLabel + ": bad unlock skill, ignored."); delete u.skill; delete u.skillLevel; }
+              else {
+                const sl = u.skillLevel ?? 1;
+                if (!Number.isInteger(sl) || sl < 1) { warn(pLabel + ": bad unlock skillLevel, ignored."); delete u.skill; delete u.skillLevel; }
+                else {
+                  if (typeof getSkill === "function" && !getSkill(u.skill)) warn(pLabel + ': unlock watches unknown skill "' + u.skill + '".');
+                  skills[u.skill] = Math.max(skills[u.skill] ?? 0, sl);
+                }
+              }
+            }
+            if (u.skills !== undefined) {
+              if (!u.skills || typeof u.skills !== "object" || Array.isArray(u.skills)) { warn(pLabel + ": bad unlock skills, ignored."); delete u.skills; }
+              else {
+                const kept = {};
+                for (const [sid, sl] of Object.entries(u.skills)) {
+                  if (!Number.isInteger(sl) || sl < 1) { warn(pLabel + ': bad unlock skills level for "' + sid + '", skipped.'); continue; }
+                  if (typeof getSkill === "function" && !getSkill(sid)) warn(pLabel + ': unlock watches unknown skill "' + sid + '".');
+                  kept[sid] = Math.max(kept[sid] ?? 0, sl);
+                }
+                if (!Object.keys(kept).length) delete u.skills;
+                else u.skills = kept;
+              }
+            }
+          }
+        }
         p.xp = (!p.xp || typeof p.xp !== "object" || Array.isArray(p.xp)) ? {} : cleanXpMap(p.xp, pLabel, "xp", "craft XP");
         if (!Array.isArray(p.recipes) || !p.recipes.length) {
           warn(pLabel + ": no recipes, removed.");
@@ -2164,6 +2309,13 @@ function normalizeConfig() {
             continue;
           }
           dropBadString(r, "completeLog", rLabel, "using the default");
+          // Optional per-recipe craft time (seconds): overrides the plan
+          // time for this recipe only. Bad values warn and fall back to
+          // the plan time.
+          if (r.time !== undefined && badAmount(r.time)) {
+            warn(rLabel + ": bad time, using the plan time.");
+            delete r.time;
+          }
         }
         if (!p.recipes.length) {
           warn(pLabel + ": no recipes, removed.");
@@ -2279,6 +2431,16 @@ function normalizeConfig() {
       dropBadString(b, "color", bLabel, "ignored");
       dropBadString(b, "description", bLabel, "ignored");
       cleanTags(b, bLabel);
+      // Footfall lessons for walking the land (see grantTileEntryXp):
+      // needs a known skill plus a positive amount, or the biome
+      // teaches nothing underfoot.
+      if (b.entryXp !== undefined) {
+        const ex = b.entryXp;
+        if (!ex || typeof ex !== "object" || Array.isArray(ex) || typeof ex.skill !== "string" || !ex.skill || ((typeof getSkill === "function") && !getSkill(ex.skill)) || badAmount(ex.amount)) {
+          warn(bLabel + ": bad entryXp, ignored.");
+          delete b.entryXp;
+        } else b.entryXp = { skill: ex.skill, amount: ex.amount };
+      }
     }
     dedupeIds(worldTiers, "Removed world tier with no id.");
     for (let i = 0; i < worldTiers.length; i++) {
@@ -2370,12 +2532,20 @@ function normalizeConfig() {
         warn("WORLD_ACTIONS: bad list, ignored.");
         WORLD_ACTIONS.length = 0;
       } else {
+        const seenActs = new Set();
         for (let i = 0; i < WORLD_ACTIONS.length; i++) {
           const id = WORLD_ACTIONS[i];
           if (typeof id !== "string" || !getAction(id)) {
             warn('WORLD_ACTIONS: unknown action "' + id + '", removed.');
-            WORLD_ACTIONS.splice(i, 1); i--;
+            WORLD_ACTIONS.splice(i, 1); i--; continue;
           }
+          // A repeated mirror id would build two same-id buttons while
+          // only the last stays synced (dead duplicate DOM ids) - drop it.
+          if (seenActs.has(id)) {
+            warn('WORLD_ACTIONS: duplicate action "' + id + '", removed.');
+            WORLD_ACTIONS.splice(i, 1); i--; continue;
+          }
+          seenActs.add(id);
         }
       }
     }
@@ -2404,8 +2574,20 @@ function normalizeConfig() {
             warn("FORAGE_TABLES: removed a bad table (needs a tier and at least one valid loot entry).");
             FORAGE_TABLES.splice(i, 1); i--; continue;
           }
+          // Tables name a tier they drop on: an unknown one never matches
+          // (every live position sits on a known tier), so it is a typo.
+          if (!worldTiers.some(x => x && x.id === t.tier)) {
+            warn('FORAGE_TABLES: removed a table for unknown tier "' + t.tier + '".');
+            FORAGE_TABLES.splice(i, 1); i--; continue;
+          }
           t.items = kept;
           if (t.biome !== undefined && typeof t.biome !== "string") { warn("FORAGE_TABLES: bad biome, ignored."); delete t.biome; }
+          // A known-shape biome that names nothing is also a typo: without
+          // this the table would silently match nothing, forever.
+          if (typeof t.biome === "string" && !knownBiome(t.biome)) {
+            warn('FORAGE_TABLES: removed a table for unknown biome "' + t.biome + '".');
+            FORAGE_TABLES.splice(i, 1); i--; continue;
+          }
           if (t.tag !== undefined && typeof t.tag !== "string") { warn("FORAGE_TABLES: bad tag, ignored."); delete t.tag; }
         }
       }

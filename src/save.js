@@ -87,13 +87,13 @@ function serializeSave() {
     currentHome: state.currentHome,
     furniture: { ...state.furniture },
     specialMessages: { ...state.specialMessages },
-    skills: Object.fromEntries(Object.entries(state.skills).map(([k, v]) => [k, { xp: v.xp, level: v.level }])),
-    stats: { actions: { ...state.stats.actions } },
+    skills: Object.fromEntries(Object.entries(state.skills ?? {}).map(([k, v]) => [k, { xp: (v && typeof v === "object" ? v.xp : 0) ?? 0, level: (v && typeof v === "object" ? v.level : 0) ?? 0 }])),
+    stats: { actions: { ...(state.stats && state.stats.actions ? state.stats.actions : {}) } },
     currentActionId: state.currentActionId,
-    cycles: Object.fromEntries(Object.entries(state.cycles).map(([k, v]) => [k, { progress: v.progress, paid: v.paid }])),
+    cycles: Object.fromEntries(Object.entries(state.cycles ?? {}).map(([k, v]) => [k, { progress: (v && typeof v === "object" ? v.progress : 0) ?? 0, paid: !!(v && typeof v === "object" && v.paid) }])),
     // Timed upgrade builds ({ id: { progress, paid } }) + the running one.
     // Missing on old saves (v10 and earlier predate timed upgrades).
-    builds: Object.fromEntries(Object.entries(state.builds ?? {}).map(([k, v]) => [k, { progress: v.progress, paid: v.paid }])),
+    builds: Object.fromEntries(Object.entries(state.builds ?? {}).map(([k, v]) => [k, { progress: (v && typeof v === "object" ? v.progress : 0) ?? 0, paid: !!(v && typeof v === "object" && v.paid) }])),
     activeBuildId: (typeof state.activeBuildId === "string" && getUpgrade(state.activeBuildId)) ? state.activeBuildId : null,
     // Non-retroactive improvement-cap baselines ({ actionId: run count
     // when the cap-raising milestone fired }). Missing on old saves.
@@ -102,15 +102,23 @@ function serializeSave() {
     // Validated on load (unknown ids dropped, counts floored) - see below.
     crafting: state.crafting ? {
       sel: { ...(state.crafting.sel ?? {}) },
-      plans: Object.fromEntries(Object.entries(state.crafting.plans ?? {}).map(([k, v]) => [k, { unlocked: !!v.unlocked, items: (v.items ?? (v.item ? [v.item] : [])).map(s => s ? { ...s } : null), fuel: v.fuel ? { ...v.fuel } : null, fuelLeft: v.fuelLeft ?? 0, fuelMax: v.fuelMax ?? 1, progress: v.progress ?? 0, selRecipe: v.selRecipe ?? null }])),
-      discovered: Object.fromEntries(Object.entries(state.crafting.discovered ?? {}).map(([k, v]) => [k, [...(v ?? [])]])),
+      selPlans: { ...(state.crafting.selPlans ?? {}) },
+      plans: Object.fromEntries(Object.entries(state.crafting.plans ?? {}).map(([k, v]) => {
+        const vv = (v && typeof v === "object") ? v : {};
+        const rawItems = Array.isArray(vv.items) ? vv.items : (vv.item ? [vv.item] : []);
+        return [k, { unlocked: !!vv.unlocked, items: rawItems.map(s => (s && typeof s === "object") ? { ...s } : null), fuel: (vv.fuel && typeof vv.fuel === "object") ? { ...vv.fuel } : null, fuelLeft: vv.fuelLeft ?? 0, fuelMax: vv.fuelMax ?? 1, progress: vv.progress ?? 0, selRecipe: vv.selRecipe ?? null }];
+      })),
+      discovered: Object.fromEntries(Object.entries(state.crafting.discovered ?? {}).map(([k, v]) => [k, [...(Array.isArray(v) ? v : [])]])),
     } : undefined,
     // "Run past the cap" overrides ({ actionId: true }). Not on old saves.
     fullOverride: { ...(state.fullOverride ?? {}) },
-    // World position ({ x, y, tier, travel }). Missing on old saves.
+    // World position ({ x, y, tier, travel, visitedBiomes, posByTier }).
+    // Missing on old saves.
     world: state.world ? {
       x: state.world.x, y: state.world.y, tier: state.world.tier,
-      travel: state.world.travel ? { ...state.world.travel } : null,
+      travel: (state.world.travel && typeof state.world.travel === "object") ? { ...state.world.travel } : null,
+      visitedBiomes: { ...(state.world.visitedBiomes ?? {}) },
+      posByTier: { ...(state.world.posByTier ?? {}) },
     } : null,
   };
 }
@@ -191,7 +199,7 @@ function applySaveData(data) {
       // Meal overheal legitimately parks Stamina past its cap (up to the
       // best edible nutrition), so the loader honors that ceiling instead
       // of clamping the buffer away - tampered values still clamp.
-      const over = (r.id === "stamina" && typeof maxNutritionMult === "function") ? maxNutritionMult() : 1;
+      const over = (r.id === OVERHEAL_RESOURCE && typeof maxNutritionMult === "function") ? maxNutritionMult() : 1;
       amounts[r.id] = Math.min(getEffectiveMax(r.id) * over, n);
     }
   }
@@ -373,6 +381,10 @@ function applySaveData(data) {
     const u = getUpgrade(state.activeBuildId);
     const b = state.builds[u.id];
     if (!u.buildTime || !b || !b.paid || (state.upgrades[u.id] ?? 0) >= getEffectiveUpgradeCap(u)) state.activeBuildId = null;
+    // A save caught building a locked upgrade resumes nothing (only
+    // reachable via forged saves - the UI can't start what it hides).
+    // Paid progress is kept, so a legitimate unlock resumes it.
+    else if ((typeof unlockMet === "function") && !unlockMet(u, "u")) state.activeBuildId = null;
   }
   // Improvement-cap baselines for the non-retroactive extra levels (saved
   // per action; old saves predate the system and simply start without).
@@ -387,8 +399,12 @@ function applySaveData(data) {
   // World position (missing on old saves - start fresh at the tier's
   // start tile). Coordinates clamp to the tier's size; an unknown tier
   // falls back to the first one. A saved trip resumes only when its
-  // target is still in range with positive time left.
-  state.world = (typeof defaultWorldState === "function") ? defaultWorldState() : { tier: null, x: 3, y: 3, travel: null };
+  // target is still in range with positive time left. Visited biomes are
+  // sticky (forest visits unlock the Stone Axe); old saves backfill from
+  // the current tile plus any navigation XP (which proves a past visit).
+  // Per-tier last positions restore on dropdown switches (unknown tiers
+  // and out-of-range entries are dropped).
+  state.world = (typeof defaultWorldState === "function") ? defaultWorldState() : { tier: null, x: 3, y: 3, travel: null, visitedBiomes: {}, posByTier: {} };
   if (data.world && typeof data.world === "object") {
     const tiers = (typeof WORLD_TIERS !== "undefined") ? WORLD_TIERS : [];
     const tier = tiers.some(t => t.id === data.world.tier) ? data.world.tier : (tiers[0] ? tiers[0].id : null);
@@ -406,12 +422,56 @@ function applySaveData(data) {
       const total = Number(tr.total), rem = Number(tr.remaining);
       if (Number.isInteger(tx) && Number.isInteger(ty) && tx >= 0 && ty >= 0 && tx < size && ty < size
         && Number.isFinite(total) && total > 0 && Number.isFinite(rem) && rem > 0) {
+        // Bound absurd trips (forged 1e9s would otherwise persist): legit
+        // tiles take seconds, so an hour is generous headroom for future
+        // content while keeping tampered saves escapable.
+        const saneTotal = Math.min(total, 3600);
         // Pre-fractional saves accrued drain separately (drainAcc): fold
         // any leftover into Stamina once, so nothing vanishes on upgrade.
         const drain = Number(tr.drainAcc);
-        state.world.travel = { tx, ty, total, remaining: Math.min(rem, total), paused: tr.paused === true };
+        state.world.travel = { tx, ty, total: saneTotal, remaining: Math.min(rem, saneTotal), paused: tr.paused === true };
         if (Number.isFinite(drain) && drain > 0) state.amounts.stamina = Math.max(0, (state.amounts.stamina ?? 0) - drain);
       }
+    }
+    if (data.world.visitedBiomes && typeof data.world.visitedBiomes === "object" && !Array.isArray(data.world.visitedBiomes)) {
+      // Only known biomes stick: anything else is forged weight that no
+      // gate can ever read back (hasVisitedBiome checks membership, and
+      // unlock validation only accepts known biomes).
+      const knownIds = new Set(((typeof WORLD_BIOMES !== "undefined") ? WORLD_BIOMES : []).map(b => b && String(b.id).toLowerCase()));
+      for (const [k, v] of Object.entries(data.world.visitedBiomes)) {
+        if (typeof k === "string" && k && v === true && knownIds.has(k.toLowerCase())) state.world.visitedBiomes[k] = true;
+      }
+    }
+    // Per-tier last positions: each tier remembers where the player stood
+    // (see the tier dropdown), so returning puts them back. Entries for
+    // unknown tiers or out-of-range tiles are dropped.
+    const savedPos = (data.world.posByTier && typeof data.world.posByTier === "object" && !Array.isArray(data.world.posByTier)) ? data.world.posByTier : {};
+    state.world.posByTier = {};
+    for (const [tid, p] of Object.entries(savedPos)) {
+      const t = tiers.find(t => t.id === tid);
+      const tsize = (t && Number.isInteger(t.size) && t.size > 0) ? t.size : 0;
+      const px = p && Math.floor(Number(p.x)), py = p && Math.floor(Number(p.y));
+      if (!t || !Number.isInteger(px) || !Number.isInteger(py) || px < 0 || py < 0 || px >= tsize || py >= tsize) continue;
+      state.world.posByTier[tid] = { x: px, y: py };
+    }
+    if (typeof worldTileAt === "function") {
+      try {
+        const cur = worldTileAt(state.world.x, state.world.y);
+        if (cur && cur.biome && cur.biome.id) state.world.visitedBiomes[cur.biome.id] = true;
+      } catch (e) {}
+    }
+    // Backfill for old saves: any Navigation skill with progress implies its
+    // biome was visited (covers plains/forest plus future Navigation skills -
+    // "<name>Navigation" maps to the "<name>" biome when one exists).
+    for (const s of (typeof SKILLS !== "undefined" ? SKILLS : [])) {
+      const m = /^(.+)Navigation$/.exec((s && s.id) || "");
+      if (!m) continue;
+      const bid = m[1].toLowerCase();
+      const known = (typeof worldBiomeDef === "function") ? !!worldBiomeDef(bid)
+        : ((typeof WORLD_BIOMES !== "undefined" ? WORLD_BIOMES : []).some(b => b && b.id === bid));
+      if (!known) continue;
+      const st = state.skills && state.skills[s.id];
+      if (st && ((st.level ?? 0) > 0 || (st.xp ?? 0) > 0)) state.world.visitedBiomes[bid] = true;
     }
   }
   // Cycles clamped before the saved world position loaded (which sets the
@@ -421,13 +481,27 @@ function applySaveData(data) {
     const c = state.cycles[a.id];
     if (c) c.progress = Math.min(c.progress, getEffectiveTick(a));
   }
+  // No action runs while a trip is moving: an import pairing them keeps
+  // the action and pauses the journey (progress kept), like starting an
+  // action mid-trip in live play.
+  if (state.currentActionId && state.world && state.world.travel && !state.world.travel.paused) state.world.travel.paused = true;
+  // A save caught running an action that is no longer unlocked resumes
+  // nothing (only reachable via forged saves - the UI can't start what
+  // it hides). Paid progress is kept, so a legitimate unlock resumes it.
+  if (state.currentActionId) {
+    const cur = (typeof getAction === "function") ? getAction(state.currentActionId) : null;
+    if (!cur || ((typeof unlockMet === "function") && !unlockMet(cur, "a"))) {
+      if (state.fullOverride) delete state.fullOverride[state.currentActionId];
+      state.currentActionId = null;
+    }
+  }
   // Crafting progress (missing on old saves - start fresh). Unknown
   // plan, item and recipe ids are dropped; slot counts floor to integers
   // and vanish at zero; item slots clamp to the plan's slot count (old
   // single-`item` saves migrate into slot 0); the burn remainder and
   // progress clamp to sane ranges, so a tampered save can only pause a
   // plan, never break it.
-  state.crafting = (typeof defaultCraftState === "function") ? defaultCraftState() : { sel: {}, plans: {}, discovered: {} };
+  state.crafting = (typeof defaultCraftState === "function") ? defaultCraftState() : { sel: {}, selPlans: {}, plans: {}, discovered: {} };
   if (data.crafting && typeof data.crafting === "object") {
     const dc = data.crafting;
     const validSlot = (s) => {
@@ -449,10 +523,33 @@ function applySaveData(data) {
         while (st.items.length < planItemSlots(p)) st.items.push(null);
         if (st.items.length > planItemSlots(p)) st.items.length = planItemSlots(p);
         st.fuel = planNeedsFuel(p) ? validSlot(saved.fuel) : null;
+        // A fuel slot holding something unburnable (tampered save, or a
+        // fuel def removed/changed since) can never feed the tick - hand
+        // it back to the Inventory instead of freezing the plan behind
+        // a countdown that never advances.
+        if (st.fuel && (typeof isFuelItem === "function") && !isFuelItem(st.fuel.id)) {
+          state.amounts[st.fuel.id] = (state.amounts[st.fuel.id] ?? 0) + st.fuel.n;
+          st.fuel = null;
+        }
         st.selRecipe = (typeof saved.selRecipe === "string" && p.recipes.some(r => r.id === saved.selRecipe)) ? saved.selRecipe : null;
+        // Banked fuel remainder + bar denominator: legit remainders stay
+        // under one fuel unit (the tick only banks what one craft needs),
+        // so clamp both to the best known fuel value - a tampered save
+        // with 1e12 banked would otherwise grant free crafts. Fuelless
+        // plans carry no burn state at all (stale values cleared).
         const fl = Number(saved.fuelLeft), fm = Number(saved.fuelMax), pr = Number(saved.progress);
-        st.fuelLeft = (Number.isFinite(fl) && fl > 0) ? fl : 0;
-        st.fuelMax = (Number.isFinite(fm) && fm > 0) ? fm : 1;
+        if (!planNeedsFuel(p)) {
+          st.fuelLeft = 0;
+          st.fuelMax = 1;
+        } else {
+          let maxFuel = 1;
+          if (typeof ITEMS !== "undefined") for (const it of ITEMS) {
+            const v = it && it.fuel;
+            if (typeof v === "number" && Number.isFinite(v) && v > maxFuel) maxFuel = v;
+          }
+          st.fuelMax = (Number.isFinite(fm) && fm > 0) ? Math.min(fm, maxFuel) : 1;
+          st.fuelLeft = (Number.isFinite(fl) && fl > 0) ? Math.min(fl, st.fuelMax) : 0;
+        }
         st.progress = (Number.isFinite(pr) && pr > 0) ? Math.min(pr, 1) : 0;
         if (dc.discovered && Array.isArray(dc.discovered[p.id])) {
           state.crafting.discovered[p.id] = [...new Set(dc.discovered[p.id])].filter(rid => p.recipes.some(r => r.id === rid));
@@ -462,6 +559,13 @@ function applySaveData(data) {
     if (dc.sel && typeof dc.sel === "object") {
       if (groups.some(g => g.id === dc.sel.group)) state.crafting.sel.group = dc.sel.group;
       if (groups.some(g => (g.plans ?? []).some(p => p.id === dc.sel.plan))) state.crafting.sel.plan = dc.sel.plan;
+    }
+    if (dc.selPlans && typeof dc.selPlans === "object") {
+      state.crafting.selPlans = {};
+      for (const [gid, pid] of Object.entries(dc.selPlans)) {
+        const g = groups.find(x => x.id === gid);
+        if (g && (g.plans ?? []).some(p => p.id === pid)) state.crafting.selPlans[gid] = pid;
+      }
     }
   }
   // Hiding mode is a live, in-progress gesture (armed Hide button, struck
@@ -482,7 +586,14 @@ function applySaveData(data) {
   if (typeof consumeAcc !== "undefined") consumeAcc = null;
   if (typeof sellAcc !== "undefined") sellAcc = null;
   if (typeof skillXpAcc !== "undefined") skillXpAcc = null;
+  if (typeof skillXpLast !== "undefined") skillXpLast = {};
   if (typeof craftAcc !== "undefined") craftAcc = null;
+  // The merge chains above are gone too: a lingering merge key/text would
+  // let the next fresh write rewrite an unrelated line (see gainSkillXp),
+  // so rest the dedup state as well (history lines stay untouched).
+  if (typeof lastLogMergeKey !== "undefined") lastLogMergeKey = null;
+  if (typeof lastLogMsg !== "undefined") lastLogMsg = null;
+  if (typeof lastLogCount !== "undefined") lastLogCount = 0;
   // Heal float-dust XP (e.g. Sleeping 7.999999999999991/8): snaps stored
   // values and fires any suppressed level-ups with the normal log +
   // balloon. Import paths clearLog() afterwards (state still correct);
@@ -528,7 +639,12 @@ async function decodeSaveText(text) {
   const t = (text || "").trim();
   if (t.startsWith(SAVE_PREFIX) && t.endsWith(SAVE_SUFFIX)) {
     if (!window.DecompressionStream) throw new Error("no decompression");
-    const m = t.slice(SAVE_PREFIX.length, -SAVE_SUFFIX.length).match(/^(\d+)\$([A-Za-z0-9+/=]+)$/);
+    // Whitespace-tolerant: a wrapped/copied save may carry line breaks or
+    // spaces inside the payload (valid exports never contain any, so
+    // stripping only ever repairs a manually wrapped copy, never accepts
+    // a structurally different save).
+    const inner = t.slice(SAVE_PREFIX.length, -SAVE_SUFFIX.length).replace(/\s+/g, "");
+    const m = inner.match(/^(\d+)\$([A-Za-z0-9+/=]+)$/);
     if (!m) throw new Error("bad file");
     if (Number(m[1]) > SAVE_VERSION) throw new Error("save is from a newer version");
     try {
@@ -557,7 +673,7 @@ async function exportSave() {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  setTimeout(() => URL.revokeObjectURL(a.href), EXPORT_URL_REVOKE_MS);
   log("Save exported.");
 }
 
@@ -601,6 +717,13 @@ async function exportSaveToClipboard() {
   }
   try {
     await navigator.clipboard.writeText(text);
+    // A stale manual-copy fallback showing an older export is superseded
+    // by this fresh copy - hide it rather than leave old text on screen.
+    // An open import box (the user's own paste) is never touched.
+    if (typeof clipMode !== "undefined" && clipMode === "export" && typeof clipBox !== "undefined" && !clipBox.hidden) {
+      clipBox.hidden = true;
+      clipMode = null;
+    }
     log("Save copied to clipboard.");
   } catch (e) {
     showClipBox("export", text);

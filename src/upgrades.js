@@ -41,6 +41,13 @@ function buyUpgrade(id) {
     log(tileBlockedMessage(u, "buy"));
     return;
   }
+  // Locked upgrades can't be bought at all (the Shop tab hides them and
+  // the save loader clears a locked current build - this refusal is
+  // defense in depth for any other path that reaches here).
+  if ((typeof unlockMet === "function") && !unlockMet(u, "u")) {
+    log("You haven't unlocked " + u.name + " yet.");
+    return;
+  }
   if (!canAfford(u.cost)) {
     log("Not enough for " + u.name + " (" + describeCost(u.cost) + ").");
     return;
@@ -75,6 +82,13 @@ function buildUpgrade(u) {
   const b = upgradeBuildState(u.id);
   if (!b.paid && (typeof worldShopBlocked === "function") && worldShopBlocked(u)) {
     log(tileBlockedMessage(u, "buy"));
+    render();
+    return;
+  }
+  // Locked builds can't start at all (paid resumes stay free, like
+  // actions - the loader keeps their progress for a legitimate resume).
+  if (!b.paid && (typeof unlockMet === "function") && !unlockMet(u, "u")) {
+    log("You haven't unlocked " + u.name + " yet.");
     render();
     return;
   }

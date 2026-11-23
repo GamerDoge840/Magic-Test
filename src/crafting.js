@@ -69,6 +69,20 @@ function planState(pid) {
   return state.crafting && state.crafting.plans ? state.crafting.plans[pid] : undefined;
 }
 
+// Event-unlock gate (see plan `unlock` in config/craftingConfig.js):
+// every seen id must be discovered plus every skill gate met (AND).
+function planUnlockMet(p) {
+  const u = p ? p.unlock : null;
+  if (!u || typeof u !== "object") return false;
+  const seen = u.seen === undefined ? [] : (Array.isArray(u.seen) ? u.seen : [u.seen]);
+  for (const id of seen) if (typeof id !== "string" || !(state.seen && state.seen[id])) return false;
+  const need = {};
+  if (typeof u.skill === "string" && u.skill) need[u.skill] = Math.max(need[u.skill] ?? 0, u.skillLevel ?? 1);
+  if (u.skills && typeof u.skills === "object") for (const [sid, sl] of Object.entries(u.skills)) need[sid] = Math.max(need[sid] ?? 0, sl);
+  if (typeof skillLevel === "function") for (const [sid, sl] of Object.entries(need)) if (skillLevel(sid) < sl) return false;
+  return true;
+}
+
 // Hide-mode keys: plans hide whole ("p:<planId>"), recipes hide per plan
 // ("c:<planId>:<recipeId>"). Display-only like every other hiding kind:
 // hidden plans keep ticking and hidden recipes still match - only the
@@ -89,19 +103,71 @@ function firstVisibleCraftPlan(g) {
   return ((vis ?? plans[0]) ? (vis ?? plans[0]).id : null);
 }
 
+// Per-group plan memory: switching sub-tabs returns to the plan you were
+// on instead of the first plan. Recorded on every plan selection
+// (rememberCraftPlan); a remembered plan that is locked, gone, or hidden
+// falls back to firstVisibleCraftPlan like a fresh selection.
+function rememberedCraftPlan(g) {
+  const mem = state.crafting && state.crafting.selPlans;
+  const id = (mem && typeof mem === "object") ? mem[g.id] : null;
+  if (!id) return null;
+  if (!(g.plans ?? []).some(p => p.id === id)) return null;
+  const st = planState(id);
+  if (!(st && st.unlocked)) return null;
+  if (typeof itemHidden === "function" && itemHidden(craftPlanHideKey(id))) return null;
+  return id;
+}
+function rememberCraftPlan(g, pid) {
+  if (!state.crafting || !g || !pid) return;
+  if (!state.crafting.selPlans || typeof state.crafting.selPlans !== "object") state.crafting.selPlans = {};
+  state.crafting.selPlans[g.id] = pid;
+}
+
 function craftingUnlocked() {
   return !!(state.unlocked && state.unlocked["tab:crafting"]);
 }
 
-// Cooking is "unlocked" once its first plan is bought into (or the
-// skill is leveled): gates the Crafting Stats section of the Player tab.
-function cookingUnlocked() {
-  const g = (typeof getCraftGroup === "function") ? getCraftGroup("cooking") : null;
-  if (g) for (const p of g.plans ?? []) {
+// Per-group crafting access: a group is "open" once any of its plans is
+// unlocked (or its skill reaches Level 1). Drives the sub-tab rail
+// (unopened groups hide until their station is bought), the Player-tab
+// speed stats (each stat shows only for its own open group), and the
+// legacy cookingUnlocked gate (any group open).
+function craftGroupOpen(gid) {
+  const g = (typeof getCraftGroup === "function") ? getCraftGroup(gid) : undefined;
+  if (!g) return false;
+  for (const p of g.plans ?? []) {
     const st = planState(p.id);
     if (st && st.unlocked) return true;
   }
-  return (typeof skillLevel === "function") && skillLevel("cooking") >= 1;
+  if (g.skill && typeof skillLevel === "function" && skillLevel(g.skill) >= 1) return true;
+  return false;
+}
+
+// A sub-tab shows once its station is owned (its starter plans then
+// unlock) or any of its plans is already unlocked (e.g. a sold station's
+// progress keeps the tab). Skill levels alone never open the rail - XP
+// needs a station to earn, so a skill without plans is forged weight.
+function craftGroupVisible(g) {
+  if (!g) return false;
+  if (typeof ownsCraftingStation === "function" && ownsCraftingStation(g)) return true;
+  return (g.plans ?? []).some(p => { const st = (typeof planState === "function") ? planState(p.id) : null; return !!(st && st.unlocked); });
+}
+
+// One speed stat's visibility: the group that reads it must be open.
+// Stats no group reads (legacy/manual) stay visible under the header.
+function craftStatOpen(statId) {
+  const g = craftGroups().find(x => x.speedStat === statId);
+  if (!g) return true;
+  return craftGroupOpen(g.id);
+}
+
+// Cooking is "unlocked" once any crafting group opens: gates the Crafting
+// Stats section of the Player tab. Kept under its old name
+// (cookingUnlocked) so the Player tab keeps working; now generic across
+// groups so Woodworking alone opens it.
+function cookingUnlocked() {
+  for (const g of craftGroups()) if (craftGroupOpen(g.id)) return true;
+  return false;
 }
 
 // A station is live ownership (selling every station pauses its plans).
@@ -115,6 +181,19 @@ function ownsCraftingStation(group) {
 function craftEffTime(plan, group) {
   const sp = (group && group.speedStat && typeof getEffectiveStat === "function") ? Math.max(0, getEffectiveStat(group.speedStat)) : 0;
   return Math.max(0.5, (plan.time ?? 5) - 0.01 * sp);
+}
+
+// One recipe's own base seconds: its `time` override, else the plan time.
+function recipeBaseTime(recipe, plan) {
+  const t = (recipe && recipe.time !== undefined) ? recipe.time : (plan ? plan.time : undefined);
+  return (typeof t === "number" && Number.isFinite(t) && t > 0) ? t : 5;
+}
+
+// Effective seconds per craft for one recipe: its own base (plan time
+// unless overridden) minus 0.01s per Speed-stat point, floored.
+function recipeEffTime(recipe, plan, group) {
+  const sp = (group && group.speedStat && typeof getEffectiveStat === "function") ? Math.max(0, getEffectiveStat(group.speedStat)) : 0;
+  return Math.max(0.5, recipeBaseTime(recipe, plan) - 0.01 * sp);
 }
 
 // Fuel-id list, cached: craftMatIdList runs every tick for the materials
@@ -313,8 +392,10 @@ function loadCraftMaterial(planId, itemId, n, dest) {
   if (typeof dest === "number") {
     if (!accepts || dest < 0 || dest >= items.length) {
       // Fuel belongs in the Fuel Slot, not an Item Slot: refuse silently
-      // (no "isn't an ingredient" spam) when the item only burns.
-      if (!accepts && burnable) return;
+      // (no "isn't an ingredient" spam) when the item only burns and the
+      // plan burns fuel. On fuelless plans there is no Fuel Slot, so a
+      // burnable item aimed at an Item Slot gets the normal message.
+      if (!accepts && burnable && planNeedsFuel(p)) return;
       log(label + " isn't an ingredient for " + p.name + ".");
       return;
     }
@@ -348,7 +429,13 @@ function loadCraftMaterial(planId, itemId, n, dest) {
     state.amounts[itemId] = have - take;
     if (cur) cur.n += take;
     else st.fuel = { id: itemId, n: take };
-    st.selRecipe = null;
+    // The bar's denominator follows the loaded fuel: swapping fuel types
+    // over a banked remainder (twigs banked, charcoal loaded) must
+    // re-anchor to the new fuel's value, or the bar reads stale. Fuel is
+    // shared by every recipe, so loading it never disturbs the selected
+    // recipe (topping up mid-burn must not silently switch the plan to
+    // first-match).
+    st.fuelMax = Math.max(st.fuelLeft || 0, fuelValueOf(itemId));
   } else if (accepts) {
     const idx = items.findIndex(s => s && s.id === itemId);
     const empty = idx >= 0 ? idx : items.findIndex(s => !s);
@@ -398,7 +485,10 @@ function unloadCraftSlot(planId, which, all) {
       if (!recipeTypeMatch(p, craftItemSlots(st, p))) st.progress = 0;
     }
   }
-  st.selRecipe = null;
+  // Ingredient edits clear the selected recipe (first-match takes over,
+  // like a manual load). Fuel is shared by every recipe, so touching the
+  // Fuel Slot never disturbs the selection.
+  if (which !== "fuel") st.selRecipe = null;
   if (typeof render === "function") render();
 }
 
@@ -485,6 +575,10 @@ function autofillCraftRecipe(planId, recipeId) {
       const held = Math.floor(state.amounts[best] ?? 0);
       state.amounts[best] = 0;
       st.fuel = { id: best, n: held };
+      // Same re-anchor as manual loads (see loadCraftMaterial): the
+      // banked remainder keeps its value, but the bar measures against
+      // the newly loaded fuel.
+      st.fuelMax = Math.max(st.fuelLeft || 0, fuelValueOf(best));
       const def = getItem(best);
       entries.push({ id: best, n: held, suffix: "(fuel)" });
       plainParts.push(formatCraftNum(held) + " " + (def ? displayName(def, held) : best) + " (fuel)");
@@ -657,12 +751,12 @@ function craftTick(dt) {
         if (!recipeTypeMatch(p, items)) st.progress = 0;
         continue;
       }
-      const eff = craftEffTime(p, g);
+      const eff = recipeEffTime(recipe, p, g);
       if (planNeedsFuel(p)) {
-        const craftCost = (p.fuelPerSec ?? 0) * (p.time ?? 0);
+        const craftCost = (p.fuelPerSec ?? 0) * recipeBaseTime(recipe, p);
         const need = craftCost / eff * dt;
         let guard = 0;
-        while (st.fuelLeft < need && st.fuel && st.fuel.n > 0 && guard++ < 10) {
+        while (st.fuelLeft < need && st.fuel && st.fuel.n > 0 && guard++ < MAX_FUEL_UNITS_PER_TICK) {
           const v = fuelValueOf(st.fuel.id);
           if (!(v > 0)) break;
           const wasEmpty = st.fuelLeft <= 0;
@@ -697,7 +791,7 @@ function craftTick(dt) {
         st.progress += dt / eff;
       }
       let done = 0;
-      while (st.progress >= 1 && done++ < 10) {
+      while (st.progress >= 1 && done++ < MAX_CYCLES_PER_TICK) {
         st.progress -= 1;
         completeCraft(g, p, st, recipe);
         if (!slotsForRecipe(recipe, craftItemSlots(st, p))) { st.progress = 0; break; }
@@ -887,7 +981,7 @@ function renderCrafting() {
     // Catch-ups: owning station/Crafting furniture also unlocks (imports
     // and saves that predate the flags land here like action unlocks do).
     if (typeof FURNITURE !== "undefined") {
-      if (FURNITURE.some(f => getTags(f).includes("Crafting") && (state.furniture[f.id] ?? 0) > 0)) state.unlocked["tab:crafting"] = true;
+      if (FURNITURE.some(f => getTags(f).includes(CRAFTING_TAG) && (state.furniture[f.id] ?? 0) > 0)) state.unlocked["tab:crafting"] = true;
     }
     for (const g of craftGroups()) {
       if (ownsCraftingStation(g)) {
@@ -900,27 +994,39 @@ function renderCrafting() {
         }
       }
     }
-    // Event unlock: Make Salad (a Cabbage ever held + Cooking Level 1).
-    // Deliberately outside milestones (see the plan's config docs), so it
-    // is checked here every render like the starter catch-up - imports
-    // that already qualify land it on sight.
-    {
-      const st = (typeof planState === "function") ? planState("makeSalad") : null;
-      if (st && !st.unlocked && state.seen && state.seen.cabbage
-          && typeof skillLevel === "function" && skillLevel("cooking") >= 1) {
+    // Event unlocks (see plan `unlock` in config/craftingConfig.js):
+    // checked here every render like the starter catch-up - imports
+    // that already qualify land them on sight. Gated behind the
+    // Crafting tab like the starters: the tab opens first (same frame),
+    // so a forged skill+seen pair can't unlock a plan before the tab.
+    if (craftingUnlocked()) for (const gg of craftGroups()) for (const pl of gg.plans ?? []) {
+      if (!pl.unlock) continue;
+      const st = (typeof planState === "function") ? planState(pl.id) : null;
+      if (st && !st.unlocked && planUnlockMet(pl)) {
         st.unlocked = true;
-        const g = (typeof craftGroupOfPlan === "function") ? craftGroupOfPlan("makeSalad") : null;
-        log("Unlocked " + (g ? g.name : "Cooking") + " Plan: Make Salad.", "unlock");
+        log("Unlocked " + gg.name + " Plan: " + (pl.name ?? pl.id) + ".", "unlock");
       }
     }
     tabCraftingBtn.hidden = !craftingUnlocked();
   }
   if (!craftingUnlocked() || !craftUI) return;
-  const g = selCraftGroup();
+  let g = selCraftGroup();
+  // A selected-but-unopened group (e.g. Woodworking before its station)
+  // falls back to the first runnable group instead of a dead pane.
+  if (g && typeof craftGroupVisible === "function" && !craftGroupVisible(g)) {
+    const first = craftGroups().find(x => craftGroupVisible(x));
+    if (first) {
+      state.crafting.sel.group = first.id;
+      state.crafting.sel.plan = rememberedCraftPlan(first) ?? firstVisibleCraftPlan(first);
+      rememberCraftPlan(first, state.crafting.sel.plan);
+      g = first;
+    } else return;
+  }
   if (!g) return;
   let p = selCraftPlan();
   if (!p || craftGroupOfPlan(p.id) !== g) {
-    state.crafting.sel.plan = firstVisibleCraftPlan(g);
+    state.crafting.sel.plan = rememberedCraftPlan(g) ?? firstVisibleCraftPlan(g);
+    rememberCraftPlan(g, state.crafting.sel.plan);
     p = selCraftPlan();
   }
   renderCraftGroups(g);
@@ -928,8 +1034,40 @@ function renderCrafting() {
   renderCraftMats(g, p);
   renderCraftPlan(g, p);
   renderCraftRecipes(g, p);
+  // Station-missing workbench: the orange message stands alone - the plan
+  // header, section labels, materials strip and recipes hide with the
+  // slots/progress bars.
+  {
+    const pst = p ? planState(p.id) : null;
+    const missing = !!(p && pst && pst.unlocked && !ownsCraftingStation(g));
+    const title = document.getElementById("craftPlanTitle");
+    const titleWrap = title ? title.parentElement : null;
+    if (titleWrap && titleWrap.hidden !== missing) titleWrap.hidden = missing;
+    if (craftUI.matsCtn) {
+      if (craftUI.matsCtn.hidden !== missing) craftUI.matsCtn.hidden = missing;
+      const matsLabel = craftUI.matsCtn.previousElementSibling;
+      if (matsLabel && matsLabel.classList && matsLabel.classList.contains("craftSecLabel") && matsLabel.hidden !== missing) matsLabel.hidden = missing;
+    }
+    if (craftUI.recipesCtn) {
+      if (craftUI.recipesCtn.hidden !== missing) craftUI.recipesCtn.hidden = missing;
+      const recipesLabel = craftUI.recipesCtn.previousElementSibling;
+      if (recipesLabel && recipesLabel.classList && recipesLabel.classList.contains("craftSecLabel") && recipesLabel.hidden !== missing) recipesLabel.hidden = missing;
+    }
+  }
+  // Live per-recipe craft time: Speed stats shorten it mid-session, so
+  // the open recipe tip's Time row refreshes every frame (same pattern as
+  // the cost tint below).
+  if (typeof activeCraftPlanTip !== "undefined" && activeCraftPlanTip && activeCraftPlanTip.btn && activeCraftPlanTip.btn.isConnected && activeCraftPlanTip.btn._recipeTime) {
+    const rt = activeCraftPlanTip.btn._recipeTime;
+    if (rt.el && rt.el.isConnected) {
+      const txt = "Time: " + formatCraftFixed(recipeEffTime(rt.recipe, rt.plan, rt.group)) + " per craft";
+      if (rt.el.textContent !== txt) rt.el.textContent = txt;
+    }
+  }
   // Live affordability: red names on short recipes without rebuilding.
   syncCraftRecipeAfford();
+  // Live station-missing: red plan names without rebuilding.
+  syncCraftPlanStation();
   // Live row tints for the open recipe tip (amounts tick in the
   // background while it hovers): same red-short treatment as the
   // per-frame action/upgrade tint in render().
@@ -954,8 +1092,10 @@ function tintCraftTip(btn) {
 }
 
 function renderCraftGroups(sel) {
-  const groups = craftGroups();
-  const sig = groups.map(x => x.id).join(",") + "|" + sel.id;
+  // Unopened groups hide until their station is bought (or a plan opens):
+  // the rail only ever lists groups that can actually run.
+  const groups = craftGroups().filter(g => (typeof craftGroupVisible === "function") ? craftGroupVisible(g) : true);
+  const sig = groups.map(x => x.id).join(",") + "|" + (sel ? sel.id : "-");
   if (craftUI.groupsSig === sig) return;
   craftUI.groupsSig = sig;
   craftUI.groupRow.innerHTML = "";
@@ -966,7 +1106,7 @@ function renderCraftGroups(sel) {
     b.classList.toggle("on", x.id === sel.id);
     b.addEventListener("click", () => {
       state.crafting.sel.group = x.id;
-      state.crafting.sel.plan = firstVisibleCraftPlan(x);
+      state.crafting.sel.plan = rememberedCraftPlan(x) ?? firstVisibleCraftPlan(x);
       render();
     });
     craftUI.groupRow.appendChild(b);
@@ -987,6 +1127,7 @@ function renderCraftPlans(g, sel) {
   if (craftUI.plansSig === sig) return;
   craftUI.plansSig = sig;
   craftUI.plansCtn.innerHTML = "";
+  craftUI.plansCtn._planBtns = null; // cached nodes (see syncCraftPlanStation) die with the rebuild
   // Locked plans stay invisible (no ??? rows): the rail only ever
   // lists what can actually run.
   let shown = 0;
@@ -1005,11 +1146,18 @@ function renderCraftPlans(g, sel) {
     lab.className = "craftPlanLabel";
     lab.textContent = x.name;
     b.appendChild(lab);
+    // Station-missing red (see syncCraftPlanStation): the group has no
+    // live station, so the name paints red until one is bought.
+    b._plan = x;
+    b._planLabel = lab;
+    b._planGroup = g;
+    if (!ownsCraftingStation(g)) lab.style.color = "red";
     b.addEventListener("click", () => {
         // Hiding mode: clicking strikes the plan hidden instead of
         // selecting it (click again to unhide).
         if (hidingMode.plans) { toggleItemHidden(craftPlanHideKey(x.id)); return; }
         state.crafting.sel.plan = x.id;
+        rememberCraftPlan(g, x.id);
         render();
       });
       // Plan tooltip: description plus fuel burned per craft (same
@@ -1040,7 +1188,8 @@ function renderCraftPlans(g, sel) {
   }
 }
 
-// Plan tooltip body: header, description, the fuel value one craft burns,
+// Plan tooltip body: header, description, the fuel value one craft burns
+// (a range when recipes run different times - e.g. 6s vs 7s charcoal),
 // and the Skill XP each finished craft pays (all static config math -
 // no live refresh needed).
 function buildCraftPlanTip(g, p) {
@@ -1061,13 +1210,19 @@ function buildCraftPlanTip(g, p) {
   // Unlock requirements sit before the Fuel/Recipes block (plans have no
   // Cost section): the station gate plus any unlock gates on the plan.
   appendUnlockSection(tip, p, g ? g.stationTag : null);
-  const perCraft = (p.fuelPerSec ?? 0) * (p.time ?? 0);
+  // Per-craft fuel follows each recipe's own time (a 7s charcoal burn
+  // costs more than a 6s one): a single value when all agree, else the
+  // range across the plan's recipes.
+  const perCraftFuels = (p.recipes ?? []).map(r => (p.fuelPerSec ?? 0) * recipeBaseTime(r, p));
+  const loFuel = perCraftFuels.length ? Math.min(...perCraftFuels) : (p.fuelPerSec ?? 0) * (p.time ?? 0);
+  const hiFuel = perCraftFuels.length ? Math.max(...perCraftFuels) : loFuel;
+  const fuelText = "Fuel value: " + (loFuel !== hiFuel ? formatCraftNum(loFuel) + "-" + formatCraftNum(hiFuel) : formatCraftNum(loFuel)) + " per craft";
   const { sec, body } = makeTipSection(planNeedsFuel(p) ? "Fuel" : "Recipes");
   if (planNeedsFuel(p)) {
     const row = document.createElement("div");
     row.className = "tip-row";
     const s = document.createElement("span");
-    s.textContent = "Fuel value: " + formatCraftNum(perCraft) + " per craft";
+    s.textContent = fuelText;
     row.appendChild(s);
     body.appendChild(row);
     tip.appendChild(sec);
@@ -1106,68 +1261,11 @@ function buildCraftPlanTip(g, p) {
 // over neighboring panels instead.
 let activeCraftPlanTip = null; // { btn, tip } of the open plan tip
 function placeCraftPlanTip(tip, anchor) {
-  if (!tip || !anchor) return;
-  const keep = { position: tip.style.position, top: tip.style.top, bottom: tip.style.bottom, left: tip.style.left, transform: tip.style.transform, maxHeight: tip.style.maxHeight, marginLeft: tip.style.marginLeft };
-  tip.style.position = "";
-  tip.style.top = "";
-  tip.style.bottom = "";
-  tip.style.left = "";
-  tip.style.transform = "";
-  tip.style.maxHeight = "";
-  tip.style.marginLeft = "";
-  // Measure with the tip forcibly shown: open paths can land a frame
-  // before CSS :hover/:focus-visible paints it visible, and a display:none
-  // tip reads 0 and bails, stranding it at its natural clipped spot.
-  const needShow = getComputedStyle(tip).display === "none";
-  if (needShow) tip.style.display = "block";
-  const h = tip.offsetHeight;
-  if (!h) {
-    tip.style.position = keep.position;
-    tip.style.top = keep.top;
-    tip.style.bottom = keep.bottom;
-    tip.style.left = keep.left;
-    tip.style.transform = keep.transform;
-    tip.style.maxHeight = keep.maxHeight;
-    tip.style.marginLeft = keep.marginLeft;
-    if (needShow) tip.style.display = "";
-    return;
-  }
-  const VH = window.innerHeight, VW = window.innerWidth;
-  const b = anchor.getBoundingClientRect();
-  const roomUp = b.top - 8;
-  const roomDown = VH - 8 - b.bottom;
-  let dir = "down";
-  if (roomDown < h + 8 && roomUp > roomDown) dir = "up";
-  const room = dir === "up" ? roomUp : roomDown;
-  const cs = getComputedStyle(tip);
-  const centered = cs.transform !== "none";
-  const chrome = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) +
-    (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
-  const avail = Math.floor(room - chrome);
-  const cssCap = Math.min(360, VH * 0.7);
-  const cap = avail <= 0 ? 80 : avail < 80 ? avail : Math.min(avail, cssCap);
-  if (room < h + 8) tip.style.maxHeight = cap + "px";
-  tip.style.position = "fixed";
-  tip.style.bottom = "auto";
-  tip.style.marginLeft = "";
-  tip.style.transform = "none";
-  const w = tip.offsetWidth;
-  const wantLeft = centered ? b.left + b.width / 2 - w / 2 : b.left;
-  tip.style.left = Math.max(8, Math.min(Math.round(wantLeft), VW - 8 - w)) + "px";
-  tip.style.top = dir === "down" ? Math.round(b.bottom - 2) + "px" : Math.round(b.top + 2 - tip.offsetHeight) + "px";
-  if (needShow) tip.style.display = "";
-  if (typeof syncTipPointer === "function") syncTipPointer(anchor, true);
+  return fitDetachedTip(tip, anchor, { prefer: "down", forceShow: true });
 }
 
 function clearCraftPlanTip(tip) {
-  if (!tip) return;
-  tip.style.position = "";
-  tip.style.top = "";
-  tip.style.bottom = "";
-  tip.style.left = "";
-  tip.style.transform = "";
-  tip.style.maxHeight = "";
-  tip.style.marginLeft = "";
+  return clearDetachedTip(tip);
 }
 
 // While a plan tip is open, scrolling or resizing would strand its fixed
@@ -1250,34 +1348,49 @@ function renderCraftPlan(g, p) {
   if (craftUI.craftDiv) craftUI.craftDiv.hidden = !open || !hasStation;
   craftUI.stationMsg.hidden = open && hasStation;
   if (!open || !hasStation) {
-    craftUI.stationMsg.textContent = !open ? "Unlock this plan by buying a " + g.stationTag + "." : g.noStationMsg;
+    // Without its station a plan shows ONLY this line (mats/recipes hide
+    // in renderCrafting): the group's noStationMsg line (generic fallback),
+    // in orange. A locked plan whose station is already owned can only be
+    // event-gated (starters unlock with the station), so it names the
+    // requirements instead of a station the player already has.
+    craftUI.stationMsg.textContent = !open
+      ? (hasStation ? "Unlock this plan by meeting its unlock requirements." : "Unlock this plan by buying a " + g.stationTag + ".")
+      : (g.noStationMsg ?? "You need a Crafting Station to Craft.");
+    craftUI.stationMsg.classList.toggle("stationMissing", open && !hasStation);
     return;
   }
+  craftUI.stationMsg.classList.remove("stationMissing");
   ensureCraftSlots(p);
-  const eff = craftEffTime(p, g);
   const items = craftItemSlots(st, p);
   craftUI.itemSlots.forEach((s, i) => {
     const t = craftSlotLabel(st, i);
     if (s.txt.textContent !== t) s.txt.textContent = t;
   });
   const needsFuel = planNeedsFuel(p);
+  // Slotted fuel only counts when it can actually burn: a worthless item
+  // stranded in the slot (tampered save, retired fuel def) reads as out
+  // of fuel, not as a countdown that never advances.
+  const fuelOnHand = needsFuel && st.fuel && st.fuel.n > 0 && fuelValueOf(st.fuel.id) > 0;
   if (craftUI.fuelBox) craftUI.fuelBox.hidden = !needsFuel;
   if (needsFuel && craftUI.fuelTxt) {
     craftUI.fuelTxt.textContent = craftSlotLabel(st, "fuel");
     const frac = Math.max(0, Math.min(1, (st.fuelMax > 0 ? st.fuelLeft / st.fuelMax : 0)));
     craftUI.fuelFill.style.width = (frac * 100).toFixed(1) + "%";
-    craftUI.fuelLab.textContent = (st.fuel || st.fuelLeft > 0)
+    craftUI.fuelLab.textContent = (fuelOnHand || st.fuelLeft > 0)
       ? "Fuel: " + formatCraftFixed(st.fuelLeft) + " left"
       : "No fuel loaded";
   }
   craftUI.progFill.style.width = (Math.max(0, Math.min(1, st.progress)) * 100).toFixed(1) + "%";
   const recipe = activeCraftRecipe(p, st, items);
+  // Countdown runs at the active recipe's own pace (a 7s charcoal burn
+  // counts down slower than a 6s one).
+  const eff = recipeEffTime(recipe, p, g);
   let overlay;
   if (!items.some(s => s && s.n > 0)) {
     overlay = "Load to begin";
   } else if (!recipe) {
     overlay = "Waiting…";
-  } else if (needsFuel && st.fuelLeft <= 0 && !(st.fuel && st.fuel.n > 0)) {
+  } else if (needsFuel && st.fuelLeft <= 0 && !fuelOnHand) {
     overlay = "Out of fuel!";
   } else {
     // Name the active recipe even before its first finish: the cook
@@ -1345,13 +1458,14 @@ function renderCraftRecipes(g, p) {
     // Ingredients rows register live refs so the open tip re-tints every
     // frame, exactly like action/upgrade cost rows.
     const costRefs = [];
-    const tip = buildCraftRecipeTip(r, costRefs);
+    const tip = buildCraftRecipeTip(p, g, r, costRefs);
     b.appendChild(tip);
     b._recipe = r;
     b._recipeLabel = lab;
     b._recipePlan = p.id;
     b._tipCosts = costRefs;
     b._tipCostMap = r.inputs ?? {};
+    b._recipeTime = tip._timeRef ?? null;
     const fitRecipe = () => {
       if (typeof placeCraftPlanTip === "function") placeCraftPlanTip(tip, b);
       else if (typeof fitTip === "function") { fitTip(tip, b, "up"); if (typeof syncTipPointer === "function") syncTipPointer(b, true); }
@@ -1395,10 +1509,12 @@ function renderCraftRecipes(g, p) {
   }
 }
 
-// Recipe tooltip body: header plus Ingredients and Results sections.
+// Recipe tooltip body: header, the recipe's own craft time (live: Speed
+// stats shorten it - refreshed every frame while open, see
+// renderCrafting), plus Ingredients and Results sections.
 // The Ingredients rows take live refs so the open tip re-tints short
 // rows red every frame (same as action/upgrade cost rows).
-function buildCraftRecipeTip(r, costRefs) {
+function buildCraftRecipeTip(p, g, r, costRefs) {
   const tip = document.createElement("span");
   tip.className = "tip";
   const head = document.createElement("div");
@@ -1407,6 +1523,17 @@ function buildCraftRecipeTip(r, costRefs) {
   title.textContent = r.name ?? r.id;
   head.appendChild(title);
   tip.appendChild(head);
+  {
+    const { sec, body } = makeTipSection("Time");
+    const row = document.createElement("div");
+    row.className = "tip-row";
+    const v = document.createElement("span");
+    v.textContent = "Time: " + formatCraftFixed(recipeEffTime(r, p, g)) + " per craft";
+    row.appendChild(v);
+    body.appendChild(row);
+    tip.appendChild(sec);
+    tip._timeRef = { el: v, recipe: r, plan: p, group: g };
+  }
   appendTipSection(tip, "Ingredients", r.inputs ?? {}, costRefs);
   appendTipSection(tip, "Results", r.outputs ?? {});
   return tip;
@@ -1430,5 +1557,25 @@ function syncCraftRecipeAfford() {
     b._affordSig = sig;
     b._recipeLabel.textContent = r.name + (short ? "*" : "");
     b._recipeLabel.style.color = short ? "red" : "";
+  }
+}
+
+// Red plan names when the group's station is gone (same red treatment as
+// short recipes, minus the star). Runs every frame outside the rebuild sig
+// so selling/buying the station repaints the rail live without recreating
+// it (a rebuild would kill the hovered/focused button mid-tip). Writes
+// only on change.
+function syncCraftPlanStation() {
+  if (!craftUI || !craftUI.plansCtn) return;
+  // Plan buttons only change on rebuild (see renderCraftPlans): cache
+  // the node list instead of re-querying every frame.
+  const btns = craftUI.plansCtn._planBtns ?? (craftUI.plansCtn._planBtns = [...craftUI.plansCtn.querySelectorAll(":scope > .craftPlanRow")]);
+  for (const b of btns) {
+    if (!b._plan || !b._planLabel) continue;
+    const missing = !ownsCraftingStation(b._planGroup);
+    const sig = (missing ? 1 : 0) + "|" + b._plan.id;
+    if (b._planSig === sig) continue;
+    b._planSig = sig;
+    b._planLabel.style.color = missing ? "red" : "";
   }
 }

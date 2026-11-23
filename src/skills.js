@@ -93,7 +93,6 @@ function gainSkillXp(sid, amount) {
   if (!skillUnlocked(sid)) return;
   const st = skillState(sid);
   if (st.level >= skill.maxLevel) return;
-  const lvlBefore = st.level;
   st.xp = snapSkillXp(st.xp + amount);
   while (st.level < skill.maxLevel && st.xp + SKILL_XP_EPS >= xpForSkillLevel(skill, st.level)) {
     const need = xpForSkillLevel(skill, st.level);
@@ -101,36 +100,44 @@ function gainSkillXp(sid, amount) {
     if (st.xp < 0) st.xp = 0; // epsilon overshoot never carries negative
     awardSkillLevel(skill, st);
   }
-  // XP receipt ("+1.1 Foraging XP (1.6/4.5 to next level)") under its own
+  // XP receipt ("+0.1 Resting XP (5.5/32 to next level)") under its own
   // filter, off by default - per-cycle grants would spam otherwise. Skills
   // at max level log nothing (a just-maxed grant only shows the
   // "[Skill Level Up]" line above). Back-to-back receipts for the same
-  // skill rewrite ONE line with running totals. The chain tolerates craft
-  // finish lines, recipe discoveries, and skill level-ups (and craft chains
-  // tolerate these back), so background crafts, unlocks, and level-ups
-  // stack side by side instead of splitting each other - any other log
-  // line still breaks the chain. The progress fraction
-  // always reflects the live remainder, so a merged line like "+0.5
-  // Resting XP (10.3/16 to next level)" stays truthful. Runtime-only,
-  // never saved.
+  // skill rewrite ONE line showing the latest grant - the live progress
+  // fraction "(5.5/32 to next level)" is what accumulates, so a merged
+  // line can never claim a single grant paid more than it did. The chain
+  // tolerates craft finish lines, recipe discoveries, and skill level-ups
+  // (and craft chains tolerate these back), so background crafts, unlocks,
+  // and level-ups stack side by side instead of splitting each other -
+  // other breaks reuse the same visible receipt line (see skillXpLast)
+  // instead of stacking a stale duplicate. Runtime-only, never saved.
   if (st.level >= skill.maxLevel) {
     if (skillXpAcc && skillXpAcc.sid === sid) skillXpAcc = null;
+    if (typeof skillXpLast !== "undefined") delete skillXpLast[sid];
+    // The acc is gone: a lingering merge key would let the NEXT fresh
+    // receipt rewrite whatever unrelated line is newest (keeping its
+    // class), so break the coincidence too.
+    if (typeof lastLogMergeKey !== "undefined" && lastLogMergeKey === "skillxp:" + sid) lastLogMergeKey = null;
     renderSkills();
     return;
   }
   if (state.options.logSkillXp !== true) {
     if (skillXpAcc && skillXpAcc.sid === sid) skillXpAcc = null;
+    if (typeof skillXpLast !== "undefined") delete skillXpLast[sid];
+    if (typeof lastLogMergeKey !== "undefined" && lastLogMergeKey === "skillxp:" + sid) lastLogMergeKey = null;
     renderSkills();
     return;
   }
   const key = "skillxp:" + sid;
   const alive = !!skillXpAcc && skillXpAcc.sid === sid && skillXpChainAlive();
-  // A level attained in this very grant restarts the running total (the
-  // receipt stays single-level truthful: "+0.5 Cooking XP (0/2 to next
-  // level)"), while the line itself keeps stacking in place.
-  const leveled = st.level > lvlBefore;
-  const total = snapSkillXp((alive && !leveled ? skillXpAcc.total : 0) + amount);
+  // The receipt names this grant only - never a running total, so a
+  // 0.1 XP cycle can never display as "+2 Resting XP". Level-ups need no
+  // special-casing: every grant is already single-grant truthful.
+  const prev = (typeof skillXpLast !== "undefined") ? skillXpLast[sid] : undefined;
+  const total = snapSkillXp(amount);
   const msg = "+" + formatNum(total) + " " + skill.name + " XP (" + formatNum(st.xp) + "/" + formatNum(xpForSkillLevel(skill, st.level)) + " to next level)";
+  const stamp = { total, level: st.level, lines: null, seq: 0 };
   if (alive) {
     // Rewrite our own (possibly no-longer-newest) line in place, so
     // interleaved craft lines keep stacking too instead of splitting us.
@@ -140,22 +147,52 @@ function gainSkillXp(sid, amount) {
     lastLogCount = 1;
     lastLogMergeKey = key;
     skillXpAcc.seq = stampLogWrite("skillxp");
+    stamp.lines = skillXpAcc.lines;
+    stamp.seq = skillXpAcc.seq;
+  } else if (prev && typeof logLinesAlive === "function" && logLinesAlive(prev.lines)) {
+    // Broken chain, but the skill's receipt is still on screen: refresh
+    // it and bring it back to the top instead of stacking a stale
+    // duplicate with a restarted total.
+    for (const line of prev.lines) line.textContent = msg;
+    for (const line of prev.lines) {
+      const parent = line.parentElement;
+      if (parent && parent.firstChild !== line) parent.prepend(line);
+    }
+    lastLogMsg = msg;
+    lastLogCount = 1;
+    lastLogMergeKey = key;
+    stamp.seq = stampLogWrite("skillxp");
+    stamp.lines = prev.lines;
+    skillXpAcc = { key, sid, total, seq: stamp.seq, lines: prev.lines };
   } else {
+    // Fresh receipt: our last line is gone (trimmed, cleared, filter
+    // toggled) or this skill never receipted. A lingering merge key from
+    // the dead chain would rewrite the unrelated newest line under a
+    // wrong class, so drop it first - this always mints a new line.
+    if (typeof lastLogMergeKey !== "undefined" && lastLogMergeKey === key) lastLogMergeKey = null;
     log(msg, "skillxp", key);
-    skillXpAcc = { key, sid, total, seq: (typeof logSeq !== "undefined" ? logSeq : 0), lines: (typeof captureLogLines === "function" ? captureLogLines() : []) };
+    stamp.seq = (typeof logSeq !== "undefined" ? logSeq : 0);
+    stamp.lines = (typeof captureLogLines === "function" ? captureLogLines() : []);
+    skillXpAcc = { key, sid, total, seq: stamp.seq, lines: stamp.lines };
   }
+  if (typeof skillXpLast !== "undefined") skillXpLast[sid] = stamp;
   renderSkills();
 }
 
-// Repeat XP receipts accumulate into ONE rewritten line ("+0.5 Resting XP
-// (10.3/16 to next level)"). The chain survives consecutive same-skill
+// Repeat XP receipts accumulate into ONE rewritten line ("+0.1 Resting XP
+// (5.7/32 to next level)"). The chain survives consecutive same-skill
 // grants, and - unlike every other chain - craft finishes, recipe
 // discoveries, and skill level-ups too (see logWritesSince in log.js):
 // the receipt kinds stack side by side, each rewriting its own line in
-// place. Anything else (system text, stops, ...) starts a fresh total,
-// and a level attained in the grant itself restarts the running total
-// (keeping the receipt single-level truthful) without splitting the line.
+// place. Other breaks (stops, starts, anything else) reuse the same
+// visible line (see skillXpLast) instead of starting a stale duplicate -
+// the line always names the latest single grant while the progress
+// fraction tracks the live remainder.
 let skillXpAcc = null; // { key, sid, total, seq, lines }
+// Per-skill receipt memory: the last grant plus the visible line refs,
+// so broken chains resume the same line instead of stacking a duplicate.
+// Runtime-only, never saved (reset on load/reset).
+let skillXpLast = {}; // sid -> { total, level, lines, seq }
 function skillXpChainAlive() {
   if (!skillXpAcc) return false;
   if (lastLogMergeKey === skillXpAcc.key) return (typeof logLinesAlive !== "function" || logLinesAlive(skillXpAcc.lines));
@@ -276,7 +313,7 @@ function balloon(title, body, category) {
   el.appendChild(head);
   el.appendChild(bd);
   wrap.appendChild(el);
-  setTimeout(() => el.remove(), 15000);
+  setTimeout(() => el.remove(), MILESTONE_BALLOON_MS);
 }
 
 // Right-panel selection (runtime only): the selected skill, defaulting to
@@ -384,68 +421,11 @@ function buildSkillRow(s) {
 // detached, it opens full-size over neighboring panels instead.
 let activeSkillTip = null; // { btn, tip } of the open skill tip
 function placeSkillTip(tip, anchor) {
-  if (!tip || !anchor) return;
-  const keep = { position: tip.style.position, top: tip.style.top, bottom: tip.style.bottom, left: tip.style.left, transform: tip.style.transform, maxHeight: tip.style.maxHeight, marginLeft: tip.style.marginLeft };
-  tip.style.position = "";
-  tip.style.top = "";
-  tip.style.bottom = "";
-  tip.style.left = "";
-  tip.style.transform = "";
-  tip.style.maxHeight = "";
-  tip.style.marginLeft = "";
-  // Measure with the tip forcibly shown: open paths can land a frame
-  // before CSS :hover/:focus-visible paints it visible, and a display:none
-  // tip reads 0 and bails, stranding it at its natural spot.
-  const needShow = getComputedStyle(tip).display === "none";
-  if (needShow) tip.style.display = "block";
-  const h = tip.offsetHeight;
-  if (!h) {
-    tip.style.position = keep.position;
-    tip.style.top = keep.top;
-    tip.style.bottom = keep.bottom;
-    tip.style.left = keep.left;
-    tip.style.transform = keep.transform;
-    tip.style.maxHeight = keep.maxHeight;
-    tip.style.marginLeft = keep.marginLeft;
-    if (needShow) tip.style.display = "";
-    return;
-  }
-  const VH = window.innerHeight, VW = window.innerWidth;
-  const b = anchor.getBoundingClientRect();
-  const roomUp = b.top - 8;
-  const roomDown = VH - 8 - b.bottom;
-  let dir = "up";
-  if (roomUp < h + 8 && roomDown > roomUp) dir = "down";
-  const room = dir === "up" ? roomUp : roomDown;
-  const cs = getComputedStyle(tip);
-  const centered = cs.transform !== "none";
-  const chrome = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) +
-    (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
-  const avail = Math.floor(room - chrome);
-  const cssCap = Math.min(360, VH * 0.7);
-  const cap = avail <= 0 ? 80 : avail < 80 ? avail : Math.min(avail, cssCap);
-  if (room < h + 8) tip.style.maxHeight = cap + "px";
-  tip.style.position = "fixed";
-  tip.style.bottom = "auto";
-  tip.style.marginLeft = "";
-  tip.style.transform = "none";
-  const w = tip.offsetWidth;
-  const wantLeft = centered ? b.left + b.width / 2 - w / 2 : b.left;
-  tip.style.left = Math.max(8, Math.min(Math.round(wantLeft), VW - 8 - w)) + "px";
-  tip.style.top = dir === "down" ? Math.round(b.bottom - 2) + "px" : Math.round(b.top + 2 - tip.offsetHeight) + "px";
-  if (needShow) tip.style.display = "";
-  if (typeof syncTipPointer === "function") syncTipPointer(anchor, true);
+  return fitDetachedTip(tip, anchor, { prefer: "up", forceShow: true });
 }
 
 function clearSkillTip(tip) {
-  if (!tip) return;
-  tip.style.position = "";
-  tip.style.top = "";
-  tip.style.bottom = "";
-  tip.style.left = "";
-  tip.style.transform = "";
-  tip.style.maxHeight = "";
-  tip.style.marginLeft = "";
+  return clearDetachedTip(tip);
 }
 
 // While a skill tip is open, scrolling or resizing would strand its fixed

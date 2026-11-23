@@ -96,9 +96,3 @@ function buildResourceEl(r) {
   }
   return box;
 }
-
-// Group slots shared by the resource panels and the actions panel.
-// Items declare `group` (default per panel) and optional `header`.
-// Same header = same titled header section; same header + group = same
-// collapsible group. Everything renders in first-use order, so headers,
-// bare groups, and their groups interleave by first appearance.

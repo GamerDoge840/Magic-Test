@@ -1,4 +1,5 @@
 // Labor Game boot: state init, first render, game loop, manual-save autoload.
+// Tick length lives in core.js (MAIN_TICK_MS) - one copy.
 // Autosave timer: while enabled (Options > Saving) the browser save
 // rewrites itself every 1/5/10 minutes (accumulated game time, so a
 // hidden-tab gap fires once on return instead of queuing).
@@ -33,8 +34,11 @@ setInterval(() => {
     }
   }
 
-  // Travel runs on its own clock alongside actions, so Rest can refill
-  // Stamina mid-trip (the trip simply pauses at 0 Stamina).
+  // Travel runs on its own clock: starting an action pauses a moving
+  // trip first (resume it after), so actions never run mid-travel.
+  // Crafting and timed builds are not actions - they keep running
+  // alongside travel untouched. At 0 Stamina the trip stalls until
+  // Stamina returns.
   if (typeof worldTick === "function") worldTick(dt);
 
   // Crafting runs on its own clock too (no Stamina cost): loaded plans
@@ -66,8 +70,12 @@ setInterval(() => {
   // their own message.
   const tileStop = (typeof worldShopBlocked === "function") && worldShopBlocked(current);
   const lockStop = (typeof worldActionLocked === "function") && worldActionLocked(current);
-  if (!cyc.paid && (tileStop || lockStop)) {
-    cyc.paid = false;
+  // HideWhenOffTile actions (Explores, Chop Trees) stop off-tile even
+  // when paid - the payment and progress are kept, so walking back
+  // resumes them for free.
+  const hideGate = !!current.hideWhenOffTile && (tileStop || lockStop);
+  if ((!cyc.paid && (tileStop || lockStop)) || hideGate) {
+    if (!hideGate) cyc.paid = false;
     setAction(null, lockStop ? worldLockMessage(current) : tileBlockedMessage(current, "perform"));
     return;
   }
@@ -83,7 +91,7 @@ setInterval(() => {
   cyc.progress += dt;
   let guarded = 0;
   const tick = getEffectiveTick(current);
-  while (cyc.progress >= tick && guarded < 10) {
+  while (cyc.progress >= tick && guarded < MAX_CYCLES_PER_TICK) {
     guarded++;
     cyc.progress -= tick;
     doTick(current);
@@ -100,8 +108,11 @@ setInterval(() => {
     // A locked action (tile modifier ban) stops here too.
     const tileStopNow = (typeof worldShopBlocked === "function") && worldShopBlocked(current);
     const lockStopNow = (typeof worldActionLocked === "function") && worldActionLocked(current);
+    // HideWhenOffTile actions stay gated while paid (see above) - the
+    // payment is kept so the player resumes for free on return.
+    const hideGateNow = !!current.hideWhenOffTile && (tileStopNow || lockStopNow);
     if (tileStopNow || lockStopNow) {
-      cyc.paid = false;
+      if (!hideGateNow) cyc.paid = false;
       setAction(null, lockStopNow ? worldLockMessage(current) : tileBlockedMessage(current, "perform"));
       return;
     }
@@ -113,9 +124,9 @@ setInterval(() => {
     payCosts(effTickCost);
   }
   render();
-  // 50ms refresh keeps the action-bar countdowns smooth. Action speed is
+  // Per-tick refresh keeps the action-bar countdowns smooth. Action speed is
   // unaffected: progress accumulates from real elapsed time (dt above).
-}, 50);
+}, MAIN_TICK_MS);
 
 buildUI();
 render();

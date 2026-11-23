@@ -4,7 +4,8 @@
 // WORLD: the tile map the player walks around (World tab).
 // Bones of the feature: one small area, one biome, one town.
 //   WORLD_TIERS: one entry per selectable "World Tier" (the tab's dropdown
-//     lists these; picking one keeps your position per tier but every tier
+//     lists these; each tier remembers its own last tile, so leaving and
+//     coming back puts the player where they stood - but every tier
 //     currently generates the same land, so the dropdown does nothing yet).
 //     Note: tiers won't change biome locations - in the future, tiers will
 //     change Gathering pools (what Forage can find) instead.
@@ -23,6 +24,10 @@
 //     - color: (optional) tile background, e.g. "#8fd694" light green
 //     - description: (optional) shown in the tile info window
 //     - tags: (optional) chips, e.g. tags: ["Plains"]
+//     - entryXp: (optional) footfall lessons for walking the land, e.g.
+//       entryXp: { skill: "plainsNavigation", amount: 0.1 } grants 0.1 XP
+//       of that skill on every arrival (multipliers apply, like every
+//       other source). Biomes without one teach nothing underfoot.
 //   WORLD_MODIFIERS: overlays placed on tiles (see WORLD_SITES). They add
 //     tags and can shift stats, e.g. Hamlet adds "General Store".
 //     - id / name: (name defaults to id)
@@ -72,12 +77,12 @@
 // tiles - Plains Navigation speeds up plains only, leaving future biomes
 // untouched.
 const WORLD_TIERS = [
-  { id: "tier0", name: "World Tier 0", size: 6, biome: "plains", start: { x: 3, y: 3 } },
+  { id: "tier0", name: "World Tier 0", size: 12, biome: "plains", start: { x: 3, y: 3 } },
 ];
 
 const WORLD_BIOMES = [
-  { id: "plains", name: "Plains", travelTime: 5, terrainDifficulty: 0.5, color: "#8CD65A", description: "A stretch of land comprised of grass and not much else.", tags: ["Plains"] },
-  { id: "forest", name: "Forest", travelTime: 6.5, terrainDifficulty: 1, color: "#4A8F42", description: "Woodlands home to many creatures and plants.", tags: ["Forest"] },
+  { id: "plains", name: "Plains", travelTime: 5, terrainDifficulty: 0.5, color: "#8CD65A", description: "A stretch of land comprised of grass and not much else.", tags: ["Plains"], entryXp: { skill: "plainsNavigation", amount: 0.1 } },
+  { id: "forest", name: "Forest", travelTime: 6.5, terrainDifficulty: 1, color: "#4A8F42", description: "Woodlands home to many creatures and plants.", tags: ["Forest"], entryXp: { skill: "forestNavigation", amount: 0.1 } },
 ];
 
 const WORLD_MODIFIERS = [
@@ -94,7 +99,7 @@ const WORLD_SITES = [
   { tier: "tier0", x: 1, y: 1, biome: "forest" },
 ];
 
-const WORLD_ACTIONS = ["rest", "explorePlains", "exploreForest", "forage"];
+const WORLD_ACTIONS = ["rest", "explorePlains", "exploreForest", "forage", "chopTrees"];
 
 // FORAGE_TABLES: what the Forage action can find, per World Tier and tile.
 // Each entry picks its loot list by tier plus EITHER a biome id or a tile
