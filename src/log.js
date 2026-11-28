@@ -32,6 +32,7 @@ function log(msg, category = "system", mergeKey) {
   if (category === "consume" && state.options.logConsuming === false) return;
   if (category === "skillxp" && state.options.logSkillXp !== true) return;
   if (category === "discovery" && state.options.logDiscovery !== true) return;
+  if (category === "title" && state.options.logTitles === false) return;
   // Sequencing for tolerant receipt chains (craft <-> skillxp stacking):
   // every write below stamps its category (see stampLogWrite).
   stampLogWrite(category);
@@ -74,6 +75,7 @@ function log(msg, category = "system", mergeKey) {
     : category === "consume" ? "logConsume"
     : category === "skillxp" ? "logSkillxp"
     : category === "discovery" ? "logDiscovery"
+    : category === "title" ? "logTitle"
     : category === "improvement" ? "logImprovement" : "";
  for (const el of allLogEls()) {
    const line = document.createElement("div");
@@ -103,6 +105,7 @@ function logRich(plain, category = "system", fill, mergeKey) {
   if (category === "consume" && state.options.logConsuming === false) return;
   if (category === "skillxp" && state.options.logSkillXp !== true) return;
   if (category === "discovery" && state.options.logDiscovery !== true) return;
+  if (category === "title" && state.options.logTitles === false) return;
   // Same sequencing stamp as log() (see above).
   stampLogWrite(category);
   {
@@ -148,6 +151,7 @@ function logRich(plain, category = "system", fill, mergeKey) {
     : category === "consume" ? "logConsume"
     : category === "skillxp" ? "logSkillxp"
     : category === "discovery" ? "logDiscovery"
+    : category === "title" ? "logTitle"
     : category === "improvement" ? "logImprovement" : "";
   for (const el of allLogEls()) {
     const line = document.createElement("div");
@@ -247,7 +251,7 @@ function logGather(loot, action) {
 function getLogLimit() {
   if (typeof normalizeLogLimit === "function") return normalizeLogLimit(state && state.options && state.options.logLimit);
   const n = Math.floor(Number(state && state.options && state.options.logLimit));
-  if (!Number.isFinite(n)) return 200;
+  if (!Number.isFinite(n)) return 100;
   return Math.min(1000, Math.max(10, n));
 }
 
@@ -323,7 +327,8 @@ function applyLogFilters() {
       || (c.contains("logSell") && state.options.logSelling === false)
       || (c.contains("logConsume") && state.options.logConsuming === false)
       || (c.contains("logSkillxp") && state.options.logSkillXp !== true)
-      || (c.contains("logDiscovery") && state.options.logDiscovery !== true);
+      || (c.contains("logDiscovery") && state.options.logDiscovery !== true)
+      || (c.contains("logTitle") && state.options.logTitles === false);
     // StartLog-hosted gather bullets hide with the Gathering filter while
     // the start text itself stays (governed by its own filter).
     for (const b of line.querySelectorAll(".gather-bullets")) b.hidden = state.options.logGathering === false;

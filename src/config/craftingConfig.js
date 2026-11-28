@@ -53,12 +53,18 @@
 //             { cookedApple: 1 }.
 //           - completeLog: (optional) log line per finished craft.
 //                Defaults to "You roast <input>. (+<outputs>)".
+//           - progressText: (optional) custom green-bar text while this
+//                recipe runs, e.g. "Roasting {input}...". {input} is the
+//                first input's display name (a "tag:" input resolves to
+//                the loaded item), {output} the first output's. The live
+//                countdown ("3.98s left") is appended automatically;
+//                without it the bar shows "<Recipe name>… <time> left".
 const CRAFTING = [
   {
     id: "cooking",
     name: "Cooking",
     stationTag: "Cooking Station",
-    noStationMsg: "You need a Cooking Station to craft.",
+    noStationMsg: "You need a Cooking Station to cook.",
     skill: "cooking",
     speedStat: "cookingSpeed",
     plans: [
@@ -76,18 +82,21 @@ const CRAFTING = [
             name: "Roast Apple",
             inputs: { apples: 1 },
             outputs: { cookedApple: 1 },
+            progressText: "Roasting {input}...",
           },
           {
             id: "roastWoodBerry",
             name: "Roast Wood Berries",
             inputs: { woodBerries: 1 },
             outputs: { cookedWoodBerry: 1 },
+            progressText: "Roasting {input}...",
           },
           {
             id: "roastCabbage",
             name: "Roast Cabbage",
             inputs: { cabbage: 1 },
             outputs: { boiledCabbage: 1 },
+            progressText: "Roasting {input}...",
           },
         ],
       },
@@ -106,12 +115,14 @@ const CRAFTING = [
             name: "Plain Salad",
             inputs: { cabbage: 2 },
             outputs: { plainSalad: 1 },
+            progressText: "Making a salad...",
           },
           {
             id: "fruitSalad",
             name: "Fruit Salad",
             inputs: { cabbage: 1, "tag:fruit": 1 },
             outputs: { fruitSalad: 1 },
+            progressText: "Making a salad...",
           },
         ],
       },
@@ -121,7 +132,7 @@ const CRAFTING = [
     id: "woodworking",
     name: "Woodworking",
     stationTag: "Woodworking Station",
-    noStationMsg: "You need a Woodworking Station to craft.",
+    noStationMsg: "You need a Woodworking Station to woodwork.",
     skill: "woodworking",
     speedStat: "woodworkingSpeed",
     plans: [
@@ -139,6 +150,7 @@ const CRAFTING = [
             name: "Cut Oak Planks",
             inputs: { oakLog: 1 },
             outputs: { oakPlank: 2 },
+            progressText: "Cutting {input} planks...",
           },
         ],
       },
@@ -157,6 +169,7 @@ const CRAFTING = [
             time: 6,
             inputs: { twigs: 2 },
             outputs: { charcoal: 1 },
+            progressText: "Burning wood into charcoal...",
           },
           {
             id: "charPlank",
@@ -164,6 +177,7 @@ const CRAFTING = [
             time: 7,
             inputs: { "tag:plank": 2 },
             outputs: { charcoal: 1 },
+            progressText: "Burning wood into charcoal...",
           },
         ],
       },

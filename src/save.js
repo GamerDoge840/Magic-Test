@@ -82,6 +82,7 @@ function serializeSave() {
     // a serialized snapshot (backups, export) would mutate live state.
     options: { ...state.options, hidden: { ...(state.options.hidden ?? {}) }, furnTypes: { ...(state.options.furnTypes ?? {}) }, furnFilters: { ...(state.options.furnFilters ?? {}) }, furnSort: { ...(state.options.furnSort ?? { key: "name", dir: 1 }) } },
     playerName: state.playerName,
+    playerTitle: state.playerTitle ?? null,
     playerStats: { ...state.playerStats },
     homes: { ...state.homes },
     currentHome: state.currentHome,
@@ -215,6 +216,7 @@ function applySaveData(data) {
   for (const u of UPGRADES) if (savedUnlocked["u:" + u.id]) unlocked["u:" + u.id] = true;
   for (const r of RESOURCES) if (savedUnlocked["r:" + r.id]) unlocked["r:" + r.id] = true;
   for (const f of FURNITURE) if (savedUnlocked["f:" + f.id]) unlocked["f:" + f.id] = true;
+  if (typeof TITLES !== "undefined") for (const t of TITLES) if (savedUnlocked["title:" + t.id]) unlocked["title:" + t.id] = true;
   if (savedUnlocked["tab:crafting"]) unlocked["tab:crafting"] = true;
   state.unlocked = unlocked;
   const savedStats = (data.stats && typeof data.stats === "object" && data.stats.actions && typeof data.stats.actions === "object") ? data.stats.actions : {};
@@ -264,6 +266,11 @@ function applySaveData(data) {
   }
   state.seen = seen;
   state.playerName = normalizePlayerName(data.playerName);
+  // Selected title id (null = None). Unknown ids fall back to Homeless;
+  // locked-but-known ids keep their value and display Homeless until the
+  // sticky unlock re-fires (only reachable via forged saves).
+  const savedTitle = data.playerTitle;
+  state.playerTitle = (savedTitle === null || (typeof savedTitle === "string" && getTitle(savedTitle))) ? savedTitle : "homeless";
   const savedPlayerStats = (data.playerStats && typeof data.playerStats === "object") ? data.playerStats : {};
   const playerStats = {};
   for (const s of PLAYER_STATS) {
@@ -289,6 +296,7 @@ function applySaveData(data) {
     })(),
     logUpgrades: !data.options || data.options.logUpgrades !== false,
     logUnlocks: !data.options || data.options.logUnlocks !== false,
+    logTitles: !data.options || data.options.logTitles !== false,
     logSkillUps: !data.options || data.options.logSkillUps !== false,
     logImprovements: !data.options || data.options.logImprovements !== false,
     logGathering: !data.options || data.options.logGathering !== false,
@@ -326,6 +334,8 @@ function applySaveData(data) {
     autosave: !!(data.options && data.options.autosave),
     autosaveEvery: normalizeAutosaveEvery(data.options && data.options.autosaveEvery),
     logAutosaves: !data.options || data.options.logAutosaves !== false,
+    // Furniture search text (plain string, AND-combined with the filters).
+    furnSearch: (data.options && typeof data.options.furnSearch === "string") ? data.options.furnSearch : "",
     furnFilters: {
       maxed: !data.options || !data.options.furnFilters || data.options.furnFilters.maxed !== false,
       owned: !data.options || !data.options.furnFilters || data.options.furnFilters.owned !== false,

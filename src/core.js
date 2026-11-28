@@ -91,11 +91,11 @@ const sellQtyInput = document.getElementById("sellQtyInput");
 // other inventory filters and AND-combines with them in renderInventory.
 const invSearchInput = document.getElementById("invSearchInput");
 // Item-hiding mode (purely visual): per panel kind (currencies, vitals,
-// actions, milestones, plans, recipes). While on, user-hidden items show struck-through so they can be
+// actions, milestones, plans, recipes, furniture). While on, user-hidden items show struck-through so they can be
 // unhidden; exiting re-applies the hiding. Runtime-only, never saved.
-const hidingMode = { currencies: false, vitals: false, actions: false, milestones: false, plans: false, recipes: false };
+const hidingMode = { currencies: false, vitals: false, actions: false, milestones: false, plans: false, recipes: false, furniture: false };
 // User-hidden item ids ("a:<id>", "u:<id>", "r:<id>", "m:<skillId>:<level>",
-// "p:<planId>", "c:<planId>:<recipeId>"), from hiding mode.
+// "p:<planId>", "c:<planId>:<recipeId>", "f:<furnitureId>"), from hiding mode.
 // Display-only: hidden things still work (actions run, unlocks land).
 function itemHidden(key) {
   return !!state.options.hidden[key];
@@ -117,6 +117,7 @@ const tabCrafting = document.getElementById("tabCrafting");
 const playerNameEl = document.getElementById("playerNameEl");
 const playerNameInput = document.getElementById("playerNameInput");
 const playerNameEditBtn = document.getElementById("playerNameEditBtn");
+const playerTitleBtn = document.getElementById("playerTitleBtn");
 const playerStatsCtn = document.getElementById("playerStatsCtn");
 const craftStatsCtn = document.getElementById("craftStatsCtn");
 const craftStatsHead = document.getElementById("craftStatsHead");
@@ -126,7 +127,12 @@ const homeSelectBtn = document.getElementById("homeSelectBtn");
 const homeModal = document.getElementById("homeModal");
 const homeCloseBtn = document.getElementById("homeCloseBtn");
 const homeListCtn = document.getElementById("homeListCtn");
+const titleModal = document.getElementById("titleModal");
+const titleCloseBtn = document.getElementById("titleCloseBtn");
+const titleListCtn = document.getElementById("titleListCtn");
 const floorSpaceEl = document.getElementById("floorSpaceEl");
+const floorSpaceFill = document.getElementById("floorSpaceFill");
+const furnSearchInput = document.getElementById("furnSearchInput");
 const homeFullNote = document.getElementById("homeFullNote");
 const furnitureCtn = document.getElementById("furnitureCtn");
 const sortSpaceBtn = document.getElementById("sortSpaceBtn");
@@ -139,6 +145,7 @@ const milesHideBtn = document.getElementById("milesHideBtn");
 const craftPlansHideBtn = document.getElementById("craftPlansHideBtn");
 const craftRecipesHideBtn = document.getElementById("craftRecipesHideBtn");
 const furnFilterBtn = document.getElementById("furnFilterBtn");
+const furnHideBtn = document.getElementById("furnHideBtn");
 const furnFilterModal = document.getElementById("furnFilterModal");
 const furnFilterCloseBtn = document.getElementById("furnFilterCloseBtn");
 const furnMaxedChk = document.getElementById("furnMaxedChk");
@@ -325,7 +332,7 @@ function makeFreshState() {
   const specialMessages = {};
   const skills = {};
   for (const s of SKILLS) skills[s.id] = { xp: 0, level: 0 };
-  return { amounts, seen, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, stopIfFull: true, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logSkillUps: true, logImprovements: true, logGathering: true, logCrafting: true, logSelling: true, logConsuming: true, logSkillXp: false, logDiscovery: false, balloonSkillMilestones: true, showMaxedSkills: false, logLimit: LOG_LIMIT_DEFAULT, hidden: {}, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 }, invRarity: "all", invType: "all", invSearch: "", hideEmptyInv: true, sellWarn: true, showActionTime: true, showUnlockReqs: false, showActionHighlights: true, theme: "system", autosave: false, autosaveEvery: AUTOSAVE_EVERY_DEFAULT, logAutosaves: true }, playerName: "Placeholder", playerStats, homes, currentHome: null, furniture, specialMessages, skills, stats: { actions: {} }, currentActionId: null, cycles: {}, builds: {}, activeBuildId: null, fullOverride: {}, impBase: {}, world: defaultWorldState(), crafting: defaultCraftState() };
+  return { amounts, seen, upgrades, unlocked: {}, options: { showMaxedUpgrades: false, stopIfFull: true, logActionBegin: true, logActionStop: true, logUpgrades: true, logUnlocks: true, logTitles: true, logSkillUps: true, logImprovements: true, logGathering: true, logCrafting: true, logSelling: true, logConsuming: true, logSkillXp: false, logDiscovery: false, balloonSkillMilestones: true, showMaxedSkills: false, logLimit: LOG_LIMIT_DEFAULT, hidden: {}, furnFilters: { maxed: true, owned: true, unowned: true, blocked: true }, furnTypes: {}, furnSort: { key: "name", dir: 1 }, furnSearch: "", invRarity: "all", invType: "all", invSearch: "", hideEmptyInv: true, sellWarn: true, showActionTime: true, showUnlockReqs: false, showActionHighlights: true, theme: "system", autosave: false, autosaveEvery: AUTOSAVE_EVERY_DEFAULT, logAutosaves: true }, playerName: "Placeholder", playerTitle: "homeless", playerStats, homes, currentHome: null, furniture, specialMessages, skills, stats: { actions: {} }, currentActionId: null, cycles: {}, builds: {}, activeBuildId: null, fullOverride: {}, impBase: {}, world: defaultWorldState(), crafting: defaultCraftState() };
 }
 
 // Player name: trimmed, capped at 24 chars, never blank (falls back to
@@ -358,6 +365,44 @@ function getFurniture(id) {
 // Home tab unlock: visible once any home is owned.
 function ownsAnyHome() {
   return HOMES.some(h => state.homes[h.id]);
+}
+
+// Player titles (TITLES in furnitureConfig): cosmetic suffixes shown as
+// part of the name ("Jimmy, Civilian"). Selected with state.playerTitle
+// (null = None, hides the title); the title window lists every unlocked
+// title. "default" titles are always available; others unlock through
+// unlockTitles() below and stay available (sticky, like seen flags).
+function getTitle(id) {
+  return lookupIn(typeof TITLES !== "undefined" ? TITLES : [], id);
+}
+function titleUnlocked(t) {
+  return !!t && (!!t.default || !!state.unlocked["title:" + t.id]);
+}
+// Sticky catch-up (runs every render): a title unlocks the first frame
+// any of its requiresHome homes is owned and never re-locks, so home
+// replacements keep earned titles. Each unlock logs once under the title
+// filter; switching stays manual - nothing auto-equips, not even the
+// starter Homeless.
+function unlockTitles() {
+  if (!Array.isArray(typeof TITLES !== "undefined" ? TITLES : null)) return;
+  for (const t of TITLES) {
+    if (!t || t.default || state.unlocked["title:" + t.id]) continue;
+    const req = t.requiresHome;
+    if (req === undefined) continue;
+    const list = Array.isArray(req) ? req : [req];
+    if (!list.some(h => state.homes[h])) continue;
+    state.unlocked["title:" + t.id] = true;
+    if (typeof log === "function") log("Unlocked Title: " + t.name + ".", "title");
+  }
+}
+// Selected title def, or null on None. A selected-but-locked id (only via
+// forged saves, since unlocks are sticky) falls back to the Homeless def
+// so the name never prints a raw id.
+function selectedTitleDef() {
+  const t = typeof state.playerTitle === "string" ? getTitle(state.playerTitle) : null;
+  if (state.playerTitle === null || state.playerTitle === undefined) return null;
+  if (t && titleUnlocked(t)) return t;
+  return getTitle("homeless") || null;
 }
 
 function currentHomeDef() {
@@ -1318,7 +1363,7 @@ function normalizeConfig() {
   // share one DOM id. Later duplicates are removed, keeping the first.
   // Entries added later at runtime should call normalizeConfig() again
   // before buildUI().
-  for (const [arr, kind] of [[RESOURCES, "resource"], [ACTIONS, "action"], [UPGRADES, "upgrade"], [PLAYER_STATS, "player stat"], [HOMES, "home"], [FURNITURE, "furniture"], [SPECIAL_MESSAGES, "special message"], [SKILLS, "skill"], ...(typeof ITEMS !== "undefined" ? [[ITEMS, "item"]] : [])]) {
+  for (const [arr, kind] of [[RESOURCES, "resource"], [ACTIONS, "action"], [UPGRADES, "upgrade"], [PLAYER_STATS, "player stat"], [HOMES, "home"], [FURNITURE, "furniture"], [SPECIAL_MESSAGES, "special message"], [SKILLS, "skill"], ...(typeof ITEMS !== "undefined" ? [[ITEMS, "item"]] : []), ...(typeof TITLES !== "undefined" ? [[TITLES, "title"]] : [])]) {
     dedupeIds(arr, "Removed " + kind + " with no id.", (id) => "Duplicate " + kind + ' id "' + id + '" - removed the later entry.');
   }
   for (const r of RESOURCES) {
@@ -1594,8 +1639,8 @@ function normalizeConfig() {
   // ["General Store", "Market"] - ANY match satisfies it, matched
   // case-insensitively against the tile's tags). Normalizes to an array;
   // bad entries are skipped with a warning, an empty result is deleted
-  // (no requirement). The legacy "shopping" tag still implies
-  // ["General Store"] - see tileRequirementTags in world.js.
+  // (no requirement). The "bought" tag also implies ["General Store"] -
+  // see tileRequirementTags in world.js.
   function cleanTileRequires(item, ownerLabel) {
     if (item.requiresTile === undefined) return;
     const list = Array.isArray(item.requiresTile) ? item.requiresTile : [item.requiresTile];
@@ -2069,6 +2114,31 @@ function normalizeConfig() {
     cleanEffectsList(h, hLabel, "home");
     cleanTags(h, hLabel);
   }
+  // Titles: cosmetic name suffixes. Unknown-home gates warn and are
+  // dropped; a gate left empty never unlocks (default titles ignore it).
+  if (typeof TITLES !== "undefined") for (const t of TITLES) {
+    defaultName(t);
+    const tLabel = 'Title "' + t.id + '"';
+    dropBadString(t, "obtain", tLabel, "ignored");
+    if (t.default !== undefined && typeof t.default !== "boolean") {
+      warn(tLabel + ": bad default, ignored.");
+      delete t.default;
+    }
+    if (t.requiresHome !== undefined) {
+      const list = Array.isArray(t.requiresHome) ? t.requiresHome : [t.requiresHome];
+      const keptReq = [];
+      for (const r of list) {
+        if (typeof r !== "string" || !getHome(r)) warn(tLabel + ": bad requiresHome entry, skipped.");
+        else if (!keptReq.includes(r)) keptReq.push(r);
+      }
+      if (keptReq.length === 1 && !Array.isArray(t.requiresHome)) t.requiresHome = keptReq[0];
+      else if (keptReq.length) t.requiresHome = keptReq;
+      else {
+        warn(tLabel + ": bad requiresHome, never unlocks.");
+        delete t.requiresHome;
+      }
+    }
+  }
   for (const f of FURNITURE) {
     defaultName(f);
     const fLabel = 'Furniture "' + f.id + '"';
@@ -2309,6 +2379,11 @@ function normalizeConfig() {
             continue;
           }
           dropBadString(r, "completeLog", rLabel, "using the default");
+          // Custom green-bar text while this recipe runs (see
+          // craftProgressLabel): "{input}"/"{output}" name the first
+          // input/output item. Bad or blank values warn and fall back
+          // to the default "<Recipe name>… <time> left" shape.
+          dropBadString(r, "progressText", rLabel, "ignored", true);
           // Optional per-recipe craft time (seconds): overrides the plan
           // time for this recipe only. Bad values warn and fall back to
           // the plan time.

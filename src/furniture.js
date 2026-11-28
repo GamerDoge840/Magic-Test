@@ -47,6 +47,19 @@ function furnTypeOn(tag) {
   return (state.options.furnTypes ?? {})[tag] !== false;
 }
 
+// Type tags for the Filters modal: only tags carried by at least one
+// UNLOCKED furnishing, so new games (nothing unlocked yet) don't list
+// filters for furniture they haven't met. The render gate keeps using
+// furnitureTypeTags (locked entries hide via unlockFurniture first).
+function unlockedFurnitureTypeTags() {
+  const unlocked = FURNITURE.filter(f => unlockFurniture(f));
+  const counts = new Map();
+  for (const f of unlocked) for (const t of new Set(getTags(f))) counts.set(t, (counts.get(t) ?? 0) + 1);
+  // A tag on EVERY unlocked furnishing can't discriminate, same rule as
+  // furnitureTypeTags (which measures against all of FURNITURE).
+  return [...counts.entries()].filter(([, n]) => n < unlocked.length).map(([t]) => t).sort();
+}
+
 function furnTypeVisible(f) {
   const types = furnitureTypeTags();
   if (!types.length) return true;
@@ -69,6 +82,33 @@ function furnVisible(f) {
   if (furnitureBlocked(f) && flt.blocked === false) return false;
   if (owned > 0) return flt.owned !== false;
   return flt.unowned !== false;
+}
+
+// Furniture search: same behavior as inventory search (name + tags with
+// plural/singular variants, cached per def). AND-combined with every
+// filter in the render.js Home pass via furnVisible + match.
+const __furnHayCache = new WeakMap();
+function furnSearchHay(f) {
+  let h = __furnHayCache.get(f);
+  if (h === undefined) {
+    const tags = (typeof getTags === "function") ? getTags(f) : [];
+    const base = (f.name + " " + tags.join(" ")).toLowerCase();
+    const words = new Set(base.split(/[^a-z0-9]+/));
+    for (const w of [...words]) {
+      if (typeof invWordSingulars !== "function") break;
+      for (const v of invWordSingulars(w)) if (v && !words.has(v)) words.add(v);
+    }
+    h = [...words].join(" ");
+    __furnHayCache.set(f, h);
+  }
+  return h;
+}
+
+function furnSearchMatch(f, q, qSing) {
+  if (!q) return true;
+  const hay = furnSearchHay(f);
+  if (hay.includes(q)) return true;
+  return (qSing ?? ((typeof invWordSingulars === "function") ? invWordSingulars(q) : [])).some(v => hay.includes(v));
 }
 
 function buyFurniture(id) {
@@ -219,7 +259,11 @@ function buildFurnitureCard(f) {
   nm.textContent = f.name;
   const owned = document.createElement("span");
   owned.className = "furnOwned";
+  const spaceMeta = document.createElement("span");
+  spaceMeta.className = "furnSpaceMeta";
+  spaceMeta.textContent = formatNum(f.space ?? 1) + " Floor Space";
   top.appendChild(nm);
+  top.appendChild(spaceMeta);
   top.appendChild(owned);
   card.appendChild(top);
 
@@ -229,7 +273,11 @@ function buildFurnitureCard(f) {
   buy.type = "button";
   buy.className = "furnBuy";
   buy.textContent = "Buy";
-  buy.addEventListener("click", () => buyFurniture(f.id));
+  // Hiding mode: clicking strikes the furnishing hidden instead of buying it.
+  buy.addEventListener("click", () => {
+    if (hidingMode.furniture) { toggleItemHidden("f:" + f.id); return; }
+    buyFurniture(f.id);
+  });
   const sell = document.createElement("button");
   sell.type = "button";
   sell.className = "furnSell";
@@ -251,7 +299,11 @@ function buildFurnitureCard(f) {
   snotice.hidden = true;
   stip.appendChild(snotice);
   sell.appendChild(stip);
-  sell.addEventListener("click", () => sellFurniture(f.id));
+  // Hiding mode: clicking strikes the furnishing hidden instead of selling it.
+  sell.addEventListener("click", () => {
+    if (hidingMode.furniture) { toggleItemHidden("f:" + f.id); return; }
+    sellFurniture(f.id);
+  });
   btns.appendChild(buy);
   btns.appendChild(sell);
   card.appendChild(btns);
@@ -312,6 +364,13 @@ function buildFurnitureCard(f) {
   card.appendChild(tip);
 
   card.tabIndex = 0;
+  // Hiding mode: clicking the card background strikes it hidden (the Buy/Sell
+  // buttons handle their own clicks above, so ignore those here to avoid toggling twice).
+  card.addEventListener("click", (e) => {
+    if (!hidingMode.furniture) return;
+    if (e.target && e.target.closest && e.target.closest("button")) return;
+    toggleItemHidden("f:" + f.id);
+  });
   uiRefs.set("f:" + f.id, { root: card, name: nm, owned, buy, sell, sellNotice: snotice, tipCount: count, costs: costRefs, reqSec: rsec });
   // Buy vs Sell highlight on their own buttons (card background counts as
   // Buy): moving between buttons switches the mode; leaving the card turns
@@ -365,6 +424,14 @@ function buildFurnitureCards() {
     return;
   }
   for (const f of list) furnitureCtn.appendChild(buildFurnitureCard(f));
+  // Search empty-state: toggled by the render pass (hidden unless a query
+  // hides every card). Built here so sort rebuilds keep it last.
+  const noMatch = document.createElement("div");
+  noMatch.className = "emptyNote";
+  noMatch.id = "furnNoMatch";
+  noMatch.textContent = "No furnishings match.";
+  noMatch.hidden = true;
+  furnitureCtn.appendChild(noMatch);
 }
 
 function selectHome(id) {
@@ -379,6 +446,60 @@ function selectHome(id) {
   buildHomeList();
   buildUI();
   render();
+}
+
+// Shared home tooltip: header (name + space), tags, description,
+// effects. The dwelling plaque button shows this for the current home;
+// the home modal rows reuse it and add a "No room" note when needed.
+function buildHomeTip(h) {
+  const tip = document.createElement("span");
+  tip.className = "tip";
+  const head = document.createElement("div");
+  head.className = "tip-head";
+  const title = document.createElement("span");
+  title.textContent = h.name;
+  const count = document.createElement("span");
+  count.className = "tip-count";
+  count.textContent = h.space + " Floor Space";
+  head.appendChild(title);
+  head.appendChild(count);
+  tip.appendChild(head);
+  const headTags = buildTipTags(h);
+  if (headTags) tip.appendChild(headTags);
+  if (h.tooltip) {
+    const desc = document.createElement("div");
+    desc.className = "tip-desc";
+    desc.textContent = h.tooltip;
+    tip.appendChild(desc);
+  }
+  if (h.effects && h.effects.length) {
+    const { sec, body } = makeTipSection(h.effects.length > 1 ? "Effects" : "Effect");
+    for (const e of h.effects) {
+      const row = document.createElement("div");
+      row.className = "tip-row";
+      const s = document.createElement("span");
+      s.textContent = describeEffect(e);
+      row.appendChild(s);
+      body.appendChild(row);
+    }
+    tip.appendChild(sec);
+  }
+  return tip;
+}
+
+// Dwelling plaque: hovering it shows the currently-selected home's
+// tooltip (same content as its home-modal row). Rebuilt only when the
+// current home changes, so open-tip hover/focus is never clobbered by
+// the per-tick render.
+function syncHomeSelectTip() {
+  if (typeof homeSelectBtn === "undefined" || !homeSelectBtn) return;
+  const cur = typeof currentHomeDef === "function" ? currentHomeDef() : null;
+  if (!cur) return;
+  if (homeSelectBtn._homeId === cur.id && homeSelectBtn.querySelector(":scope > .tip")) return;
+  homeSelectBtn.removeAttribute("title");
+  homeSelectBtn.textContent = cur.name;
+  homeSelectBtn.appendChild(buildHomeTip(cur));
+  homeSelectBtn._homeId = cur.id;
 }
 
 function buildHomeList() {
@@ -407,38 +528,7 @@ function buildHomeList() {
     btn.appendChild(sp);
     btn.appendChild(st);
     // Dynamic tooltip: all of the home's information.
-    const tip = document.createElement("span");
-    tip.className = "tip";
-    const head = document.createElement("div");
-    head.className = "tip-head";
-    const title = document.createElement("span");
-    title.textContent = h.name;
-    const count = document.createElement("span");
-    count.className = "tip-count";
-    count.textContent = h.space + " Floor Space";
-    head.appendChild(title);
-    head.appendChild(count);
-    tip.appendChild(head);
-    const headTags = buildTipTags(h);
-    if (headTags) tip.appendChild(headTags);
-    if (h.tooltip) {
-      const desc = document.createElement("div");
-      desc.className = "tip-desc";
-      desc.textContent = h.tooltip;
-      tip.appendChild(desc);
-    }
-    if (h.effects && h.effects.length) {
-      const { sec, body } = makeTipSection(h.effects.length > 1 ? "Effects" : "Effect");
-      for (const e of h.effects) {
-        const row = document.createElement("div");
-        row.className = "tip-row";
-        const s = document.createElement("span");
-        s.textContent = describeEffect(e);
-        row.appendChild(s);
-        body.appendChild(row);
-      }
-      tip.appendChild(sec);
-    }
+    const tip = buildHomeTip(h);
     if (!fits) {
       const note = document.createElement("div");
       note.className = "tip-flavor tip-teal";
@@ -457,4 +547,81 @@ function buildHomeList() {
     }
     homeListCtn.appendChild(btn);
   }
+}
+
+// Title selection: cosmetic only, no logs. Lists None first (no tooltip -
+// it isn't a title), then every unlocked title in config order with its
+// obtain line as the tooltip. Clicking a row switches instantly.
+function buildTitleRow(t, isCur) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "titleRow" + (isCur ? " current" : "");
+  const nm = document.createElement("span");
+  nm.className = "titleRowName";
+  nm.textContent = t ? t.name : "None";
+  const st = document.createElement("span");
+  st.className = "titleRowStatus";
+  st.textContent = isCur ? "Current" : "";
+  btn.appendChild(nm);
+  btn.appendChild(st);
+  if (t) {
+    const tip = document.createElement("span");
+    tip.className = "tip";
+    const head = document.createElement("div");
+    head.className = "tip-head";
+    const title = document.createElement("span");
+    title.textContent = t.name;
+    head.appendChild(title);
+    tip.appendChild(head);
+    if (t.obtain) {
+      const desc = document.createElement("div");
+      desc.className = "tip-desc";
+      desc.textContent = t.obtain;
+      tip.appendChild(desc);
+    }
+    btn.appendChild(tip);
+    if (typeof fitTip === "function") {
+      const fit = () => { fitTip(tip, btn, "up"); if (typeof syncTipPointer === "function") syncTipPointer(btn, true); };
+      btn.addEventListener("mouseenter", fit);
+      btn.addEventListener("focus", fit);
+    }
+  }
+  btn.addEventListener("click", () => selectTitle(t ? t.id : null));
+  return btn;
+}
+function buildTitleList() {
+  if (typeof titleListCtn === "undefined" || !titleListCtn) return;
+  titleListCtn.innerHTML = "";
+  const curId = (typeof state.playerTitle === "string") ? state.playerTitle : null;
+  titleListCtn.appendChild(buildTitleRow(null, curId === null));
+  if (!Array.isArray(typeof TITLES !== "undefined" ? TITLES : null)) return;
+  for (const t of TITLES) {
+    if ((typeof titleUnlocked === "function") ? !titleUnlocked(t) : !t) continue;
+    titleListCtn.appendChild(buildTitleRow(t, t.id === curId));
+  }
+}
+function selectTitle(id) {
+  state.playerTitle = id;
+  buildTitleList();
+}
+// Furniture search wiring: typing applies live (Enter just leaves the
+// field, Escape clears it). Same stopPropagation as the inventory search
+// so global keys don't fire mid-typing.
+if (typeof furnSearchInput !== "undefined" && furnSearchInput) {
+  furnSearchInput.addEventListener("input", () => {
+    state.options.furnSearch = furnSearchInput.value;
+    render();
+  });
+  // The native type=search clear button doesn't fire `input` in every
+  // browser (it fires `search`); without this, the per-tick render would
+  // resync the field from the stale state and undo the clear.
+  furnSearchInput.addEventListener("search", () => {
+    state.options.furnSearch = furnSearchInput.value;
+    render();
+  });
+  furnSearchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && furnSearchInput.blur) furnSearchInput.blur();
+    else if (e.key === "Escape") { state.options.furnSearch = ""; furnSearchInput.value = ""; render(); }
+    e.stopPropagation();
+  });
 }

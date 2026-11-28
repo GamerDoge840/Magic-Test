@@ -1,4 +1,4 @@
-// Labor Game world: tiles, travel, shopping gate, World tab UI.
+// Labor Game world: tiles, travel, bought gate, World tab UI.
 // The World tab unlocks by performing Explore Outskirts once, and lets the
 // player walk a tile map. Travel runs on its own clock (see worldTick,
 // called from main.js): starting an action pauses a moving trip first,
@@ -82,8 +82,8 @@ function worldTileTags(t) {
   return [...((t.biome && t.biome.tags) || []), ...((t.modifier && t.modifier.tags) || [])];
 }
 
-// Tags are matched case-insensitively, so config may write "Shopping" or
-// "shopping" and tiles "General Store" or "general store" alike.
+// Tags are matched case-insensitively, so config may write "Bought" or
+// "bought" and tiles "General Store" or "general store" alike.
 // Current-tile tag set, memoized: tileRequirementMet, worldTileHasTag and
 // findForageTable all read the player's tile every tick, but its tags
 // only change on move/tier/site edits (the guards below). Same content
@@ -103,8 +103,8 @@ function worldTileHasTag(tag) {
   return worldPlayerTileTags().some(t => String(t).toLowerCase() === want);
 }
 
-function shoppingGated(item) {
-  return getTags(item).some(t => String(t).toLowerCase() === "shopping");
+function boughtGated(item) {
+  return getTags(item).some(t => String(t).toLowerCase() === "bought");
 }
 
 // Current-tile forage table: first FORAGE_TABLES entry matching the tier
@@ -158,11 +158,11 @@ function grantGatherLoot(action) {
 // satisfies, matched case-insensitively against the tile's tags):
 //   requiresTile: "General Store"
 //   requiresTile: ["General Store", "Market"]
-// The legacy "shopping" tag still implies ["General Store"], so existing
-// config keeps working. Before the World unlocks (no position yet) the
+// The "bought" tag implies ["General Store"], so tagged config only
+// runs/buys on a General Store tile. Before the World unlocks (no
 // player is implicitly in town, so every requirement counts as met.
 // Memoized per item object (requiresTile/tags are static config): the
-// dedupe + shopping-gate scan runs once, not on every gate check.
+// dedupe + bought-gate scan runs once, not on every gate check.
 const __reqTagsCache = new WeakMap();
 function tileRequirementTags(item) {
   if (!item || typeof item !== "object") return tileRequirementTagsFresh(item);
@@ -182,7 +182,7 @@ function tileRequirementTagsFresh(item) {
   const rt = item ? item.requiresTile : undefined;
   if (typeof rt === "string") push(rt);
   else if (Array.isArray(rt)) for (const t of rt) push(t);
-  if (shoppingGated(item) && !out.some(x => x.toLowerCase() === STORE_TAG.toLowerCase())) push(STORE_TAG);
+  if (boughtGated(item) && !out.some(x => x.toLowerCase() === STORE_TAG.toLowerCase())) push(STORE_TAG);
   return out;
 }
 
@@ -237,7 +237,7 @@ function worldLockMessage(action) {
   return "You can't perform " + action.name + " at " + where + ".";
 }
 
-// Shopping rule: tile-gated items only run/buy on a matching tile (free
+// Bought rule: tile-gated items only run/buy on a matching tile (free
 // while the World is still locked). Kept under its old name - upgrades,
 // furniture, actions, and the World mirror all gate through here.
 function worldShopBlocked(item) {

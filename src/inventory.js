@@ -430,7 +430,7 @@ function buildInvTypeRow() {
   }
 }
 
-// Sub-type row below the main Type row: an "All" chip (the whole active
+// Category row below the main Type row: an "All" chip (the whole active
 // category at once, same filter as its main-row chip) plus the active
 // category's sub-type chips (see invSubRowTypes). Hidden unless a category
 // is selected.
@@ -443,7 +443,7 @@ function buildInvTypeSubRow() {
   subRow.hidden = !tags.length;
   if (!tags.length) return;
   const label = document.createElement("span");
-  label.textContent = "Sub-type:";
+  label.textContent = "Category:";
   subRow.appendChild(label);
   // "All" first: the whole category (every sub-type at once) without
   // leaving the row - same filter as the category's main-row chip.
@@ -893,7 +893,7 @@ function itemSellable(def) {
   return !!def && !!def.sellPrice && Object.keys(def.sellPrice).length > 0;
 }
 
-// Store presence: the same General Store requirement shopping uses.
+// Store presence: the same General Store requirement bought uses.
 // Before the World unlocks the player is implicitly in town, so selling
 // works exactly where buying does.
 function atStoreTile() {

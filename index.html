@@ -177,6 +177,10 @@
   #invSellRow { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #333842; flex-wrap: wrap; }
   #furnSortRow { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #333842; }
   #invSellRow:empty, #invSellRow[hidden] { display: none; }
+  /* Furniture search: static row at the top of the window (never rebuilt,
+     so typing never loses focus); AND-combined with the filters. */
+  #furnSearchRow { padding-bottom: 8px; border-bottom: 1px solid #333842; }
+  #furnSearchRow input { flex: 0 1 50%; min-width: 120px; background: #22262f; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 4px 8px; font-size: 0.95em; }
   /* Inventory search: static row above the type chips (never rebuilt,
      so typing never loses focus); AND-combined with the other filters. */
   #invSearchRow input { flex: 0 1 50%; min-width: 120px; background: #22262f; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 4px 8px; font-size: 0.95em; }
@@ -243,6 +247,10 @@
     #workGrid, #homeGrid { grid-template-columns: 1fr; }
     #workGrid .panel-actions, #homeGrid .panel-actions { order: -1; }
     #workGrid .panel-log, #homeGrid .panel-log { max-height: 44vh; }
+    .homeBanner { flex-direction: column; }
+    #tabHome #homeSelectBtn { align-self: stretch; }
+    #furnitureCtn .furnCard { flex-direction: column; align-items: stretch; }
+    #furnitureCtn .furnBtns { width: auto; }
     #topbar { flex-direction: column; align-items: stretch; }
     #topbar .brand { text-align: center; }
     #nowCard { max-width: none; }
@@ -332,7 +340,7 @@
   }
   .shopBtn.owned { outline: 2px solid #7fd97f; }
   .shopBtn.maxed { border-style: dashed; }
-  .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip, .furnCard .tip, .homeRow .tip, .skillRow .tip, .craftPlanRow .tip, .craftRecipeBtn .tip {
+  .actionBtn .tip, .shopBtn .tip, .currency .tip, .res .tip, .furnCard .tip, .homeRow .tip, .skillRow .tip, .craftPlanRow .tip, .craftRecipeBtn .tip, #homeSelectBtn .tip, .titleRow .tip {
     display: none;
     position: absolute;
     bottom: calc(100% - 2px);
@@ -378,7 +386,8 @@
   .res:hover .tip, .res:focus-visible .tip,
   .skillRow:hover .tip, .skillRow:focus-visible .tip,
   .craftPlanRow:hover .tip, .craftPlanRow:focus-visible .tip,
-  .craftRecipeBtn:hover .tip, .craftRecipeBtn:focus-visible .tip { display: block; }
+  .craftRecipeBtn:hover .tip, .craftRecipeBtn:focus-visible .tip,
+  #homeSelectBtn:hover > .tip, #homeSelectBtn:focus-visible > .tip { display: block; }
   /* Hovered/focused tip anchors rise above later siblings. The hover lift
      (translateY) turns the anchor into a stacking context, which would
      otherwise trap its tip (z-index 10) underneath buttons further down
@@ -390,6 +399,8 @@
   .currency:hover, .currency:focus-visible,
   .res:hover, .res:focus-visible,
   .homeRow:hover, .homeRow:focus-visible,
+  #homeSelectBtn:hover, #homeSelectBtn:focus-visible,
+  .titleRow:hover, .titleRow:focus-visible,
   .craftPlanRow:hover, .craftPlanRow:focus-visible,
   .craftRecipeBtn:hover, .craftRecipeBtn:focus-visible { z-index: 11; }
   /* Resource tooltips open downward so they never collide with panel headers. */
@@ -420,6 +431,9 @@
   .tip-row.short { color: #d93636; }
   .tip-row.short span:last-child { font-weight: bold; }
   .tip-row.capped { color: #d97a00; }
+  /* Plan tips: the Recipes "Known: X of Y" row glows green once every
+     recipe of the plan is discovered. */
+  .tip-row.known-all { color: #D9FFC7; }
   .tip-sec.tip-req .tip-sec-label, .tip-sec.tip-req .tip-row { color: #d93636; }
   /* Compact rows: each section shrink-wraps to its content like a table, so
      short rows read "Stamina: 1" instead of stretching the value to the far
@@ -453,6 +467,9 @@
   #tabPlayer { display: flex; flex-direction: column; align-items: center; }
   #tabPlayer .panel { max-width: 620px; margin: 0 auto; text-align: left; width: 100%; box-sizing: border-box; }
   .playerNameRow { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  #playerNameEl { cursor: pointer; }
+  .playerTitle { background: none; border: none; padding: 0; margin-left: -8px; font-family: inherit; font-size: 0.95em; color: #9aa3b5; cursor: pointer; white-space: nowrap; }
+  .playerTitle:hover { color: #cfd3dc; }
   #playerNameEl { font-size: 1.25em; font-weight: bold; }
   #playerNameInput { font-size: 1.1em; padding: 4px 8px; border-radius: 6px; border: 1px solid #4a4f5c; background: #0e1013; color: inherit; max-width: 240px; }
   #playerNameEditBtn { padding: 2px 10px; font-size: 0.9em; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
@@ -465,32 +482,47 @@
      NOTE: unlike Work, home panels have NO overflow/max-height caps - caps
      clipped the furniture tooltips and made the mirrored lists short. Panels
      size to the grid (desktop) or content (stacked) and the page scrolls. */
-  /* Emphasized Home controls: the current-home picker and the furniture
-     Filters button are the two main actions in this tab, so they read as
-     primary buttons next to the smaller Sort toggles. */
-  #homeSelectBtn, #furnFilterBtn { font-size: 1em; font-weight: bold; padding: 6px 14px; background: #313743; color: #fff; border: 1px solid #6b7484; box-shadow: inset 0 2px 0 rgba(255,255,255,0.08), 0 2px 6px rgba(0,0,0,0.3); }
-  #homeSelectBtn:hover:not(:disabled), #furnFilterBtn:hover:not(:disabled) { background: #3d4451; border-color: #7fd97f; }
+  /* Homestead banner: the dwelling plaque plus a Floor Space capacity
+     bar, so the current home and its room read as one hearthstead block
+     instead of a header button plus a text line. */
+  .homeBanner { display: flex; gap: 12px; align-items: stretch; margin-bottom: 8px; background: #22262f; border: none; border-radius: 12px; padding: 10px 12px; }
+  #homeSelectBtn { position: relative; font-size: 1.05em; font-weight: bold; padding: 8px 16px; background: #3a2f1c; color: #f2d8a0; border: 1px solid #a07f3f; border-radius: 10px; box-shadow: inset 0 1px 0 rgba(255,220,150,0.15), 0 2px 6px rgba(0,0,0,0.4); white-space: nowrap; align-self: center; }
+  #homeSelectBtn::before { content: "⌂ "; }
+  #homeSelectBtn:hover:not(:disabled) { background: #4a3c22; border-color: #e0a458; }
+  #furnFilterBtn { font-size: 1em; font-weight: bold; padding: 6px 14px; background: #313743; color: #fff; border: 1px solid #6b7484; box-shadow: inset 0 2px 0 rgba(255,255,255,0.08), 0 2px 6px rgba(0,0,0,0.3); }
+  #furnFilterBtn:hover:not(:disabled) { background: #3d4451; border-color: #7fd97f; }
+  .homeSpaceWrap { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px; min-width: 0; }
+  .homeSpaceTop { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.9em; }
+  .homeSpaceLabel { text-transform: uppercase; letter-spacing: 1.5px; font-size: 0.8em; color: #cfb877; }
+  #floorSpaceEl { font-weight: bold; white-space: nowrap; }
+  #floorSpaceBar { height: 10px; background: #14161b; border: 1px solid #4a4f5c; border-radius: 6px; overflow: hidden; }
+  #floorSpaceFill { height: 100%; width: 0%; background: linear-gradient(90deg, #e0a458, #f2d8a0); border-radius: 6px; transition: width 0.2s ease; }
   /* Select Home submenu as a 2-column grid of home cards (1 column on phones). */
-  #homeListCtn { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
-  @media (max-width: 520px) { #homeListCtn { grid-template-columns: 1fr; } }
-  .homeLabel { font-size: 0.85em; opacity: 0.8; align-self: center; }
-  .homeMetaRow { display: flex; justify-content: flex-end; margin-bottom: 8px; font-size: 0.9em; font-weight: bold; }
+  #homeListCtn, #titleListCtn { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  @media (max-width: 520px) { #homeListCtn, #titleListCtn { grid-template-columns: 1fr; } }
+  .homeRow.current:focus-visible { outline: 2px solid #7fd97f; outline-offset: 2px; }
   .homeFullNote { font-style: italic; opacity: 0.8; margin-bottom: 8px; text-align: center; color: orange; }
+  #homeFullNote { padding-bottom: 8px; border-bottom: 1px solid #333842; }
   .furnSortRow { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 0.9em; }
   .furnSortRow > span { opacity: 0.8; }
   .furnSortRow button { padding: 2px 10px; font-size: 0.85em; white-space: nowrap; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; }
   .furnSortRow button:hover { background: #343945; }
   .furnSortRow button.active { font-weight: bold; background: #313743; color: #fff; border-color: #565e70; }
-  #furnitureCtn { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; align-content: start; flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
-  .furnCard { position: relative; background: #22262f; border: 1px solid #3a3f4b; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; transition: border-color 0.08s ease, transform 0.08s ease; }
-  .furnCard:hover { border-color: #6b7484; }
+  /* Compact ledger cards in a 3-across grid: each furnishing keeps its
+     amber rail, space meta, and Buy/Sell pair, but reads as one small
+     entry instead of a full-width row. */
+  #furnitureCtn { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; align-content: start; flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
+  /* Ledger cards: name, space, and holdings on top, Buy/Sell below. */
+  .furnCard { position: relative; background: linear-gradient(180deg, #262b35, #22262f); border: 1px solid #3a3f4b; border-left: 3px solid #a07f3f; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; align-items: stretch; gap: 8px; transition: border-color 0.08s ease, transform 0.08s ease; }
+  .furnCard:hover { border-color: #6b7484; border-left-color: #e0a458; }
   /* Hovered card rises above its grid neighbors so its downward-opening
      tooltip is never covered by the next row. */
   .furnCard:hover, .furnCard:focus-within { z-index: 11; }
-  .furnTop { display: flex; gap: 8px; align-items: baseline; font-weight: bold; }
+  .furnTop { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-weight: bold; flex: 1; min-width: 0; }
   .furnSpace { opacity: 0.85; }
-  .furnName { flex: 1; }
-  .furnOwned { opacity: 0.85; font-size: 0.9em; }
+  .furnName { flex: 1 1 100%; min-width: 0; }
+  .furnOwned { opacity: 0.85; font-size: 0.9em; white-space: nowrap; }
+  .furnSpaceMeta { font-weight: normal; opacity: 0.7; font-size: 0.85em; white-space: nowrap; }
   .furnBtns { display: flex; gap: 8px; }
   .furnBtns button { flex: 1; position: relative; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 7px 10px; }
   .furnBtns button:hover:not(:disabled) { background: #343945; border-color: #7fd97f; }
@@ -499,15 +531,31 @@
   .furnCard:hover > .tip.furnInfo, .furnCard:focus-within > .tip.furnInfo { display: block; }
   .furnCard:has(.furnSell:hover) > .tip.furnInfo, .furnCard:has(.furnSell:focus-visible) > .tip.furnInfo { display: none; }
   .furnSell:hover > .tip, .furnSell:focus-visible > .tip { display: block; }
-  .homeRow { position: relative; display: flex; gap: 8px; align-items: center; width: 100%; box-sizing: border-box; margin: 0; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 8px; padding: 9px 12px; text-align: left; }
-  .homeRow:hover:not(:disabled) { background: #343945; border-color: #6b7484; }
+  /* Dwelling options: amber hearth rail marks the current home, and the
+     status reads as a pill instead of trailing gray text. */
+  .homeRow { position: relative; display: flex; gap: 8px; align-items: center; width: 100%; box-sizing: border-box; margin: 0; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-left: 3px solid #4a4f5c; border-radius: 8px; padding: 9px 12px; text-align: left; }
+  .homeRow:hover:not(:disabled) { background: #343945; border-color: #6b7484; border-left-color: #a07f3f; }
   .homeRow:disabled { opacity: 1; color: #777; cursor: default; }
-  .homeRow.current { outline: 2px solid #7fd97f; }
+  .homeRow.current { border-color: #a07f3f; border-left: 3px solid #e0a458; background: #2e2a1e; outline: none; }
   .homeRow .homeRowName { flex: 1; font-weight: bold; }
+  .homeRow .homeRowName::before { content: "⌂ "; color: #a07f3f; }
   .homeRow .homeRowSpace { opacity: 0.85; font-size: 0.9em; }
-  .homeRow .homeRowStatus { opacity: 0.7; font-size: 0.85em; min-width: 60px; text-align: right; }
+  .homeRow .homeRowStatus { font-size: 0.85em; min-width: 60px; text-align: center; background: #3a3f4b; border-radius: 10px; padding: 2px 8px; }
+  .homeRow .homeRowStatus:empty { display: none; }
+  .homeRow.current .homeRowStatus { background: #3a2f1c; color: #f2d8a0; }
   .homeRow:hover > .tip, .homeRow:focus-visible > .tip { display: block; }
   .homeRow > .tip { left: 0; transform: none; }
+  #homeSelectBtn > .tip { left: 0; transform: none; }
+  /* Title options: same ledger look as dwelling options, without the ⌂. */
+  .titleRow { position: relative; display: flex; gap: 8px; align-items: center; width: 100%; box-sizing: border-box; margin: 0; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-left: 3px solid #4a4f5c; border-radius: 8px; padding: 9px 12px; text-align: left; }
+  .titleRow:hover:not(:disabled) { background: #343945; border-color: #6b7484; border-left-color: #7fd97f; }
+  .titleRow.current { border-color: #7fd97f; border-left: 3px solid #7fd97f; background: #1e2b22; outline: none; }
+  .titleRow .titleRowName { flex: 1; font-weight: bold; }
+  .titleRow .titleRowStatus { font-size: 0.85em; min-width: 60px; text-align: center; background: #3a3f4b; border-radius: 10px; padding: 2px 8px; }
+  .titleRow .titleRowStatus:empty { display: none; }
+  .titleRow.current .titleRowStatus { background: #2c3d31; color: #D9FFC7; }
+  .titleRow:hover > .tip, .titleRow:focus-visible > .tip { display: block; }
+  .titleRow > .tip { left: 0; transform: none; }
   #clipBox { margin-bottom: 8px; }
   #clipArea { width: 100%; box-sizing: border-box; font-family: monospace; }
   button { padding: 8px 14px; font-size: 1em; cursor: pointer; }
@@ -516,6 +564,13 @@
   .panel h2.hasBtn { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
   .panel h2.hasBtn .hbtns { position: static; transform: none; display: flex; gap: 6px; }
   .panel h2.hasBtn .htitle { flex: 1; }
+  /* Log headers carry buttons on both sides (Filters left, Clear right):
+     equal-width side groups keep the centered title at the true middle
+     of the bar instead of drifting toward the narrower button group. */
+  .panel h2.hasBtn:has(> .hbtns.left + .htitle + .hbtns) > .hbtns { flex: 1; }
+  .panel h2.hasBtn:has(> .hbtns.left + .htitle + .hbtns) > .hbtns.left { justify-content: flex-start; }
+  .panel h2.hasBtn:has(> .hbtns.left + .htitle + .hbtns) > .hbtns:not(.left) { justify-content: flex-end; }
+  .panel h2.hasBtn:has(> .hbtns.left + .htitle + .hbtns) > .htitle { flex: 0 1 auto; text-align: center; }
   .panel h2.hasBtn .hbtns button { padding: 2px 10px; font-size: 0.85em; font-weight: normal; letter-spacing: 0; text-transform: none; background: #2a2e37; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; white-space: nowrap; }
   .panel h2.hasBtn .hbtns button:hover:not(:disabled) { background: #343945; }
   /* Hiding mode: the armed Hide button brightens into a Done button. */
@@ -535,6 +590,10 @@
   .craftPlanRow.userHidden .craftPlanLabel, .craftRecipeBtn.userHidden .craftRecipeLabel { text-decoration: line-through; }
   .craftPlanRow.userHidden, .craftRecipeBtn.userHidden { opacity: 0.75; }
   body.hiding .craftPlanRow, body.hiding .craftRecipeBtn { cursor: pointer; }
+  /* Furniture hiding: struck-through cards while the mode reveals them. */
+  .furnCard.userHidden .furnName { text-decoration: line-through; }
+  .furnCard.userHidden { opacity: 0.75; }
+  body.hiding .furnCard { cursor: pointer; }
   /* The recipes Hide button lives in a section label, not a panel header. */
   .craftSecLabel.hasBtn { display: flex; align-items: center; gap: 6px; }
   .craftSecLabel.hasBtn .hbtns { margin-left: auto; display: flex; gap: 6px; }
@@ -595,21 +654,21 @@
   .balloon-x { background: transparent; border: 1px solid #4a4f5c; color: inherit; border-radius: 6px; cursor: pointer; padding: 0 8px; font-size: 0.85em; }
   .balloon-x:hover { background: #343945; }
   .balloon-body { font-size: 0.9em; }
-  @media (prefers-reduced-motion: reduce) { .balloon { animation: none; } .actionBtn .action-fill, .shopBtn .action-fill { transition: none; } .actionBtn .action-progress.flowing .action-fill, .shopBtn .action-progress.flowing .action-fill { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .balloon { animation: none; } .actionBtn .action-fill, .shopBtn .action-fill { transition: none; } #floorSpaceFill { transition: none; } .actionBtn .action-progress.flowing .action-fill, .shopBtn .action-progress.flowing .action-fill { animation: none; } }
   #logEl, #logElHome, .js-log { text-align: left; border-top: none; padding-top: 0; font-size: 0.85em; flex: 1; min-height: 120px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a4f5c transparent; }
   #logEl div, #logElHome div, .js-log div { margin: 0; padding: 5px 6px; opacity: 0.92; border-bottom: 1px solid #262b34; }
   #logEl div:first-child, #logElHome div:first-child, .js-log div:first-child { background: #22262f; border-radius: 4px; }
   /* Unlock announcements stand out in pale green. */
-  #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement, #logEl div.logSkillup, #logElHome div.logSkillup, .js-log div.logSkillup, #logEl div.logDiscovery, #logElHome div.logDiscovery, .js-log div.logDiscovery { color: #D9FFC7; }
+  #logEl div.logUnlock, #logEl div.logImprovement, #logElHome div.logUnlock, #logElHome div.logImprovement, .js-log div.logUnlock, .js-log div.logImprovement, #logEl div.logSkillup, #logElHome div.logSkillup, .js-log div.logSkillup, #logEl div.logDiscovery, #logElHome div.logDiscovery, .js-log div.logDiscovery, #logEl div.logTitle, #logElHome div.logTitle, .js-log div.logTitle { color: #D9FFC7; }
   /* Action completions (fullLog) stand out in orange; start/stop lines stay default. */
   #logEl div.logFull, #logElHome div.logFull, .js-log div.logFull { color: orange; }
   /* One-time special messages stand out in pale yellow. */
   #logEl div.logSpecialMessage, #logElHome div.logSpecialMessage, .js-log div.logSpecialMessage { color: #FFFFA1; }
   /* Skill XP receipts stand out in pale cyan. */
   #logEl div.logSkillxp, #logElHome div.logSkillxp, .js-log div.logSkillxp { color: #CFFFF6; }
- /* Log + Furniture + Balloon filter + Select Home modals: fixed overlay + dialog box. */
-  #logFilterModal, #furnFilterModal, #homeModal, #balloonFilterModal, #invFilterModal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
-  .modalBox { background: #1b1f26; border: 1px solid #4a4f5c; border-radius: 10px; padding: 14px 18px; width: 460px; max-width: calc(100vw - 32px); text-align: left; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6); }
+ /* Log + Furniture + Balloon filter + Select Home + Select Title modals: fixed overlay + dialog box. */
+  #logFilterModal, #furnFilterModal, #homeModal, #titleModal, #balloonFilterModal, #invFilterModal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 50; overflow-y: auto; padding: 12px; box-sizing: border-box; }
+  .modalBox { background: #1b1f26; border: 1px solid #4a4f5c; border-radius: 10px; padding: 14px 18px; width: 460px; max-width: calc(100vw - 32px); margin: auto; flex: none; text-align: left; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6); }
   #sellQtyInput { width: 76px; background: #22262f; color: #eee; border: 1px solid #4a4f5c; border-radius: 6px; padding: 4px 8px; font-size: 0.95em; }
   #invSellQtyBtns { display: contents; }
   .modalBox h3 { margin: 0 0 4px; font-size: 1em; text-align: center; }
@@ -645,7 +704,7 @@
     body:not(.force-dark) .panel h2 { background: #e8e8e8; color: #222; border-bottom-color: #bbb; }
     body:not(.force-dark) .actionBtn, body:not(.force-dark) .shopBtn { background: #f5f5f5; color: #111; border-color: #999; }
     body:not(.force-dark) .actionBtn:hover:not(:disabled), body:not(.force-dark) .shopBtn:hover:not(:disabled) { background: #e8e8e8; }
-    body:not(.force-dark) .actionBtn .tip, body:not(.force-dark) .shopBtn .tip, body:not(.force-dark) .currency .tip, body:not(.force-dark) .res .tip, body:not(.force-dark) .furnCard .tip, body:not(.force-dark) .homeRow .tip, body:not(.force-dark) .skillRow .tip, body:not(.force-dark) .craftPlanRow .tip, body:not(.force-dark) .craftRecipeBtn .tip, body:not(.force-dark) .invCell .tip { background: #fff; color: #000; border-color: #999; }
+    body:not(.force-dark) .actionBtn .tip, body:not(.force-dark) .shopBtn .tip, body:not(.force-dark) .currency .tip, body:not(.force-dark) .res .tip, body:not(.force-dark) .furnCard .tip, body:not(.force-dark) .homeRow .tip, body:not(.force-dark) .skillRow .tip, body:not(.force-dark) .craftPlanRow .tip, body:not(.force-dark) .craftRecipeBtn .tip, body:not(.force-dark) #homeSelectBtn .tip, body:not(.force-dark) .titleRow .tip, body:not(.force-dark) .invCell .tip { background: #fff; color: #000; border-color: #999; }
     body:not(.force-dark) .tip-head { border-bottom-color: #ccc; }
     body:not(.force-dark) .tip-count { color: #555; }
     body:not(.force-dark) .tip-desc { color: #333; }
@@ -654,15 +713,25 @@
     body:not(.force-dark) .tip-sec-label { color: #555; }
     body:not(.force-dark) .tip-flavor { color: #555; border-top-color: #ccc; }
     body:not(.force-dark) .tip-teal { color: #0b6e99; border-top-color: #ccc; }
+    body:not(.force-dark) .tip-row.known-all { color: #1c7a1c; }
     body:not(.force-dark) .panel h2.hasBtn .hbtns button { background: #e4e4e4; color: #222; border-color: #aaa; }
     body:not(.force-dark) .panel h2.hasBtn .hbtns button.on { background: #fff; border-color: #666; color: #111; box-shadow: 0 0 8px rgba(0,0,0,0.25); }
     body:not(.force-dark) .craftSecLabel.hasBtn .hbtns button { background: #e4e4e4; color: #222; border-color: #aaa; }
     body:not(.force-dark) .craftSecLabel.hasBtn .hbtns button.on { background: #fff; border-color: #666; color: #111; box-shadow: 0 0 8px rgba(0,0,0,0.25); }
     body:not(.force-dark) #playerNameEditBtn { background: #e4e4e4; color: #222; border-color: #999; }
     body:not(.force-dark) #playerNameInput { background: #fff; color: #000; border-color: #999; }
-    body:not(.force-dark) .furnCard { background: #f5f5f5; border-color: #999; }
+    body:not(.force-dark) .furnCard { background: #faf5e9; border-color: #999; border-left-color: #b08d3e; }
+    body:not(.force-dark) .homeBanner { background: #faf3e2; border-color: #b08d3e; }
+    body:not(.force-dark) #homeSelectBtn { background: #fff8e8; color: #6b4f14; border-color: #b08d3e; box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 2px 6px rgba(0,0,0,0.15); }
+    body:not(.force-dark) #homeSelectBtn:hover:not(:disabled) { background: #f5ead0; border-color: #8a6d2f; }
+    body:not(.force-dark) .homeSpaceLabel { color: #6b5a2a; }
+    body:not(.force-dark) #floorSpaceBar { background: #e4d9bd; border-color: #999; }
+    body:not(.force-dark) .homeRow .homeRowName::before { color: #8a6d2f; }
+    body:not(.force-dark) .homeRow .homeRowStatus { background: #e4e4e4; }
+    body:not(.force-dark) .homeRow.current { background: #faf3e2; border-color: #b08d3e; border-left-color: #8a6d2f; }
+    body:not(.force-dark) .homeRow.current .homeRowStatus { background: #f0e4c8; color: #6b4f14; }
     body:not(.force-dark) .furnSortRow button, body:not(.force-dark) .furnBtns button, body:not(.force-dark) .homeRow { background: #f5f5f5; color: #111; border-color: #999; }
-    body:not(.force-dark) .furnSortRow button:hover:not(:disabled), body:not(.force-dark) .furnBtns button:hover:not(:disabled), body:not(.force-dark) .homeRow:hover:not(:disabled) { background: #e8e8e8; }
+    body:not(.force-dark) .furnSortRow button:hover:not(:disabled), body:not(.force-dark) .furnBtns button:hover:not(:disabled), body:not(.force-dark) .homeRow:hover:not(:disabled), body:not(.force-dark) .titleRow:hover:not(:disabled) { background: #e8e8e8; }
     body:not(.force-dark) .furnSortRow button.active { background: #333; color: #fff; border-color: #333; }
     body:not(.force-dark) .craftTypeRow button.on { background: #fff; border-color: #666; color: #111; }
     body:not(.force-dark) .craftPlanRow, body:not(.force-dark) .craftMat, body:not(.force-dark) .craftRecipeBtn { background: #f5f5f5; color: #111; border-color: #999; }
@@ -672,7 +741,8 @@
     body:not(.force-dark) .craftBar { background: rgba(0, 0, 0, 0.12); }
     body:not(.force-dark) .craftSecLabel, body:not(.force-dark) .craftSlotLabel { color: #555; }
     body:not(.force-dark) .invCell { background: #f5f5f5; border-color: #999; }
-    body:not(.force-dark) #invTypeRow, body:not(.force-dark) #invTypeSubRow, body:not(.force-dark) #invSellRow, body:not(.force-dark) #invSearchRow { border-bottom-color: #bbb; }
+    body:not(.force-dark) #invTypeRow, body:not(.force-dark) #invTypeSubRow, body:not(.force-dark) #invSellRow, body:not(.force-dark) #invSearchRow, body:not(.force-dark) #furnSearchRow { border-bottom-color: #bbb; }
+    body:not(.force-dark) #homeFullNote { border-bottom-color: #bbb; }
     body:not(.force-dark) #craftMatsCtn, body:not(.force-dark) #craftPlanCtn { border-bottom-color: #bbb; }
     body:not(.force-dark) .craftDiv { border-top-color: #bbb; }
     body:not(.force-dark) #furnSortRow { border-bottom-color: #bbb; }
@@ -693,10 +763,13 @@
     body:not(.force-dark) .balloon-x { border-color: #999; }
     body:not(.force-dark) .balloon-x:hover { background: #e8e8e8; }
     body:not(.force-dark) .playerStatsHead { color: #666; border-bottom-color: #ccc; }
+    body:not(.force-dark) .playerTitle { color: #555; }
+    body:not(.force-dark) .playerTitle:hover { color: #222; }
     body:not(.force-dark) .optionRow button { background: #e4e4e4; color: #222; border: 1px solid #aaa; border-radius: 6px; }
     body:not(.force-dark) .optionRow input { background: #fff; color: #000; border: 1px solid #999; border-radius: 6px; }
     body:not(.force-dark) #sellQtyInput { background: #fff; color: #000; border: 1px solid #999; }
     body:not(.force-dark) #invSearchRow input { background: #fff; color: #000; border-color: #999; }
+    body:not(.force-dark) #furnSearchRow input { background: #fff; color: #000; border-color: #999; }
     body:not(.force-dark) #worldTierRow select { background: #fff; color: #000; border: 1px solid #999; border-radius: 6px; }
     body:not(.force-dark) .worldTile { border-color: #999; }
     /* Dark-mode resource/log hues wash out on white: darken the config-driven
@@ -705,7 +778,7 @@
     body:not(.force-dark) .currency .cur-val, body:not(.force-dark) .res .res-val { filter: brightness(0.75); }
     body:not(.force-dark) #logEl div:first-child, body:not(.force-dark) #logElHome div:first-child, body:not(.force-dark) .js-log div:first-child { background: #e2e2e2; }
     body:not(.force-dark) #logEl div, body:not(.force-dark) #logElHome div, body:not(.force-dark) .js-log div { border-bottom-color: #ddd; }
-    body:not(.force-dark) #logEl div.logUnlock, body:not(.force-dark) #logEl div.logImprovement, body:not(.force-dark) #logElHome div.logUnlock, body:not(.force-dark) #logElHome div.logImprovement, body:not(.force-dark) .js-log div.logUnlock, body:not(.force-dark) .js-log div.logImprovement, body:not(.force-dark) #logEl div.logSkillup, body:not(.force-dark) #logElHome div.logSkillup, body:not(.force-dark) .js-log div.logSkillup, body:not(.force-dark) #logEl div.logDiscovery, body:not(.force-dark) #logElHome div.logDiscovery, body:not(.force-dark) .js-log div.logDiscovery { color: #1c7a1c; }
+    body:not(.force-dark) #logEl div.logUnlock, body:not(.force-dark) #logEl div.logImprovement, body:not(.force-dark) #logElHome div.logUnlock, body:not(.force-dark) #logElHome div.logImprovement, body:not(.force-dark) .js-log div.logUnlock, body:not(.force-dark) .js-log div.logImprovement, body:not(.force-dark) #logEl div.logSkillup, body:not(.force-dark) #logElHome div.logSkillup, body:not(.force-dark) .js-log div.logSkillup, body:not(.force-dark) #logEl div.logDiscovery, body:not(.force-dark) #logElHome div.logDiscovery, body:not(.force-dark) .js-log div.logDiscovery, body:not(.force-dark) #logEl div.logTitle, body:not(.force-dark) #logElHome div.logTitle, body:not(.force-dark) .js-log div.logTitle { color: #1c7a1c; }
     body:not(.force-dark) #logEl div.logFull, body:not(.force-dark) #logElHome div.logFull, body:not(.force-dark) .js-log div.logFull { color: #c96a00; }
     body:not(.force-dark) #logEl div.logSpecialMessage, body:not(.force-dark) #logElHome div.logSpecialMessage, body:not(.force-dark) .js-log div.logSpecialMessage { color: #8a6d00; }
     body:not(.force-dark) #logEl div.logSkillxp, body:not(.force-dark) #logElHome div.logSkillxp, body:not(.force-dark) .js-log div.logSkillxp { color: #0b6e99; }
@@ -739,7 +812,7 @@
     body.force-light .panel h2 { background: #e8e8e8; color: #222; border-bottom-color: #bbb; }
     body.force-light .actionBtn, body.force-light .shopBtn { background: #f5f5f5; color: #111; border-color: #999; }
     body.force-light .actionBtn:hover:not(:disabled), body.force-light .shopBtn:hover:not(:disabled) { background: #e8e8e8; }
-    body.force-light .actionBtn .tip, body.force-light .shopBtn .tip, body.force-light .currency .tip, body.force-light .res .tip, body.force-light .furnCard .tip, body.force-light .homeRow .tip, body.force-light .skillRow .tip, body.force-light .craftPlanRow .tip, body.force-light .craftRecipeBtn .tip, body.force-light .invCell .tip { background: #fff; color: #000; border-color: #999; }
+    body.force-light .actionBtn .tip, body.force-light .shopBtn .tip, body.force-light .currency .tip, body.force-light .res .tip, body.force-light .furnCard .tip, body.force-light .homeRow .tip, body.force-light .skillRow .tip, body.force-light .craftPlanRow .tip, body.force-light .craftRecipeBtn .tip, body.force-light #homeSelectBtn .tip, body.force-light .titleRow .tip, body.force-light .invCell .tip { background: #fff; color: #000; border-color: #999; }
     body.force-light .tip-head { border-bottom-color: #ccc; }
     body.force-light .tip-count { color: #555; }
     body.force-light .tip-desc { color: #333; }
@@ -748,15 +821,25 @@
     body.force-light .tip-sec-label { color: #555; }
     body.force-light .tip-flavor { color: #555; border-top-color: #ccc; }
     body.force-light .tip-teal { color: #0b6e99; border-top-color: #ccc; }
+    body.force-light .tip-row.known-all { color: #1c7a1c; }
     body.force-light .panel h2.hasBtn .hbtns button { background: #e4e4e4; color: #222; border-color: #aaa; }
     body.force-light .panel h2.hasBtn .hbtns button.on { background: #fff; border-color: #666; color: #111; box-shadow: 0 0 8px rgba(0,0,0,0.25); }
     body.force-light .craftSecLabel.hasBtn .hbtns button { background: #e4e4e4; color: #222; border-color: #aaa; }
     body.force-light .craftSecLabel.hasBtn .hbtns button.on { background: #fff; border-color: #666; color: #111; box-shadow: 0 0 8px rgba(0,0,0,0.25); }
     body.force-light #playerNameEditBtn { background: #e4e4e4; color: #222; border-color: #999; }
     body.force-light #playerNameInput { background: #fff; color: #000; border-color: #999; }
-    body.force-light .furnCard { background: #f5f5f5; border-color: #999; }
+    body.force-light .furnCard { background: #faf5e9; border-color: #999; border-left-color: #b08d3e; }
+    body.force-light .homeBanner { background: #faf3e2; border-color: #b08d3e; }
+    body.force-light #homeSelectBtn { background: #fff8e8; color: #6b4f14; border-color: #b08d3e; box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 2px 6px rgba(0,0,0,0.15); }
+    body.force-light #homeSelectBtn:hover:not(:disabled) { background: #f5ead0; border-color: #8a6d2f; }
+    body.force-light .homeSpaceLabel { color: #6b5a2a; }
+    body.force-light #floorSpaceBar { background: #e4d9bd; border-color: #999; }
+    body.force-light .homeRow .homeRowName::before { color: #8a6d2f; }
+    body.force-light .homeRow .homeRowStatus { background: #e4e4e4; }
+    body.force-light .homeRow.current { background: #faf3e2; border-color: #b08d3e; border-left-color: #8a6d2f; }
+    body.force-light .homeRow.current .homeRowStatus { background: #f0e4c8; color: #6b4f14; }
     body.force-light .furnSortRow button, body.force-light .furnBtns button, body.force-light .homeRow { background: #f5f5f5; color: #111; border-color: #999; }
-    body.force-light .furnSortRow button:hover:not(:disabled), body.force-light .furnBtns button:hover:not(:disabled), body.force-light .homeRow:hover:not(:disabled) { background: #e8e8e8; }
+    body.force-light .furnSortRow button:hover:not(:disabled), body.force-light .furnBtns button:hover:not(:disabled), body.force-light .homeRow:hover:not(:disabled), body.force-light .titleRow:hover:not(:disabled) { background: #e8e8e8; }
     body.force-light .furnSortRow button.active { background: #333; color: #fff; border-color: #333; }
     body.force-light .craftTypeRow button.on { background: #fff; border-color: #666; color: #111; }
     body.force-light .craftPlanRow, body.force-light .craftMat, body.force-light .craftRecipeBtn { background: #f5f5f5; color: #111; border-color: #999; }
@@ -766,7 +849,8 @@
     body.force-light .craftBar { background: rgba(0, 0, 0, 0.12); }
     body.force-light .craftSecLabel, body.force-light .craftSlotLabel { color: #555; }
     body.force-light .invCell { background: #f5f5f5; border-color: #999; }
-    body.force-light #invTypeRow, body.force-light #invTypeSubRow, body.force-light #invSellRow, body.force-light #invSearchRow { border-bottom-color: #bbb; }
+    body.force-light #invTypeRow, body.force-light #invTypeSubRow, body.force-light #invSellRow, body.force-light #invSearchRow, body.force-light #furnSearchRow { border-bottom-color: #bbb; }
+    body.force-light #homeFullNote { border-bottom-color: #bbb; }
     body.force-light #craftMatsCtn, body.force-light #craftPlanCtn { border-bottom-color: #bbb; }
     body.force-light .craftDiv { border-top-color: #bbb; }
     body.force-light #furnSortRow { border-bottom-color: #bbb; }
@@ -787,10 +871,13 @@
     body.force-light .balloon-x { border-color: #999; }
     body.force-light .balloon-x:hover { background: #e8e8e8; }
     body.force-light .playerStatsHead { color: #666; border-bottom-color: #ccc; }
+    body.force-light .playerTitle { color: #555; }
+    body.force-light .playerTitle:hover { color: #222; }
     body.force-light .optionRow button { background: #e4e4e4; color: #222; border: 1px solid #aaa; border-radius: 6px; }
     body.force-light .optionRow input { background: #fff; color: #000; border: 1px solid #999; border-radius: 6px; }
     body.force-light #sellQtyInput { background: #fff; color: #000; border: 1px solid #999; }
     body.force-light #invSearchRow input { background: #fff; color: #000; border-color: #999; }
+    body.force-light #furnSearchRow input { background: #fff; color: #000; border-color: #999; }
     body.force-light #worldTierRow select { background: #fff; color: #000; border: 1px solid #999; border-radius: 6px; }
     body.force-light .worldTile { border-color: #999; }
     /* Dark-mode resource/log hues wash out on white: darken the config-driven
@@ -799,7 +886,7 @@
     body.force-light .currency .cur-val, body.force-light .res .res-val { filter: brightness(0.75); }
     body.force-light #logEl div:first-child, body.force-light #logElHome div:first-child, body.force-light .js-log div:first-child { background: #e2e2e2; }
     body.force-light #logEl div, body.force-light #logElHome div, body.force-light .js-log div { border-bottom-color: #ddd; }
-    body.force-light #logEl div.logUnlock, body.force-light #logEl div.logImprovement, body.force-light #logElHome div.logUnlock, body.force-light #logElHome div.logImprovement, body.force-light .js-log div.logUnlock, body.force-light .js-log div.logImprovement, body.force-light #logEl div.logSkillup, body.force-light #logElHome div.logSkillup, body.force-light .js-log div.logSkillup, body.force-light #logEl div.logDiscovery, body.force-light #logElHome div.logDiscovery, body.force-light .js-log div.logDiscovery { color: #1c7a1c; }
+    body.force-light #logEl div.logUnlock, body.force-light #logEl div.logImprovement, body.force-light #logElHome div.logUnlock, body.force-light #logElHome div.logImprovement, body.force-light .js-log div.logUnlock, body.force-light .js-log div.logImprovement, body.force-light #logEl div.logSkillup, body.force-light #logElHome div.logSkillup, body.force-light .js-log div.logSkillup, body.force-light #logEl div.logDiscovery, body.force-light #logElHome div.logDiscovery, body.force-light .js-log div.logDiscovery, body.force-light #logEl div.logTitle, body.force-light #logElHome div.logTitle, body.force-light .js-log div.logTitle { color: #1c7a1c; }
     body.force-light #logEl div.logFull, body.force-light #logElHome div.logFull, body.force-light .js-log div.logFull { color: #c96a00; }
     body.force-light #logEl div.logSpecialMessage, body.force-light #logElHome div.logSpecialMessage, body.force-light .js-log div.logSpecialMessage { color: #8a6d00; }
     body.force-light #logEl div.logSkillxp, body.force-light #logElHome div.logSkillxp, body.force-light .js-log div.logSkillxp { color: #0b6e99; }
@@ -830,7 +917,7 @@
 <header id="topbar">
   <div class="brand">
     <h1>Labor Game</h1>
-    <p class="sub">Test</p>
+    <p class="sub">v0.0.10</p>
   </div>
   <nav id="tabsBar" role="tablist" aria-label="Sections">
     <button id="tabWorkBtn" class="tab active" type="button" role="tab" aria-selected="true">Work</button>
@@ -881,9 +968,16 @@
         </section>
       </div>
       <div class="panel panel-actions">
-        <h2 class="hasBtn"><span class="hbtns left"><span class="homeLabel">Home:</span><button id="homeSelectBtn" type="button">Small Tent</button></span><span class="htitle">Furniture</span><span class="hbtns"><button id="furnFilterBtn" type="button">Filters</button></span></h2>
-        <div class="homeMetaRow"><span id="floorSpaceEl">Floor Space: 0 / 0</span></div>
+       <h2 class="hasBtn"><span class="htitle">Furniture</span><span class="hbtns"><button id="furnHideBtn" type="button" title="Hide furniture">⛒</button><button id="furnFilterBtn" type="button">Filters</button></span></h2>
+       <div class="homeBanner">
+          <button id="homeSelectBtn" type="button">Small Tent</button>
+          <div class="homeSpaceWrap">
+            <div class="homeSpaceTop"><span class="homeSpaceLabel">Floor Space</span><span id="floorSpaceEl">0 / 0</span></div>
+            <div id="floorSpaceBar" aria-hidden="true"><div id="floorSpaceFill"></div></div>
+          </div>
+        </div>
         <div id="homeFullNote" class="homeFullNote" hidden>You can't seem to cram anything more in here...</div>
+        <div class="furnSortRow" id="furnSearchRow"><span>Search:</span><input id="furnSearchInput" type="search" placeholder="Furnishing name..." autocomplete="off"></div>
         <div class="furnSortRow" id="furnSortRow"><span>Sort:</span><button id="sortSpaceBtn" type="button">Floor Space ↕</button><button id="sortNameBtn" type="button">Furnishing ↕</button></div>
         <div id="furnitureCtn"></div>
       </div>
@@ -901,7 +995,8 @@
       <h2>Player</h2>
       <div class="playerNameRow">
         <button id="playerNameEditBtn" type="button" title="Rename" aria-label="Rename character">✎</button>
-        <span id="playerNameEl">Placeholder</span>
+        <span id="playerNameEl" title="Change title">Placeholder</span>
+        <button id="playerTitleBtn" type="button" class="playerTitle" aria-label="Select title">, Homeless</button>
         <input id="playerNameInput" hidden maxlength="24">
       </div>
       <h3 class="playerStatsHead">Main Stats</h3>
@@ -1043,6 +1138,10 @@
         <label><input id="logImprovementsChk" type="checkbox"> Action improvements</label>
         <div class="modalSub">Logs notifying of action improvements.</div>
       </div>
+      <div class="filterItem">
+        <label><input id="logTitlesChk" type="checkbox"> Title unlocks</label>
+        <div class="modalSub">Messages when titles are unlocked.</div>
+      </div>
       <div class="filterDiv"></div>
       <div class="filterItem">
         <label><input id="logGatheringChk" type="checkbox"> Gathering results</label>
@@ -1088,6 +1187,14 @@
     <h3 id="homeModalTitle">Select Home</h3>
     <div id="homeListCtn"></div>
     <div class="modalBtns"><button id="homeCloseBtn" type="button">Close</button></div>
+  </div>
+</div>
+
+<div id="titleModal" hidden>
+  <div class="modalBox" role="dialog" aria-modal="true" aria-labelledby="titleModalTitle">
+    <h3 id="titleModalTitle">Select Title</h3>
+    <div id="titleListCtn"></div>
+    <div class="modalBtns"><button id="titleCloseBtn" type="button">Close</button></div>
   </div>
 </div>
 
@@ -1151,9 +1258,10 @@
     <div class="optionRow"><button id="resetBtn" type="button">Hard Reset</button><span>Erase all progress and start over.</span></div>
       </div>
     </div>
-    <div id="optDisplay" role="tabpanel" hidden>
+   <div id="optDisplay" role="tabpanel" hidden>
       <div style="padding: 6px 10px 10px;">
     <div class="optionRow"><label>Theme <select id="themeSel"><option value="system">Follow system</option><option value="light">Light</option><option value="dark">Dark</option></select></label><span>Follow your device theme, or force Light/Dark mode.</span></div>
+    <div class="optionRow"><button id="balloonFilterBtn" type="button">Notification Balloons</button><span>Choose which balloon notifications pop up.</span></div>
       </div>
     </div>
     <div id="optActions" role="tabpanel" hidden>
@@ -1168,7 +1276,6 @@
     <div class="optionRow"><label style="white-space:nowrap"><input id="sellWarnChk" type="checkbox"> Warn before over-cap sales</label><span>Item tooltips warn when selling the current amount would overflow a cap. On by default.</span></div>
     <div class="optionDiv"></div>
     <div class="optionRow"><label>Log Entry Cap <input id="logLimitInput" type="number" min="10" max="1000" step="1" style="width: 80px;"></label><span>Older entries beyond this number are removed (10–1000).</span></div>
-    <div class="optionRow"><button id="balloonFilterBtn" type="button">Notification Balloons</button><span>Choose which balloon notifications pop up.</span></div>
       </div>
     </div>
     <input id="importInput" type="file" accept=".txt,text/plain,.json,application/json" hidden>

@@ -66,9 +66,9 @@
 // satisfies, matched case-insensitively), e.g.
 // requiresTile: "General Store". While unmet the item can't start/buy,
 // a running gated action stops at its next unpaid cycle, and its tooltip
-// shows a "Requires" section (hidden again once satisfied). The legacy
-// "shopping" tag still implies ["General Store"], so existing "Shopping"
-// tags keep working. Before the World unlocks (implicitly in town)
+// shows a "Requires" section (hidden again once satisfied). The
+// "bought" tag also implies ["General Store"], so "Bought"
+// tags only run/buy on a General Store tile. Before the World unlocks (implicitly in town)
 // everything runs/buys as normal. Tile modifiers can also ban actions
 // outright with `locks` (nothing on the banned tile runs them while the
 // ban stands).

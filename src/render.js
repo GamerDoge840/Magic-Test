@@ -263,13 +263,28 @@ function render() {
   if (tabHomeBtn) tabHomeBtn.hidden = !hasHome;
   if (!hasHome && !tabHome.hidden) showTab("work");
   if (hasHome) {
-    const cur = currentHomeDef();
-    if (homeSelectBtn && cur && homeSelectBtn.textContent !== cur.name) homeSelectBtn.textContent = cur.name;
+    if (typeof syncHomeSelectTip === "function") syncHomeSelectTip();
     const used = furnitureSpaceUsed();
     const max = homeSpaceMax();
-    const spaceText = "Floor Space: " + used + " / " + max;
-    if (floorSpaceEl && floorSpaceEl.textContent !== spaceText) floorSpaceEl.textContent = spaceText;
+    const spaceText = used + " / " + max;
+    if (floorSpaceEl && floorSpaceEl.textContent !== spaceText) {
+      floorSpaceEl.textContent = spaceText;
+      if (floorSpaceFill) {
+        const t = max > 0 ? Math.min(1, used / max) : 0;
+        floorSpaceFill.style.width = (t * 100) + "%";
+        // Capacity color: light-green when empty, fading into amber as the
+        // house fills (lightgreen #90EE90 -> amber #E0A458).
+        floorSpaceFill.style.background = "rgb(" + Math.round(144 + (224 - 144) * t) + "," + Math.round(238 + (164 - 238) * t) + "," + Math.round(144 + (88 - 144) * t) + ")";
+      }
+    }
     if (homeFullNote) homeFullNote.hidden = used < max;
+    // Furniture search (String-coerced like inventory search: a non-string
+    // value would otherwise throw on .trim() and freeze the tick loop).
+    // AND-combined with every furnVisible gate below. The field is static
+    // markup, so sync without clobbering in-progress typing.
+    const furnQuery = String((state.options && state.options.furnSearch) || "").trim().toLowerCase();
+    const furnQuerySing = furnQuery && typeof invWordSingulars === "function" ? invWordSingulars(furnQuery) : null;
+    if (typeof furnSearchInput !== "undefined" && furnSearchInput && document.activeElement !== furnSearchInput && furnSearchInput.value !== (state.options.furnSearch ?? "")) furnSearchInput.value = state.options.furnSearch ?? "";
     for (const f of FURNITURE) {
       // One-time unlock message (see unlockLog in the config): fires the
       // first frame the entry is visible, then never again - the flag is
@@ -286,12 +301,15 @@ function render() {
       const maxed = owned >= cap;
       const noSpace = used + (f.space ?? 1) > max;
       const cantAfford = !canAfford(f.cost);
-      const hidden = !furnVisible(f);
+      // User hiding (like actions/upgrades): ignored while furniture-hiding mode
+      // is on, so struck cards show for unhiding. Gates still apply in hiding mode.
+      const fHidden = itemHidden("f:" + f.id);
+      const hidden = !furnVisible(f) || !furnSearchMatch(f, furnQuery, furnQuerySing) || (!hidingMode.furniture && fHidden);
       // Tile requirement mirrors upgrades: gated furniture only buys on a
       // matching tile (free while the World is still locked).
       const shopBlock = (typeof worldShopBlocked === "function") ? worldShopBlocked(f) : false;
-      const disBuy = maxed || cantAfford || noSpace || shopBlock;
-      const disSell = owned <= 0;
+      const disBuy = hidingMode.furniture ? false : (maxed || cantAfford || noSpace || shopBlock);
+      const disSell = hidingMode.furniture ? false : owned <= 0;
       // Same red "Name*" as actions/upgrades: a price above its cap can
       // never be saved up for, the tile requirement is unmet, or the
       // house's Floor Space is full (nothing more fits until room frees).
@@ -314,10 +332,11 @@ function render() {
         else if (over.length === 2) overflow = "Selling now would destroy " + over[0] + " and " + over[1] + " over the cap.";
         else if (over.length) overflow = "Selling now would destroy " + over.slice(0, -1).join(", ") + ", and " + over[over.length - 1] + " over the cap.";
       }
-      const sig = (hidden ? 1 : 0) + "|" + owned + "|" + (cap === Infinity ? "i" : cap) + "|" + (disBuy ? 1 : 0) + "|" + (disSell ? 1 : 0) + "|" + overflow + "|" + (shopBlock ? 1 : 0) + "|" + (overMax ? 1 : 0) + "|" + (spaceFull ? 1 : 0);
+      const sig = (hidden ? 1 : 0) + "|" + owned + "|" + (cap === Infinity ? "i" : cap) + "|" + (disBuy ? 1 : 0) + "|" + (disSell ? 1 : 0) + "|" + overflow + "|" + (shopBlock ? 1 : 0) + "|" + (overMax ? 1 : 0) + "|" + (spaceFull ? 1 : 0) + "|" + (fHidden ? 1 : 0) + "|" + (hidingMode.furniture ? 1 : 0);
       if (ref._sig === sig) continue;
       ref._sig = sig;
       ref.root.hidden = hidden;
+      ref.root.classList.toggle("userHidden", fHidden);
       if (ref.name) {
         const reqStar = overMax || shopBlock || spaceFull;
         const want = f.name + (reqStar ? "*" : "");
@@ -335,8 +354,27 @@ function render() {
         ref.sellNotice.hidden = !overflow;
       }
     }
+    // Search empty-state: shown only while a query hides every card.
+    const furnNoMatch = document.getElementById("furnNoMatch");
+    if (furnNoMatch && furnNoMatch.isConnected) {
+      let anyShown = false;
+      for (const f of FURNITURE) {
+        const r = uiRefs.get("f:" + f.id);
+        if (r && r.root.isConnected && !r.root.hidden) { anyShown = true; break; }
+      }
+      furnNoMatch.hidden = anyShown || !furnQuery;
+    }
   }
 
+  // Player title: sticky unlock catch-up, then the name-row suffix
+  // ("Jimmy, Civilian"; bare name on None). Both change-guarded so the
+  // DOM only touches when something actually flips.
+  if (typeof unlockTitles === "function") unlockTitles();
+  if (typeof playerTitleBtn !== "undefined" && playerTitleBtn) {
+    const selTitle = (typeof selectedTitleDef === "function") ? selectedTitleDef() : null;
+    const titleTxt = selTitle ? ", " + selTitle.name : "";
+    if (playerTitleBtn.textContent !== titleTxt) playerTitleBtn.textContent = titleTxt;
+  }
   // Player stats: base values plus attained skill-milestone boosts (INT
   // rises with Basic Knowledge). Crafting-tagged stats (Cooking Speed,
   // Woodworking Speed) hide with their section header until their own
@@ -452,6 +490,8 @@ resetBtn.addEventListener("click", () => {
   clearLog();
   log("Hard reset: progress erased.");
   logIntro();
+  if (typeof showOptionsSub === "function") showOptionsSub("actions");
+  showTab("work");
   render();
 });
 exportBtn.addEventListener("click", exportSave);

@@ -96,13 +96,16 @@ function syncFurnFilters() {
 
 // Type sub-section of the Furniture Filters modal: one checkbox per
 // discriminative furniture tag, rebuilt every buildUI so new tags appear
-// with no extra work. Counts update live with the config.
+// with no extra work. Only tags on unlocked furnishings are listed, so
+// new games see no filters for furniture they haven't met. Counts update
+// live with the config.
 function buildFurnTypeFilters() {
   const grid = document.getElementById("furnTypeGrid");
   const sec = document.getElementById("furnTypeSec");
   if (!grid || !sec) return;
   grid.innerHTML = "";
-  const types = furnitureTypeTags();
+  const types = (typeof unlockedFurnitureTypeTags === "function") ? unlockedFurnitureTypeTags() : furnitureTypeTags();
+  const unlocked = (typeof unlockFurniture === "function") ? FURNITURE.filter(f => unlockFurniture(f)) : FURNITURE;
   for (const t of types) {
     const item = document.createElement("div");
     item.className = "filterItem";
@@ -118,7 +121,7 @@ function buildFurnTypeFilters() {
     lab.appendChild(chk);
     lab.appendChild(document.createTextNode(" " + t));
     item.appendChild(lab);
-    const n = FURNITURE.filter(f => getTags(f).includes(t)).length;
+    const n = unlocked.filter(f => getTags(f).includes(t)).length;
     const sub = document.createElement("div");
     sub.className = "modalSub";
     sub.textContent = n === 1 ? "1 furnishing." : n + " furnishings.";
@@ -238,6 +241,8 @@ logSkillUpsChk.checked = state.options.logSkillUps !== false;
   if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
   if (typeof logSkillXpChk !== "undefined" && logSkillXpChk) logSkillXpChk.checked = state.options.logSkillXp === true;
   if (typeof logDiscoveryChk !== "undefined" && logDiscoveryChk) logDiscoveryChk.checked = state.options.logDiscovery === true;
+  if (typeof logTitlesChk !== "undefined" && logTitlesChk) logTitlesChk.checked = state.options.logTitles !== false;
+  if (typeof syncLogFilterVisibility === "function") syncLogFilterVisibility();
   logFilterModal.hidden = false;
 });
 // Home-tab Work Log mirror: same modal, same clear - every copy stays synced.
@@ -254,6 +259,8 @@ if (typeof logFilterBtnHome !== "undefined" && logFilterBtnHome) logFilterBtnHom
   if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
   if (typeof logSkillXpChk !== "undefined" && logSkillXpChk) logSkillXpChk.checked = state.options.logSkillXp === true;
   if (typeof logDiscoveryChk !== "undefined" && logDiscoveryChk) logDiscoveryChk.checked = state.options.logDiscovery === true;
+  if (typeof logTitlesChk !== "undefined" && logTitlesChk) logTitlesChk.checked = state.options.logTitles !== false;
+  if (typeof syncLogFilterVisibility === "function") syncLogFilterVisibility();
   logFilterModal.hidden = false;
 });
 // Inventory-tab Work Log mirror: same modal - every copy stays synced.
@@ -270,6 +277,8 @@ if (typeof logFilterBtnInv !== "undefined" && logFilterBtnInv) logFilterBtnInv.a
   if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
   if (typeof logSkillXpChk !== "undefined" && logSkillXpChk) logSkillXpChk.checked = state.options.logSkillXp === true;
   if (typeof logDiscoveryChk !== "undefined" && logDiscoveryChk) logDiscoveryChk.checked = state.options.logDiscovery === true;
+  if (typeof logTitlesChk !== "undefined" && logTitlesChk) logTitlesChk.checked = state.options.logTitles !== false;
+  if (typeof syncLogFilterVisibility === "function") syncLogFilterVisibility();
   logFilterModal.hidden = false;
 });
 // World-tab Work Log mirror: same modal - every copy stays synced.
@@ -286,6 +295,8 @@ if (typeof logFilterBtnWorld !== "undefined" && logFilterBtnWorld) logFilterBtnW
   if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
   if (typeof logSkillXpChk !== "undefined" && logSkillXpChk) logSkillXpChk.checked = state.options.logSkillXp === true;
   if (typeof logDiscoveryChk !== "undefined" && logDiscoveryChk) logDiscoveryChk.checked = state.options.logDiscovery === true;
+  if (typeof logTitlesChk !== "undefined" && logTitlesChk) logTitlesChk.checked = state.options.logTitles !== false;
+  if (typeof syncLogFilterVisibility === "function") syncLogFilterVisibility();
   logFilterModal.hidden = false;
 });
 // Crafting-tab Work Log mirror: same modal - every copy stays synced.
@@ -302,6 +313,8 @@ if (typeof logFilterBtnCraft !== "undefined" && logFilterBtnCraft) logFilterBtnC
   if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
   if (typeof logSkillXpChk !== "undefined" && logSkillXpChk) logSkillXpChk.checked = state.options.logSkillXp === true;
   if (typeof logDiscoveryChk !== "undefined" && logDiscoveryChk) logDiscoveryChk.checked = state.options.logDiscovery === true;
+  if (typeof logTitlesChk !== "undefined" && logTitlesChk) logTitlesChk.checked = state.options.logTitles !== false;
+  if (typeof syncLogFilterVisibility === "function") syncLogFilterVisibility();
   logFilterModal.hidden = false;
 });
 // Options-tab Work Log mirror: same modal - every copy stays synced.
@@ -318,6 +331,8 @@ if (typeof logFilterBtnOptions !== "undefined" && logFilterBtnOptions) logFilter
   if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.checked = state.options.logConsuming !== false;
   if (typeof logSkillXpChk !== "undefined" && logSkillXpChk) logSkillXpChk.checked = state.options.logSkillXp === true;
   if (typeof logDiscoveryChk !== "undefined" && logDiscoveryChk) logDiscoveryChk.checked = state.options.logDiscovery === true;
+  if (typeof logTitlesChk !== "undefined" && logTitlesChk) logTitlesChk.checked = state.options.logTitles !== false;
+  if (typeof syncLogFilterVisibility === "function") syncLogFilterVisibility();
   logFilterModal.hidden = false;
 });
 // Options sub-tabs: Saving / Display / Actions show one section at a
@@ -352,6 +367,7 @@ if (typeof logSellingChk !== "undefined" && logSellingChk) logSellingChk.addEven
 if (typeof logConsumingChk !== "undefined" && logConsumingChk) logConsumingChk.addEventListener("change", () => { state.options.logConsuming = logConsumingChk.checked; applyLogFilters(); });
 if (typeof logSkillXpChk !== "undefined" && logSkillXpChk) logSkillXpChk.addEventListener("change", () => { state.options.logSkillXp = logSkillXpChk.checked; applyLogFilters(); });
 if (typeof logDiscoveryChk !== "undefined" && logDiscoveryChk) logDiscoveryChk.addEventListener("change", () => { state.options.logDiscovery = logDiscoveryChk.checked; applyLogFilters(); });
+if (typeof logTitlesChk !== "undefined" && logTitlesChk) logTitlesChk.addEventListener("change", () => { state.options.logTitles = logTitlesChk.checked; applyLogFilters(); });
 // Inventory rarity filters live in their own modal, like the Log Filters.
 // The chips sync their highlight live (see renderInventory), so the modal
 // needs no per-open sync - opening and closing is all it does.
@@ -371,8 +387,31 @@ homeSelectBtn.addEventListener("click", () => {
   buildHomeList();
   homeModal.hidden = false;
 });
+// Dwelling plaque tooltip follows the pointer like every other tip
+// (flips/caps instead of clipping); the tip node itself is rebuilt by
+// the render pass when the current home changes.
+if (typeof fitTip === "function") {
+  const fitHomeSelect = () => {
+    const tip = homeSelectBtn.querySelector(":scope > .tip");
+    if (!tip) return;
+    fitTip(tip, homeSelectBtn, "up");
+    if (typeof syncTipPointer === "function") syncTipPointer(homeSelectBtn, true);
+  };
+  homeSelectBtn.addEventListener("mouseenter", fitHomeSelect);
+  homeSelectBtn.addEventListener("focus", fitHomeSelect);
+}
 homeCloseBtn.addEventListener("click", () => { homeModal.hidden = true; });
 homeModal.addEventListener("click", (e) => { if (e.target === homeModal) homeModal.hidden = true; });
+// Title selection (cosmetic): clicking the name or its title suffix opens
+// the title window; the name itself stays the rename pencil's job.
+function openTitleModal() {
+  if (typeof buildTitleList === "function") buildTitleList();
+  if (typeof titleModal !== "undefined" && titleModal) titleModal.hidden = false;
+}
+if (typeof playerTitleBtn !== "undefined" && playerTitleBtn) playerTitleBtn.addEventListener("click", openTitleModal);
+if (typeof playerNameEl !== "undefined" && playerNameEl) playerNameEl.addEventListener("click", openTitleModal);
+if (typeof titleCloseBtn !== "undefined" && titleCloseBtn) titleCloseBtn.addEventListener("click", () => { if (typeof titleModal !== "undefined" && titleModal) titleModal.hidden = true; });
+if (typeof titleModal !== "undefined" && titleModal) titleModal.addEventListener("click", (e) => { if (e.target === titleModal) titleModal.hidden = true; });
 furnFilterBtn.addEventListener("click", () => {
   syncFurnFilters();
   buildFurnTypeFilters();
@@ -398,6 +437,42 @@ function toggleItemHidden(key) {
   render();
 }
 
+// Log-filter spoiler gate: some filters stay hidden until their feature
+// unlocks, so new games see neither spoilers nor bloat. "Skill level ups"
+// needs any Level-1+ skill, the gathering/sell/consume trio needs the World
+// tab, and the crafting pair needs any open crafting group. Runs on every
+// Filters open (all 6 tab buttons call it below).
+function syncLogFilterVisibility() {
+  const skillsOpen = (typeof skillsUnlocked === "function") ? skillsUnlocked() : true;
+  const worldOpen = (typeof worldUnlocked === "function") ? worldUnlocked() : true;
+  const craftOpen = (typeof cookingUnlocked === "function") ? cookingUnlocked() : true;
+  const gates = [
+    ["logSkillUpsChk", skillsOpen],
+    ["logSkillXpChk", skillsOpen],
+    ["logGatheringChk", worldOpen],
+    ["logSellingChk", worldOpen],
+    ["logConsumingChk", worldOpen],
+    ["logCraftingChk", craftOpen],
+    ["logDiscoveryChk", craftOpen],
+  ];
+  for (const [id, open] of gates) {
+    if (typeof document === "undefined") continue;
+    const chk = document.getElementById(id);
+    if (!chk) continue;
+    const item = chk.closest ? chk.closest(".filterItem") : null;
+    if (item) item.hidden = !open;
+  }
+  // Items-group divider: hidden while the whole Items group is gated away.
+  if (typeof logFilterModal !== "undefined" && logFilterModal) {
+    const grid = logFilterModal.querySelector(".filterGrid");
+    if (grid) {
+      const divs = grid.querySelectorAll(".filterDiv");
+      const last = divs[divs.length - 1];
+      if (last) last.hidden = !(worldOpen || craftOpen);
+    }
+  }
+}
+
 function syncHideButtons() {
   const pairs = [
     [hidingMode.currencies, [currenciesHideBtn, currenciesHideBtnHome]],
@@ -406,6 +481,7 @@ function syncHideButtons() {
     [hidingMode.milestones, [milesHideBtn]],
     [hidingMode.plans, [craftPlansHideBtn]],
     [hidingMode.recipes, [craftRecipesHideBtn]],
+    [hidingMode.furniture, [furnHideBtn]],
   ];
   let any = false;
   for (const [on, btns] of pairs) {
@@ -432,12 +508,13 @@ if (actionsHideBtn) actionsHideBtn.addEventListener("click", () => toggleHidingM
 if (milesHideBtn) milesHideBtn.addEventListener("click", () => toggleHidingMode("milestones"));
 if (typeof craftPlansHideBtn !== "undefined" && craftPlansHideBtn) craftPlansHideBtn.addEventListener("click", () => toggleHidingMode("plans"));
 if (typeof craftRecipesHideBtn !== "undefined" && craftRecipesHideBtn) craftRecipesHideBtn.addEventListener("click", () => toggleHidingMode("recipes"));
-// Escape closes any open modal (Filters, Select Home) and drops focus from
+if (typeof furnHideBtn !== "undefined" && furnHideBtn) furnHideBtn.addEventListener("click", () => toggleHidingMode("furniture"));
+// Escape closes any open modal (Filters, Select Home, Select Title) and drops focus from
 // whatever it held, so keyboard users are never stuck in a dialog.
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" && e.key !== "Esc") return;
   let moved = null;
-  for (const m of [logFilterModal, furnFilterModal, homeModal, balloonFilterModal, invFilterModal, clipBox]) {
+  for (const m of [logFilterModal, furnFilterModal, homeModal, titleModal, balloonFilterModal, invFilterModal, clipBox]) {
     if (m && !m.hidden) {
       if (m.contains(document.activeElement)) moved = document.activeElement;
       m.hidden = true;

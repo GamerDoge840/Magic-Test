@@ -75,7 +75,7 @@
         action needs, e.g. requiresTile: "General Store". ANY listed tag
         satisfies it (matched case-insensitively). While unmet the action
         can't start, its button shows a red "Name*", and its tooltip shows
-        a "Requires" section (both hidden again once satisfied). The legacy "shopping" tag still implies
+        a "Requires" section (both hidden again once satisfied). The "bought" tag also implies
         ["General Store"] - see the WORLD section.
       - hideWhenOffTile: (optional) when true, an unmet requiresTile
         hides the action's Work-tab button outright instead of showing
@@ -156,7 +156,7 @@ const ACTIONS = [
     name: "Buy Scrolls",
     header: "Shop",
     group: "Resources",
-    tags: ["Shopping", "Knowledge"],
+    tags: ["Bought", "Knowledge"],
     tickSeconds: 1,
     costs: { coin: 10 },
     gains: { scroll: 1 },

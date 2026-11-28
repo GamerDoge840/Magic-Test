@@ -70,7 +70,7 @@
         satisfies it (matched case-insensitively). While unmet the upgrade
         can't be bought, its button shows a red "Name*", and its tooltip
         shows a "Requires" section (both hidden again once satisfied). The
-        legacy "shopping" tag still implies ["General Store"] - see the WORLD section.
+        "bought" tag also implies ["General Store"] - see the WORLD section.
       - header: (optional) file this group under a titled header
         section, e.g. header: "Upgrades". Same header = same
         section; groups for groups.
@@ -82,7 +82,7 @@ const UPGRADES = [
     name: "Small Tent",
     group: "Housing",
     header: "Shop",
-    tags: ["Shopping", "Housing"],
+    tags: ["Bought", "Housing"],
     description: "Buy a small tent. It's more intended for storage rather than for someone to live in, but...",
     cost: { coin: 10 },
     maxPurchases: 1,
@@ -98,7 +98,7 @@ const UPGRADES = [
     name: "Medium Tent",
     group: "Housing",
     header: "Shop",
-    tags: ["Shopping", "Housing"],
+    tags: ["Bought", "Housing"],
     description: "A slightly larger tent. Only a marginal upgrade, but you'll take anything.",
     cost: { coin: 20 },
     maxPurchases: 1,
@@ -115,7 +115,7 @@ const UPGRADES = [
     name: "Survivalist's Tent",
     group: "Housing",
     header: "Shop",
-    tags: ["Shopping", "Housing"],
+    tags: ["Bought", "Housing"],
     description: "A larger tent made for survival out in the wilderness.",
     cost: { coin: 40 },
     maxPurchases: 1,
@@ -148,7 +148,7 @@ const UPGRADES = [
     name: "Pockets",
     group: "Storage",
     header: "Upgrades",
-    tags: ["Shopping", "Storage", "Clothing Augment"],
+    tags: ["Bought", "Storage", "Clothing Augment"],
     description: "Buy some new trousers with better pockets.",
     cost: { coin: 5 },
     maxPurchases: 1,
@@ -163,7 +163,7 @@ const UPGRADES = [
     name: "Scroll Pouches",
     group: "Storage",
     header: "Upgrades",
-    tags: ["Shopping", "Storage", "Clothing Augment"],
+    tags: ["Bought", "Storage", "Clothing Augment"],
     description: "Neat little pouches appropiately shaped for carrying scrolls.",
     cost: { coin: 10, research: 5 },
     maxPurchases: 4,
@@ -179,7 +179,7 @@ const UPGRADES = [
     name: "Stone Axe",
     group: "Tools",
     header: "Upgrades",
-    tags: ["Shopping", "Tools"],
+    tags: ["Bought", "Tools"],
     description: "Buy a beginner's axe for cutting wood.",
     cost: { coin: 30, research: 3 },
     maxPurchases: 1,

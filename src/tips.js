@@ -178,6 +178,28 @@ function fitTip(tip, anchor, prefer) {
   } else if (tip.style.marginLeft) {
     tip.style.marginLeft = "";
   }
+  // Left-anchored attached tips (Work action/shop buttons, furniture info,
+  // home/title rows: left:0, transform none) never took the centered clamp
+  // above, so a wide tip on a right-column button could poke past its
+  // scrolling list and buy it a horizontal scrollbar. Nudge those into
+  // their visible home the same way (margin shifts an absolute box; cap
+  // only when the tip is wider than the home itself).
+  if (!centered) {
+    const r = tip.getBoundingClientRect();
+    const availW = bounds.right - bounds.left;
+    if (r.width > availW + 1) {
+      tip.style.maxWidth = Math.max(TIP_MIN_W, Math.floor(availW - chrome)) + "px";
+      const r2 = tip.getBoundingClientRect();
+      const want = Math.round(bounds.left - r2.left) + "px";
+      if (tip.style.marginLeft !== want) tip.style.marginLeft = want;
+    } else {
+      let shift = 0;
+      if (r.left < bounds.left) shift = bounds.left - r.left;
+      else if (r.right > bounds.right) shift = bounds.right - r.right;
+      const want = shift ? Math.round(shift) + "px" : "";
+      if (tip.style.marginLeft !== want) tip.style.marginLeft = want;
+    }
+  }
 }
 
 // Detached-tip geometry (shared by every place*Tip detached placer).
@@ -639,9 +661,10 @@ function buildActionTipBody(a) {
 // refresh, or null for non-gather actions.
 function appendGatherSection(tip, a) {
   if (!a || a.gather !== true) return null;
-  const { sec, body: inner } = makeTipSection("Gather");
-  const body = document.createElement("div");
-  inner.appendChild(body);
+  // Rows append straight into the section body (like every other
+  // section): an extra wrapper div would dodge the table-row rules and
+  // paint Gather rows as loose flex lines instead of aligned columns.
+  const { sec, body } = makeTipSection("Gather");
   tip.appendChild(sec);
   const ref = { sec, body, sig: null };
   refreshGatherSection(a, ref);
@@ -667,7 +690,9 @@ function refreshGatherSection(a, ref) {
   ref.sig = sig;
   const table = (typeof findForageTable === "function") ? findForageTable() : null;
   const items = (table && Array.isArray(table.items)) ? table.items : [];
-  ref.body.textContent = "";
+  // Clear rows but keep the section label (it lives in the same body now
+  // that rows append directly instead of through a wrapper div).
+  for (const kid of [...ref.body.children]) if (!kid.classList.contains("tip-sec-label")) kid.remove();
   if (!items.length) {
     const row = document.createElement("div");
     row.className = "tip-row";

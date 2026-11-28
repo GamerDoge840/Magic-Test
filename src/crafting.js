@@ -1287,6 +1287,9 @@ function buildCraftPlanTip(g, p) {
   const loFuel = perCraftFuels.length ? Math.min(...perCraftFuels) : (p.fuelPerSec ?? 0) * (p.time ?? 0);
   const hiFuel = perCraftFuels.length ? Math.max(...perCraftFuels) : loFuel;
   const fuelText = "Fuel value: " + (loFuel !== hiFuel ? formatCraftNum(loFuel) + "-" + formatCraftNum(hiFuel) : formatCraftNum(loFuel)) + " per craft";
+  const knownN = discoveredRecipes(p.id).length;
+  const totalN = (p.recipes ?? []).length;
+  const allKnown = totalN > 0 && knownN >= totalN;
   const { sec, body } = makeTipSection(planNeedsFuel(p) ? "Fuel" : "Recipes");
   if (planNeedsFuel(p)) {
     const row = document.createElement("div");
@@ -1298,22 +1301,22 @@ function buildCraftPlanTip(g, p) {
     tip.appendChild(sec);
     const { sec: rsec, body: rbody } = makeTipSection("Recipes");
     const rrow = document.createElement("div");
-    rrow.className = "tip-row";
+    rrow.className = "tip-row" + (allKnown ? " known-all" : "");
     const rk = document.createElement("span");
     rk.textContent = "Known:";
     const rv = document.createElement("span");
-    rv.textContent = discoveredRecipes(p.id).length + " of " + (p.recipes ?? []).length;
+    rv.textContent = knownN + " of " + totalN;
     rrow.appendChild(rk);
     rrow.appendChild(rv);
     rbody.appendChild(rrow);
     tip.appendChild(rsec);
   } else {
     const row = document.createElement("div");
-    row.className = "tip-row";
+    row.className = "tip-row" + (allKnown ? " known-all" : "");
     const rk = document.createElement("span");
     rk.textContent = "Known:";
     const rv = document.createElement("span");
-    rv.textContent = discoveredRecipes(p.id).length + " of " + (p.recipes ?? []).length;
+    rv.textContent = knownN + " of " + totalN;
     row.appendChild(rk);
     row.appendChild(rv);
     body.appendChild(row);
@@ -1404,6 +1407,28 @@ function craftSlotLabel(st, itemIdx) {
   return (def ? def.name : cur.id) + " ×" + formatCraftNum(cur.n);
 }
 
+// Custom green-bar text per recipe: r.progressText with {input}/{output}
+// placeholders resolved to item display names. A "tag:" input resolves to
+// the actually-loaded slot item, so future woods name themselves. Falls
+// back to the recipe name when no custom text is set.
+function craftProgressLabel(p, r, items) {
+  const raw = (r && typeof r.progressText === "string" && r.progressText) ? r.progressText : (r && r.name) || "";
+  if (!raw || raw.indexOf("{") < 0) return raw;
+  const inKeys = Object.keys((r && r.inputs) || {});
+  const outKeys = Object.keys((r && r.outputs) || {});
+  const disp = (id) => {
+    const d = (typeof getItem === "function") ? getItem(id) : null;
+    return (d && d.name) || id;
+  };
+  let inName = inKeys.length ? inKeys[0] : "";
+  if (inName && typeof isTagInputKey === "function" && isTagInputKey(inName)) {
+    const hit = (items || []).find(s => s && typeof recipeInputMatches === "function" && recipeInputMatches(inName, s.id));
+    inName = hit ? disp(hit.id) : (typeof tagInputTag === "function" ? tagInputTag(inName) : inName);
+  } else if (inName) inName = disp(inName);
+  const outName = outKeys.length ? disp(outKeys[0]) : "";
+  return raw.split("{input}").join(inName).split("{output}").join(outName);
+}
+
 function renderCraftPlan(g, p) {
   const title = document.getElementById("craftPlanTitle");
   if (title && p && title.textContent !== p.name) title.textContent = p.name;
@@ -1463,10 +1488,14 @@ function renderCraftPlan(g, p) {
   } else if (needsFuel && st.fuelLeft <= 0 && !fuelOnHand) {
     overlay = "Out of fuel!";
   } else {
-    // Name the active recipe even before its first finish: the cook
-    // loaded these ingredients themselves, so this is feedback, not a
-    // spoiler. The Recipes list still only shows discovered recipes.
-    overlay = recipe.name + "… " + formatCraftFixed((1 - st.progress) * eff) + "s left";
+    // Custom per-recipe green-bar text: the cook loaded these ingredients
+    // themselves, so this is feedback, not a spoiler. The Recipes list
+    // still only shows discovered recipes. The live countdown is appended
+    // automatically; without custom text the bar keeps the legacy
+    // "<Recipe name>… <time> left" shape.
+    let text = craftProgressLabel(p, recipe, items);
+    if (!recipe.progressText) text += "…";
+    overlay = text + " " + formatCraftFixed((1 - st.progress) * eff) + "s left";
   }
   if (craftUI.progText.textContent !== overlay) craftUI.progText.textContent = overlay;
 }

@@ -28,7 +28,24 @@
 const HOMES = [
   { id: "tent", name: "Small Tent", space: 3, tooltip: "A small, simplistic tent. Not quite good, but at least better than lying on the dirty ground outside.", tags: ["Home", "Shelter", "Outdoors"], unlockHint: "Buy the Small Tent upgrade in the Shop.", effects: [] },
   { id: "mediumTent", name: "Medium Tent", space: 5, tooltip: "A bigger tent with a bit more room to breathe in. Replaces the Small Tent.", tags: ["Home", "Shelter", "Outdoors"], unlockHint: "Buy the Medium Tent upgrade in the Shop.", replaces: "tent", effects: [] },
-  { id: "survivalistTent", name: "Survivalist's Tent", space: 8, tooltip: "A rugged, quite serious tent. Replaces lesser tents.", tags: ["Home", "Shelter", "Outdoors"], unlockHint: "Buy the Survivalist's Tent upgrade in the Shop.", replaces: ["tent", "mediumTent"], effects: [] },
+  { id: "survivalistTent", name: "Survivalist's Tent", space: 8, tooltip: "Reinforced tent intended for use as shelter in the wilderness. Still a bit small, though.", tags: ["Home", "Shelter", "Outdoors"], unlockHint: "Buy the Survivalist's Tent upgrade in the Shop.", replaces: ["tent", "mediumTent"], effects: [] },
+];
+
+// TITLES: cosmetic player titles shown as part of the name on the Player
+// tab ("Jimmy, Civilian"). Clicking the name opens the title window,
+// which lists every unlocked title plus None (hides the title entirely).
+// Switching is cosmetic only - nothing reads the title.
+//   - id / name: (name defaults to id)
+//   - obtain: (optional) tooltip line in the title window saying how the
+//            title was earned, e.g. "Buy a Small Tent."
+//   - default: (optional) available from the start, e.g. Homeless.
+//   - requiresHome: (optional) home id (or array) that unlocks this the
+//            first frame any of them is owned. Sticky like seen flags,
+//            so a later home replacement never re-locks it - list the
+//            whole replacement family (as furniture does).
+const TITLES = [
+  { id: "homeless", name: "Homeless", obtain: "Obtained by default.", default: true },
+  { id: "civilian", name: "Civilian", obtain: "Buy a Small Tent.", requiresHome: ["tent", "mediumTent", "survivalistTent"] },
 ];
 
 // FURNITURE: upgrade-like items bought for the current home, sold back for
@@ -82,7 +99,7 @@ const FURNITURE = [
     cost: { coin: 10 },
     maxPurchases: 1,
     requiresHome: ["tent", "mediumTent", "survivalistTent"],
-    tags: ["Shopping", "Recovery", "Furniture"],
+    tags: ["Bought", "Comfort", "Furniture"],
     description: "Some simple blankets to keep the cold off.",
     buyLog: "You buy some blankets from the store.",
     sellLog: "You fold up your blankets and sell them off.",
@@ -97,7 +114,7 @@ const FURNITURE = [
     cost: { coin: 20 },
     maxPurchases: 2,
     requiresHome: ["mediumTent", "survivalistTent"],
-    tags: ["Shopping", "Recovery", "Furniture"],
+    tags: ["Bought", "Comfort", "Furniture"],
     description: "Some slightly overpriced yet comfortable pillows.",
     buyLog: "You buy some pillows from the store.",
     sellLog: "You sell some pillows.",
@@ -112,7 +129,7 @@ const FURNITURE = [
     cost: { coin: 40 },
     requiresHome: ["tent", "mediumTent", "survivalistTent"],
     requiresSeenTag: "Food",
-    tags: ["Cooking Station", "Crafting", "Furniture", "Shopping"],
+    tags: ["Cooking Station", "Crafting", "Furniture", "Bought"],
     description: "A cheap but large pot for cooking food.",
     buyLog: "You set up a cooking pot in your home.",
     sellLog: "You sell your cooking pot.",
@@ -126,7 +143,7 @@ const FURNITURE = [
     cost: { coin: 40 },
     requiresHome: ["tent", "mediumTent", "survivalistTent"],
     requiresSeenTag: "Wood",
-    tags: ["Woodworking Station", "Crafting", "Furniture", "Shopping"],
+    tags: ["Woodworking Station", "Crafting", "Furniture", "Bought"],
     description: "A small table with a saw, necessary for processing wood.",
     buyLog: "You set up a woodworking table in your home.",
     sellLog: "You sell your woodworking table.",
